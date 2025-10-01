@@ -81,11 +81,15 @@ export default function AthletesPage() {
        <button
          onClick={() => {
            const exportPrefixes = ['athletes','schedule:','wod:','scores:'];
-           const dump:any = {};
-           for (let i=0; i<localStorage.length; i++) {
-             const k = localStorage.key(i)!;
-             if (exportPrefixes.some(p => k.startsWith(p))) dump[k] = localStorage.getItem(k);
-           }
+ const dump: Record<string, string> = {};
+ for (let i = 0; i < localStorage.length; i++) {
+   const k = localStorage.key(i);
+   if (!k) continue;
+   if (exportPrefixes.some((p) => k.startsWith(p))) {
+     const v = localStorage.getItem(k);
+     if (v !== null) dump[k] = v;
+   }
+ }
            const blob = new Blob([JSON.stringify(dump,null,2)], {type:'application/json'});
            const url = URL.createObjectURL(blob);
            const a = document.createElement('a');
