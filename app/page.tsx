@@ -1,103 +1,139 @@
-import Image from "next/image";
+// app/page.tsx
+'use client';
 
-export default function Home() {
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
+
+// Το Add Athlete αποθηκεύει σε αυτό το key μια λίστα Athlete records
+// (ίδιο key με το υπάρχον Add Athlete flow)
+const KEY_ATHLETES = 'athletes'; // :contentReference[oaicite:1]{index=1}
+const KEY_AUTH     = 'auth:user';
+
+type Athlete = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  nickname?: string;
+  teamName?: string;
+  dob: string;
+  email: string;
+  phone: string;
+  isCoach?: boolean;
+  // ... κρατάμε μόνο τα βασικά που μας νοιάζουν για login
+};
+
+export default function LoginPage() {
+  const router = useRouter();
+
+  // αν είμαστε ήδη logged in, προώθηση
+  useEffect(() => {
+    const raw = localStorage.getItem(KEY_AUTH);
+    if (raw) {
+      router.replace('/score');
+    }
+  }, [router]);
+
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const normalizePhone = (s: string) => s.replace(/[^\d+]/g, '').trim();
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const raw = localStorage.getItem(KEY_ATHLETES);
+    const athletes: Athlete[] = raw ? JSON.parse(raw) : [];
+
+    const needleEmail = email.trim().toLowerCase();
+    const needlePhone = normalizePhone(phone);
+
+    const found = athletes.find((a) => {
+      const ae = (a.email || '').trim().toLowerCase();
+      const ap = normalizePhone(a.phone || '');
+      return ae === needleEmail && ap === needlePhone;
+    });
+
+    if (!found) {
+      setMsg('❌ Invalid email or phone');
+      return;
+    }
+
+// ΝΕΟ (σωστό): role από το isCoach του athlete
+const role: 'coach' | 'athlete' = found.isCoach ? 'coach' : 'athlete';
+
+const session = {
+  role,
+  athleteId: found.id,
+  email: found.email,
+  phone: found.phone,
+  name: `${found.firstName} ${found.lastName}`,
+  nickname: found.nickname || undefined,
+  teamName: found.teamName || undefined,
+};
+
+localStorage.setItem('auth:user', JSON.stringify(session));
+window.dispatchEvent(new Event('auth:changed'));
+localStorage.setItem('auth:user', JSON.stringify(session));
+window.dispatchEvent(new Event('auth:changed')); // ενημέρωσε το menu/Logout
+
+    setMsg('✅ Signed in');
+    router.replace('/score'); // οι αθλητές πηγαίνουν να καταχωρήσουν score
+  };
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <section className="min-h-[70vh] flex items-center justify-center">
+      <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
+        <div className="flex flex-col items-center mb-6">
+          <Image
+            src="/images/Stigma-Logo-white-650x705.png"
+            alt="Stigma Logo"
+            width={160}
+            height={160}
+            priority
+            className="w-28 sm:w-36 md:w-40 h-auto mx-auto"
+          />
+          <h1 className="mt-3 text-xl font-semibold">Sign in</h1>
+          <p className="text-sm text-zinc-400">with your Athlete email & phone</p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        <form onSubmit={onSubmit} className="space-y-3">
+          <div>
+            <label className="block text-sm mb-1 text-zinc-300">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+              placeholder="you@example.com"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-1 text-zinc-300">Phone</label>
+            <input
+              type="password"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+              placeholder="+30 69..."
+            />
+          </div>
+
+          {msg && <div className="text-sm mt-1">{msg}</div>}
+
+          <button
+            className="w-full mt-2 px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+            type="submit"
+          >
+            Sign in
+          </button>
+
+          <div className="text-xs text-zinc-500 mt-2">
+            Tip: πρόσθεσε ή δες αθλητές από <span className="font-mono">/athletes</span> (Add Athlete).
+          </div>
+        </form>
+      </div>
+    </section>
   );
 }

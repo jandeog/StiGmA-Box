@@ -24,3 +24,12 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* White calendar icon on dark inputs (Chromium/Safari) */
+.datepicker-white-icon::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.2); /* κάνει το εικονίδιο λευκό */
+  opacity: 0.9;
+  cursor: pointer;
+}
+.datepicker-white-icon::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
