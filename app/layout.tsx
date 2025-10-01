@@ -2,8 +2,8 @@
 import "./globals.css";
 import Link from "next/link";
 import type { Metadata } from "next";
-import AuthActions from "@/components/AuthActions"; // αν δεν έχεις alias, κάνε ../components/AuthActions
-import RoleBadge from "@/components/RoleBadge";
+import AuthActions from "../components/AuthActions";
+import RoleBadge from "../components/RoleBadge";
 
 export const metadata: Metadata = {
   title: "WOD Box",
@@ -20,15 +20,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <img
                 src="/images/Stigma-Logo-white-650x705.png"
                 alt="Stigma Logo"
-                className="h-12 w-auto"
+                className="h-8 w-auto"
               />
             </Link>
+
             <Link href="/athletes" className="px-2 py-1 rounded hover:bg-zinc-800">Athlete</Link>
             <Link href="/schedule" className="px-2 py-1 rounded hover:bg-zinc-800">Schedule</Link>
             <Link href="/wod" className="px-2 py-1 rounded hover:bg-zinc-800">WOD</Link>
             <Link href="/score" className="px-2 py-1 rounded hover:bg-zinc-800">Scores</Link>
 
-            {/* Right side actions */}
             <div className="ml-auto flex items-center gap-2">
               <RoleBadge />
               <Link
@@ -37,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               >
                 TV Display
               </Link>
-              <AuthActions /> {/* Logout όταν υπάρχει auth:user */}
+              <AuthActions />
             </div>
           </nav>
         </header>
