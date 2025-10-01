@@ -34,7 +34,7 @@ export default function DisplayPage() {
     refresh();
     const t = setInterval(refresh, 2000);
     return () => clearInterval(t);
-  }, [date]);
+  }, [date, refresh]);
 
   const sorted = useMemo(() => {
     if (!wod) return scores;
