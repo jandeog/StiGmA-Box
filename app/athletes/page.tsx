@@ -76,6 +76,45 @@ export default function AthletesPage() {
             placeholder="Search by name / nickname / team"
             className="w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
           />
+          {isCoach && (
+     <>
+       <button
+         onClick={() => {
+           const exportPrefixes = ['athletes','schedule:','wod:','scores:'];
+           const dump:any = {};
+           for (let i=0; i<localStorage.length; i++) {
+             const k = localStorage.key(i)!;
+             if (exportPrefixes.some(p => k.startsWith(p))) dump[k] = localStorage.getItem(k);
+           }
+           const blob = new Blob([JSON.stringify(dump,null,2)], {type:'application/json'});
+           const url = URL.createObjectURL(blob);
+           const a = document.createElement('a');
+           a.href = url; a.download = 'wodbox-backup.json'; a.click();
+           URL.revokeObjectURL(url);
+         }}
+         className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+       >Export</button>
+       <button
+         onClick={() => {
+           const input = document.createElement('input');
+           input.type = 'file'; input.accept = 'application/json';
+           input.onchange = async () => {
+             const file = input.files?.[0]; if (!file) return;
+             try {
+               const text = await file.text();
+               const dump = JSON.parse(text);
+               Object.entries(dump).forEach(([k, v]) => localStorage.setItem(k, v as string));
+               window.dispatchEvent(new Event('athletes:changed'));
+               window.dispatchEvent(new Event('auth:changed'));
+               alert('Import successful!');
+             } catch(e) { alert('Invalid JSON'); }
+           };
+           input.click();
+         }}
+         className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+       >Import</button>
+     </>
+   )}
           <Link
             href="/athletes/add"
             className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
