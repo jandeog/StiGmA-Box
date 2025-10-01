@@ -126,7 +126,7 @@ export default function AddAthletePage() {
         setNickname(ex.nickname || '');
         setYears(ex.yearsOfExperience?.toString() || '');
         setCredits(ex.credits?.toString() || '');
-        setGender((ex.gender as any) || '');
+        setGender((ex.gender ?? '') as Gender | '');
         setHeightCm(ex.heightCm?.toString() || '');
         setWeightKg(ex.weightKg?.toString() || '');
         setNotes(ex.notes || '');
