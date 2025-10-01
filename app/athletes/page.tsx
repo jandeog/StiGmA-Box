@@ -21,6 +21,7 @@ type Athlete = {
   dob: string;
   email: string;
   phone: string;
+  isCoach?: boolean; //
   gender?: 'male' | 'female' | 'other' | 'prefer_not_say';
   heightCm?: number;
   weightKg?: number;
@@ -148,6 +149,11 @@ export default function AthletesPage() {
           {a.firstName} {a.lastName}
           {a.nickname ? <span className="text-zinc-400"> ({a.nickname})</span> : null}
           {a.teamName ? <span className="text-zinc-500 text-xs ml-2">[{a.teamName}]</span> : null}
+                   {a.isCoach ? (
+            <span className="ml-2 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-emerald-700 text-emerald-300">
+              Coach
+            </span>
+          ) : null}
         </div>
 
         {/* coach βλέπει email+phone, αλλιώς όχι */}
