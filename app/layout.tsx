@@ -16,14 +16,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="el">
       <body className="min-h-screen bg-zinc-950 text-zinc-100">
         <header className="sticky top-0 z-10 bg-zinc-950 border-b border-zinc-800">
-          <nav className="max-w-4xl mx-auto flex items-center gap-2 p-3 text-sm text-zinc-200">
+<nav className="max-w-4xl mx-auto flex items-center gap-2 px-3 py-2 text-base md:text-sm text-zinc-200">
             <Link href="/" className="flex items-center">
 <Image
 src="/images/Stigma-Logo-white-650x705.png"
    alt="Stigma Logo"
   width={36}
      height={36}
-   className="h-8 w-auto"
+className="h-8 w-auto md:h-10"
    priority
  />
             </Link>
