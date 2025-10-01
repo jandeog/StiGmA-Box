@@ -1,5 +1,7 @@
 // app/athletes/add/page.tsx
 'use client';
+import { Suspense } from 'react';
+export const dynamic = 'force-dynamic';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -39,7 +41,7 @@ const KEY_ATHLETES = 'athletes';
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const phoneRe = /^[\d+\-\s()]{6,20}$/;
 
-export default function AddAthletePage() {
+function AddAthletePage() {
   const router = useRouter();
   const search = useSearchParams();
   const editId = search.get('id'); // αν υπάρχει, είμαστε σε EDIT mode
@@ -587,8 +589,21 @@ export default function AddAthletePage() {
               </li>
             ))}
           </ul>
+          
         )}
+        
       </div>
+      
     </section>
+    
+    
+  );
+  
+}
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-zinc-400">Loading…</div>}>
+      <AddAthletePage />
+    </Suspense>
   );
 }
