@@ -557,7 +557,7 @@ const saveDraft = () => {
   );
 }
 
-/* ===================== subcomponent ===================== */
+/* ===================== subcomponent (Τροποποιημένο) ===================== */
 
 function SlotsGrid({
   slots,
@@ -576,22 +576,36 @@ function SlotsGrid({
     hasAvailability: boolean;
   };
 }) {
-  // We no longer need selectedTime state, as each slot will manage its own expanded view.
+  // State για την παρακολούθηση του ID του επιλεγμένου slot
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+
+  // Toggle function για την επιλογή του slot
+  const toggleSlotSelection = (slotId: string) => {
+    setSelectedSlotId(currentId => (currentId === slotId ? null : slotId));
+  };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       {slots.map((slot) => {
-        const { time, label, capacityMain, capacityWait } = slot;
+        const { id, time, label, capacityMain, capacityWait } = slot;
         const { main, wait, mainLeft, waitLeft, hasAvailability } = availabilityFor(
           time,
           capacityMain,
           capacityWait
         );
 
+        // Έλεγχος αν το τρέχον slot είναι επιλεγμένο
+        const isSelected = id === selectedSlotId;
+
         return (
           <div
-            key={slot.id}
-            className="w-full text-left rounded border border-zinc-800 bg-zinc-900 p-3 transition hover:border-zinc-700"
+            key={id}
+            onClick={() => toggleSlotSelection(id)}
+            className={`w-full text-left rounded border p-3 transition cursor-pointer ${
+                isSelected 
+                  ? 'border-emerald-600 bg-emerald-900/20' // Στυλ για επιλεγμένο slot
+                  : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700' // Κανονικό στυλ
+            }`}
           >
             <div className="flex items-center">
               <div className="text-lg font-semibold">{time}</div>
@@ -614,24 +628,30 @@ function SlotsGrid({
               )}
             </div>
 
-            {/* Book Now Button - always visible inside the slot, centered */}
-            <div className="mt-3 flex justify-center"> {/* Use flex and justify-center to center */}
-              {hasAvailability ? (
-                <button
-                  className="px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-                  onClick={() => alert(`Booking flow for ${slot.time} on ${date} coming next`)}
-                >
-                  Book Now
-                </button>
-              ) : (
+            {/* Book Now Button - εμφανίζεται ΜΟΝΟ αν το slot είναι επιλεγμένο */}
+            {isSelected && (
+              <div className="mt-3 flex justify-center">
+                {hasAvailability ? (
                   <button
-                    className="px-4 py-2 rounded border border-zinc-900 text-zinc-500 text-sm cursor-not-allowed"
-                    disabled
+                    className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
+                    onClick={(e) => {
+                        e.stopPropagation(); // Σταματά το click event από το να φτάσει στο div του slot
+                        alert(`Booking flow for ${slot.time} on ${date} coming next`);
+                    }}
                   >
-                    Full
+                    Book Now
                   </button>
-              )}
-            </div>
+                ) : (
+                    <button
+                      className="px-4 py-2 rounded border border-zinc-900 text-zinc-500 text-sm cursor-not-allowed"
+                      disabled
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Full
+                    </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
