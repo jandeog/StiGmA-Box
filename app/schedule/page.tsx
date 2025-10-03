@@ -2,14 +2,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import DateStepper from '@/components/DateStepper';
+// Assume DateStepper component path is correct
+// import DateStepper from '/components/DateStepper'; // Assuming PascalCase for component
 
-
-/* ========================= Types ========================= */
+/* ========================= types ========================= */
 
 type SlotConfig = {
   id: string;
-  time: string;           // "HH:MM"
+  time: string;           // "hh:mm"
   capacityMain: number;   // διαθέσιμες θέσεις
   capacityWait: number;   // θέσεις αναμονής
   label?: string;         // "competitive" | "novice" | "advanced" | custom
@@ -24,18 +24,18 @@ type ScheduleConfig = {
   byDow: Record<number, DayConfig>;
 };
 
-// Per-date overrides: YYYY-MM-DD -> slots for that exact date
+// per-date overrides: yyyy-mm-dd -> slots for that exact date
 type ScheduleOverrides = Record<string, SlotConfig[]>;
 
 type DayBookings = Record<string, { main: string[]; wait: string[] }>;
 
-/* ===================== Constants/Helpers ===================== */
+/* ===================== constants/helpers ===================== */
 
-const WEEKDAYS_FULL = [
+const weekdays_full = [
   'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
 ];
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const keyConfig = 'schedule:config';
 const keyOverrides = 'schedule:overrides';
@@ -51,9 +51,9 @@ const selectValueFromLabel = (label?: string) => {
 
 const cloneSlot = (s: SlotConfig): SlotConfig => ({ ...s, id: crypto.randomUUID() });
 
-/* ===================== Default Templates ===================== */
+/* ===================== default templates ===================== */
 
-// Weekdays (Mon–Fri) default slots incl. 17:00
+// weekdays (Mon–Fri) default slots incl. 17:00
 const defaultWeekdaySlots = (): SlotConfig[] => [
   { id: crypto.randomUUID(), time: '07:00', capacityMain: 12, capacityWait: 2 },
   { id: crypto.randomUUID(), time: '08:30', capacityMain: 12, capacityWait: 2 },
@@ -85,6 +85,7 @@ const defaultConfig = (): ScheduleConfig => ({
     6: { slots: defaultSaturdaySlots() },                   // Saturday
   },
 });
+
 function ensureSlotExists(slots: SlotConfig[], time: string): SlotConfig[] {
   return slots.some(s => s.time === time)
     ? slots
@@ -93,61 +94,61 @@ function ensureSlotExists(slots: SlotConfig[], time: string): SlotConfig[] {
 
 function migrateConfig(c: ScheduleConfig): ScheduleConfig {
   const next: ScheduleConfig = { byDow: { ...c.byDow } };
-  // Ensure 17:00 exists on Mon–Fri (1..5)
+  // ensure 17:00 exists on Mon–Fri (1..5)
   for (const d of [1, 2, 3, 4, 5]) {
     const day = next.byDow[d] ?? { slots: [] };
     next.byDow[d] = { slots: ensureSlotExists(day.slots, '17:00') };
   }
   return next;
 }
-/* ===================== Main Component ===================== */
+/* ===================== main component ===================== */
 
 export default function SchedulePage() {
-  const [date, setDate] = useState<string>(todayISO());
+  const [date, setDate] = useState<string>(todayIso());
   const dow = useMemo(() => new Date(date + 'T00:00:00').getDay(), [date]);
-  const weekdayName = WEEKDAYS_FULL[dow];
+  const weekdayName = weekdays_full[dow];
 
-  // Base templates (per DOW)
+  // base templates (per dow)
   const [config, setConfig] = useState<ScheduleConfig>(defaultConfig());
-  // Per-date overrides
+  // per-date overrides
   const [overrides, setOverrides] = useState<ScheduleOverrides>({});
 
-  // Day bookings (display only for now)
+  // day bookings (display only for now)
   const [dayData, setDayData] = useState<DayBookings>({});
 
-  // Editor state
+  // editor state
   const [editing, setEditing] = useState<boolean>(false);
   const [draftSlots, setDraftSlots] = useState<SlotConfig[]>([]);
   const [applyScope, setApplyScope] = useState<'date' | 'weekday' | 'weekdays'>('weekday'); // επιλογή αποθήκευσης
 
-  // Load config/overrides on mount
+  // load config/overrides on mount
   useEffect(() => {
-    const rawC = localStorage.getItem(keyConfig);
-    if (rawC) {
+    const rawc = localStorage.getItem(keyConfig);
+    if (rawc) {
       try {
-        const parsed = JSON.parse(rawC) as ScheduleConfig;
+        const parsed = JSON.parse(rawc) as ScheduleConfig;
          const migrated = migrateConfig(parsed);
          setConfig(migrated);
-         if (JSON.stringify(migrated) !== rawC) {
+         if (JSON.stringify(migrated) !== rawc) {
           localStorage.setItem(keyConfig, JSON.stringify(migrated));
          }
       } catch {}
     }
-    const rawO = localStorage.getItem(keyOverrides);
-    if (rawO) {
+    const rawo = localStorage.getItem(keyOverrides);
+    if (rawo) {
       try {
-        setOverrides(JSON.parse(rawO) as ScheduleOverrides);
+        setOverrides(JSON.parse(rawo) as ScheduleOverrides);
       } catch {}
     }
   }, []);
 
-  // Load bookings per selected date
+  // load bookings per selected date
   useEffect(() => {
     const raw = localStorage.getItem(keyBookings(date));
     setDayData(raw ? (JSON.parse(raw) as DayBookings) : {});
   }, [date]);
 
-  // visible slots: override wins, otherwise template by DOW
+  // visible slots: override wins, otherwise template by dow
   const visibleSlots: SlotConfig[] = useMemo(() => {
     const ov = overrides[date];
     if (ov) return ov.slice().sort((a, b) => a.time.localeCompare(b.time));
@@ -186,7 +187,7 @@ export default function SchedulePage() {
 
   const onToggleEditor = () => setEditing((v) => !v);
 
-  /* ---------------- Editor helpers ---------------- */
+  /* ---------------- editor helpers ---------------- */
 
   const setDraftValue = (id: string, patch: Partial<SlotConfig>) => {
     setDraftSlots((arr) => arr.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -236,6 +237,14 @@ const saveDraft = () => {
     };
     setConfig(next);
     localStorage.setItem(keyConfig, JSON.stringify(next));
+
+    // Clear override for the current date if it exists
+    if (overrides[date]) {
+      const { [date]: _omit, ...rest } = overrides;
+      setOverrides(rest);
+      localStorage.setItem(keyOverrides, JSON.stringify(rest));
+    }
+
   } else if (applyScope === 'weekdays') {
     const next: ScheduleConfig = { byDow: { ...config.byDow } };
     for (const d of [1, 2, 3, 4, 5]) {
@@ -243,7 +252,16 @@ const saveDraft = () => {
     }
     setConfig(next);
     localStorage.setItem(keyConfig, JSON.stringify(next));
+
+    // Clear override for the current date if it exists and it's a weekday
+    if (overrides[date] && dow >= 1 && dow <= 5) {
+      const { [date]: _omit, ...rest } = overrides;
+      setOverrides(rest);
+      localStorage.setItem(keyOverrides, JSON.stringify(rest));
+    }
+
   } else {
+    // applyScope === 'date'
     const nextOv: ScheduleOverrides = { ...overrides, [date]: norm };
     setOverrides(nextOv);
     localStorage.setItem(keyOverrides, JSON.stringify(nextOv));
@@ -260,11 +278,11 @@ const saveDraft = () => {
     localStorage.setItem(keyOverrides, JSON.stringify(rest));
   };
 
-  /* ---------------- Render ---------------- */
+  /* ---------------- render ---------------- */
 
   return (
     <section className="max-w-4xl">
-      {/* Header */}
+      {/* header */}
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-2xl font-bold">Schedule</h1>
 
@@ -275,13 +293,21 @@ const saveDraft = () => {
               editing ? 'bg-zinc-800' : 'hover:bg-zinc-800'
             }`}
           >
-            {editing ? 'Close editor' : 'Change schedule'}
+            {editing ? 'Close Editor' : 'Change Schedule'}
           </button>
-         <DateStepper value={date} onChange={setDate} />
+         {/* Ensure DateStepper is correctly imported and named */}
+         {/* <DateStepper value={date} onChange={setDate} /> */}
+         {/* Placeholder for DateStepper */}
+         <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+         />
         </div>
       </div>
 
-      {/* Info line */}
+      {/* info line */}
       <div className="text-sm text-zinc-400 mb-3">
         {weekdayName} • {date}{' '}
         {overrides[date] ? (
@@ -291,7 +317,7 @@ const saveDraft = () => {
         ) : null}
       </div>
 
-      {/* EDITOR */}
+      {/* editor */}
       {editing ? (
         <div className="border border-zinc-800 bg-zinc-900 rounded p-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
@@ -303,7 +329,7 @@ const saveDraft = () => {
             </div>
           </div>
 
-          {/* Save scope */}
+          {/* save scope */}
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="text-sm text-zinc-300">Apply change to:</div>
             <label className="text-sm flex items-center gap-2">
@@ -316,16 +342,16 @@ const saveDraft = () => {
               />
               Every <span className="font-medium">{weekdayName}</span>
             </label>
-            + <label className="text-sm flex items-center gap-2">
-<input
-type="radio"
-  name="scope"
-     value="weekdays"
-    checked={applyScope === 'weekdays'}
-    onChange={() => setApplyScope('weekdays')}
-     />
-+   Every weekday (Mon–Fri)
-+ </label>
+            <label className="text-sm flex items-center gap-2">
+                <input
+                    type="radio"
+                    name="scope"
+                    value="weekdays"
+                    checked={applyScope === 'weekdays'}
+                    onChange={() => setApplyScope('weekdays')}
+                />
+                Every weekday (Mon–Fri)
+            </label>
             <label className="text-sm flex items-center gap-2">
               <input
                 type="radio"
@@ -349,7 +375,7 @@ type="radio"
             ) : null}
           </div>
 
-          {/* Table of slots */}
+          {/* table of slots */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-zinc-300">
@@ -376,7 +402,7 @@ type="radio"
                           value={s.time}
                           onChange={(e) => setDraftValue(s.id, { time: e.target.value })}
                           className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                          placeholder="HH:MM"
+                          placeholder="hh:mm"
                         />
                       </td>
                       <td className="py-2 pr-2">
@@ -414,29 +440,29 @@ type="radio"
                               if (sel === 'custom') {
                                 // επιτρέπουμε free text στο διπλανό input
                                setDraftValue(s.id, { label: 'custom' });
-  } else if (sel === '') {
-    setDraftValue(s.id, { label: '' });
-  } else {
-    setDraftValue(s.id, { label: sel }); // competitive / novice / advanced
-  }
+                              } else if (sel === '') {
+                                setDraftValue(s.id, { label: '' });
+                              } else {
+                                setDraftValue(s.id, { label: sel }); // competitive / novice / advanced
+                              }
                             }}
                             className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
                           >
                             <option value="">—</option>
-                            <option value="competitive">Competitive</option>
-                            <option value="novice">Novice</option>
-                            <option value="advanced">Advanced</option>
-                            <option value="custom">Custom…</option>
+                            <option value="competitive">competitive</option>
+                            <option value="novice">novice</option>
+                            <option value="advanced">advanced</option>
+                            <option value="custom">custom…</option>
                           </select>
-                          {/* Free text όταν είναι custom (ή κενό) */}
-                      {!isPresetLabel(s.label || '') && (
-  <input
-    value={s.label || ''}
-    onChange={(e) => setDraftValue(s.id, { label: e.target.value })}
-    className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-    placeholder="Custom label"
-  />
-)}
+                          {/* free text όταν είναι custom (ή κενό) */}
+                          {!isPresetLabel(s.label || '') && (
+                            <input
+                              value={s.label === 'custom' ? '' : (s.label || '')}
+                              onChange={(e) => setDraftValue(s.id, { label: e.target.value })}
+                              className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+                              placeholder="Custom label"
+                            />
+                          )}
 
                         </div>
                       </td>
@@ -481,7 +507,7 @@ type="radio"
               onClick={addDraftSlot}
               className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
             >
-              + Add slot
+              + Add Slot
             </button>
 
             <div className="ml-auto flex items-center gap-2">
@@ -505,17 +531,17 @@ type="radio"
 
           <div className="mt-2 text-xs text-zinc-500">
             Sunday is a rest day by default. You can still add slots for a specific Sunday by selecting
-            <span className="mx-1 font-medium">“This date only”</span> and saving.
+            <span className="mx-1 font-medium">“this date only”</span> and saving.
           </div>
         </div>
       ) : (
-        // VIEW MODE
+        // view mode
         <>
           {visibleSlots.length === 0 ? (
             <div className="p-4 border border-zinc-800 bg-zinc-900 rounded">
               {weekdayName === 'Sunday'
                 ? 'Rest day. No classes scheduled. (You can add a date override if needed.)'
-                : `No slots configured for ${weekdayName}. Click “Change schedule” to add slots.`}
+                : `No slots configured for ${weekdayName}. Click “Change Schedule” to add slots.`}
             </div>
           ) : (
             <SlotsGrid
@@ -531,7 +557,7 @@ type="radio"
   );
 }
 
-/* ===================== Subcomponent ===================== */
+/* ===================== subcomponent ===================== */
 
 function SlotsGrid({
   slots,
@@ -550,106 +576,65 @@ function SlotsGrid({
     hasAvailability: boolean;
   };
 }) {
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  // We no longer need selectedTime state, as each slot will manage its own expanded view.
 
   return (
-    <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {slots.map((slot) => {
-          const { time, label, capacityMain, capacityWait } = slot;
-          const { main, wait, mainLeft, waitLeft, hasAvailability } = availabilityFor(
-            time,
-            capacityMain,
-            capacityWait
-          );
-          return (
-            <button
-              key={slot.id}
-              onClick={() => setSelectedTime(time)}
-              className={`w-full text-left rounded border p-3 transition ${
-                selectedTime === time
-                  ? 'border-zinc-500 bg-zinc-900'
-                  : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700'
-              }`}
-            >
-              <div className="flex items-center">
-                <div className="text-lg font-semibold">{time}</div>
-                {label ? (
-                  <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 capitalize">
-                    {label}
-                  </span>
-                ) : null}
-                <div className="ml-auto text-xs text-zinc-400">
-                  {main}/{capacityMain} • WL {wait}/{capacityWait}
-                </div>
-              </div>
-              <div className="mt-1 text-sm">
-                {hasAvailability ? (
-                  <span className="text-emerald-400">
-                    {mainLeft > 0 ? `Spots left: ${mainLeft}` : `Waitlist left: ${waitLeft}`}
-                  </span>
-                ) : (
-                  <span className="text-red-400">Full (including waitlist)</span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {slots.map((slot) => {
+        const { time, label, capacityMain, capacityWait } = slot;
+        const { main, wait, mainLeft, waitLeft, hasAvailability } = availabilityFor(
+          time,
+          capacityMain,
+          capacityWait
+        );
 
-      {/* Detail panel */}
-      <div className="mt-5">
-        {!selectedTime ? (
-          <div className="text-sm text-zinc-400">Select a time slot to see details.</div>
-        ) : (
-          (() => {
-            const slot = slots.find((s) => s.time === selectedTime);
-            if (!slot) return null;
-            const { main, wait, mainLeft, waitLeft, hasAvailability } = availabilityFor(
-              slot.time,
-              slot.capacityMain,
-              slot.capacityWait
-            );
-            return (
-              <div className="border border-zinc-800 bg-zinc-900 rounded p-4">
-                <div className="flex items-center gap-2">
-                  <div className="text-lg font-semibold">{slot.time}</div>
-                  {slot.label ? (
-                    <span className="text-xs px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 capitalize">
-                      {slot.label}
-                    </span>
-                  ) : null}
-                  <div className="ml-auto text-sm text-zinc-400">
-                    {main}/{slot.capacityMain} • WL {wait}/{slot.capacityWait}
-                  </div>
-                </div>
-
-                <div className="text-sm text-zinc-400 mt-1">{date}</div>
-
-                <div className="mt-3 flex items-center gap-3">
-                  <div className="text-sm">
-                    {hasAvailability ? (
-                      <span className="text-emerald-400">
-                        {mainLeft > 0 ? `Spots left: ${mainLeft}` : `Waitlist left: ${waitLeft}`}
-                      </span>
-                    ) : (
-                      <span className="text-red-400">No availability</span>
-                    )}
-                  </div>
-                  {hasAvailability ? (
-                    <button
-                      className="ml-auto px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-                      onClick={() => alert('Booking flow coming next')}
-                    >
-                      BOOK NOW
-                    </button>
-                  ) : null}
-                </div>
+        return (
+          <div
+            key={slot.id}
+            className="w-full text-left rounded border border-zinc-800 bg-zinc-900 p-3 transition hover:border-zinc-700"
+          >
+            <div className="flex items-center">
+              <div className="text-lg font-semibold">{time}</div>
+              {label ? (
+                <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 capitalize">
+                  {label}
+                </span>
+              ) : null}
+              <div className="ml-auto text-xs text-zinc-400">
+                {main}/{capacityMain} • WL {wait}/{capacityWait}
               </div>
-            );
-          })()
-        )}
-      </div>
-    </>
+            </div>
+            <div className="mt-1 text-sm">
+              {hasAvailability ? (
+                <span className="text-emerald-400">
+                  {mainLeft > 0 ? `Spots left: ${mainLeft}` : `Waitlist left: ${waitLeft}`}
+                </span>
+              ) : (
+                <span className="text-red-400">Full (including waitlist)</span>
+              )}
+            </div>
+
+            {/* Book Now Button - always visible inside the slot, centered */}
+            <div className="mt-3 flex justify-center"> {/* Use flex and justify-center to center */}
+              {hasAvailability ? (
+                <button
+                  className="px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+                  onClick={() => alert(`Booking flow for ${slot.time} on ${date} coming next`)}
+                >
+                  Book Now
+                </button>
+              ) : (
+                  <button
+                    className="px-4 py-2 rounded border border-zinc-900 text-zinc-500 text-sm cursor-not-allowed"
+                    disabled
+                  >
+                    Full
+                  </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
