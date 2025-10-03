@@ -58,8 +58,8 @@ const cloneSlot = (s: SlotConfig): SlotConfig => ({ ...s, id: crypto.randomUUID(
  */
 function isDateBookable(dateStr: string): boolean {
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const selectedDate = new Date(dateStr + 'T00:00:00'); // Χρήση T00:00:00 για αποφυγή timezone issues
+  today.setHours(0, 0, 0, 0); // Ώρα μηδέν για σύγκριση ημερομηνίας
+  const selectedDate = new Date(dateStr + 'T00:00:00'); 
   selectedDate.setHours(0, 0, 0, 0);
 
   const todayTime = today.getTime();
@@ -70,24 +70,23 @@ function isDateBookable(dateStr: string): boolean {
     return true;
   }
 
-  // Υπολογισμός αύριο
+  // 2. Έλεγχος για αύριο
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  // Ειδική λογική για Σάββατο: αν είναι Σάββατο (Day 6), το bookable "αύριο" είναι Δευτέρα (Day 1), δηλαδή 2 μέρες μετά.
+  // Ειδική λογική για Σάββατο (Day 6) -> Δευτέρα (Day 1)
   if (today.getDay() === 6) { 
       const dayAfterTomorrow = new Date(today);
-      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-
-      // Ελέγχουμε αν είναι η αυριανή (Κυριακή - Day 0) Ή η μεθαυριανή (Δευτέρα - Day 1)
-      // Εφόσον ο κανόνας είναι "Σήμερα ή Αύριο/Δευτέρα", πρέπει να ελέγξουμε μόνο την Δευτέρα αν είναι Σάββατο
-      if (selectedTime === dayAfterTomorrow.getTime()) {
-        return true; // Δευτέρα
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2); // Δευτέρα
+      
+      // Το bookable "αύριο" είναι η Δευτέρα, όχι η Κυριακή
+      if (selectedDate.getTime() === dayAfterTomorrow.getTime()) {
+        return true; 
       }
 
   } else {
       // Για όλες τις άλλες ημέρες, απλά ελέγχουμε την επόμενη ημέρα
-      if (selectedTime === tomorrow.getTime()) {
+      if (selectedDate.getTime() === tomorrow.getTime()) {
         return true;
       }
   }
@@ -190,12 +189,13 @@ export default function SchedulePage() {
       } catch {}
     }
     
-    // Φόρτωση Ψεύτικων Κρατήσεων Χρήστη (π.χ. μία κράτηση αύριο στις 18:00)
+    // Φόρτωση Ψεύτικων Κρατήσεων Χρήστη 
     const tomorrow = new Date(today());
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowIso = tomorrow.toISOString().slice(0, 10);
     setUserBookings({
-        // [tomorrowIso]: '18:00' // uncomment to test the 'user already booked' rule
+        // Εισάγουμε μια ψεύτικη κράτηση για αύριο στις 18:00 για δοκιμή του κανόνα 3
+        [tomorrowIso]: '18:00' 
     });
   }, []);
 
@@ -229,6 +229,11 @@ export default function SchedulePage() {
 
   const countsFor = (time: string) => {
     const rec = dayData[time];
+    // Εισαγωγή ψεύτικων κρατήσεων για δοκιμή του κανόνα 5 (Full WL)
+    if (date === todayIso() && time === '07:00') {
+         // Υποθέτουμε ότι το 07:00 είναι Full Main (12/12) και Full Waitlist (2/2) για δοκιμή
+         return { main: 12, wait: 2 }; 
+    }
     return { main: rec?.main?.length || 0, wait: rec?.wait?.length || 0 };
   };
 
@@ -246,14 +251,15 @@ export default function SchedulePage() {
     const isToday = todayIso() === date;
 
     if (isToday) {
-      // Δημιουργία αντικειμένου Date για την ώρα έναρξης του slot
+      // 1. Δημιουργία αντικειμένου Date για την ώρα έναρξης του slot
+      // Χρησιμοποιούμε την πλήρη ημερομηνία ISO για σωστή σύγκριση
       const slotDateTime = new Date(`${date}T${time}:00`);
 
-      // Ώρα τώρα + 30 λεπτά (όριο κράτησης)
+      // 2. Ώρα τώρα + 30 λεπτά (όριο κράτησης)
       const nowPlus30 = new Date();
       nowPlus30.setMinutes(nowPlus30.getMinutes() + 30);
 
-      // Το slot είναι ανενεργό (πριν ή εντός 30') αν η ώρα έναρξης του slot είναι πριν την ώρα "τώρα + 30 λεπτά"
+      // 3. Σύγκριση: Το slot είναι ανενεργό (πριν ή εντός 30') αν η ώρα έναρξης του slot είναι πριν την ώρα "τώρα + 30 λεπτά"
       isPastOrTooClose = slotDateTime < nowPlus30;
     }
 
@@ -263,8 +269,7 @@ export default function SchedulePage() {
     // Κανόνας 3: Μόνο μια κράτηση την ημέρα (ελέγχεται στο SlotsGrid)
     const userAlreadyBooked = hasBookingForSelectedDay;
 
-    // Ελέγχει αν το slot μπορεί να γίνει book τώρα
-    // ΣΗΜΕΙΩΣΗ: Ο έλεγχος για 'userAlreadyBooked' και 'isBookableDay' θα γίνει στον γονικό SlotsGrid
+    // Ελέγχει αν το slot μπορεί να γίνει book τώρα (αν η ημέρα ήταν bookable και ο χρήστης δεν είχε κράτηση)
     const canBookThisSlot = hasAvailability && !isPastOrTooClose && !isFullyBooked;
     
     // Ελέγχει αν το slot πρέπει να φαίνεται "ανενεργό" στο UI (π.χ. παρελθόν ή γεμάτο)
@@ -279,8 +284,8 @@ export default function SchedulePage() {
       isFullyBooked,
       isPastOrTooClose,
       userAlreadyBooked,
-      canBookThisSlot, // Νέο flag για το κουμπί Book Now
-      isDisabled, // Νέο flag για το UI
+      canBookThisSlot, 
+      isDisabled, 
     };
   };
 
@@ -740,7 +745,10 @@ function SlotsGrid({
         // Έλεγχος αν το τρέχον slot είναι επιλεγμένο
         const isSelected = id === selectedSlotId;
         
-        // **Κανόνας 2/3/5: Τελικός έλεγχος για το αν μπορεί να γίνει book.**
+        // **Τελικός έλεγχος: Το slot είναι bookable μόνο αν:**
+        // 1. Η ημέρα είναι bookable (Κανόνας 2).
+        // 2. Ο χρήστης δεν έχει άλλη κράτηση σήμερα (Κανόνας 3).
+        // 3. Το slot δεν είναι γεμάτο ή παρελθόν / πολύ κοντά (Κανόνες 1, 4, 5 - δηλαδή το canBookThisSlot είναι true).
         const isActuallyBookable = canBookThisSlot && isBookableDay && !userAlreadyBooked;
 
 
@@ -748,11 +756,13 @@ function SlotsGrid({
         let slotClasses = 'w-full text-left rounded border p-3 transition';
         let clickCursor = 'cursor-pointer';
         
+        // Ελέγχουμε την γενική κατάσταση "ανενεργό"
         if (!isBookableDay || isDisabled || userAlreadyBooked) {
              // Το slot είναι ΑΝΕΝΕΡΓΟ: είτε η ημέρα δεν επιτρέπεται, είτε είναι Full/Past, είτε ο χρήστης έχει ήδη κράτηση
              slotClasses += ' border-zinc-900 bg-zinc-950 text-zinc-500 opacity-70';
              clickCursor = 'cursor-not-allowed';
-             // Αποεπιλογή αν είναι επιλεγμένο και έγινε ανενεργό
+             
+             // Εάν το slot είναι ανενεργό, το αποεπιλέγουμε
              if (isSelected) {
                  setSelectedSlotId(null);
              }
@@ -780,15 +790,21 @@ function SlotsGrid({
             availabilityText = <span className="text-red-400">Full (including waitlist)</span>;
         } else if (isPastOrTooClose) {
             availabilityText = <span className="text-red-400">Booking closed (less than 30' remaining)</span>;
-        } else if (hasAvailability) {
+        } else if (mainLeft > 0) {
             availabilityText = (
                 <span className="text-emerald-400">
-                    {mainLeft > 0 ? `Spots left: ${mainLeft}` : `Waitlist left: ${waitLeft}`}
+                    Spots left: {mainLeft}
+                </span>
+            );
+        } else if (waitLeft > 0) {
+            availabilityText = (
+                 <span className="text-yellow-400">
+                    Waitlist left: {waitLeft}
                 </span>
             );
         } else {
-            // Αυτό συμβαίνει αν το hasAvailability είναι false, αλλά το isFullyBooked είναι false (πρέπει να είναι full WL)
-            availabilityText = <span className="text-red-400">Full Capacity, Waitlist Full</span>;
+             // Εάν hasAvailability=true αλλά mainLeft=0 και waitLeft=0, αυτό είναι λογικό σφάλμα, αλλά για σιγουριά το καλύπτουμε
+            availabilityText = <span className="text-red-400">No availability</span>;
         }
         
         // Τελικό κείμενο κουμπιού
@@ -797,8 +813,12 @@ function SlotsGrid({
             buttonText = 'Day Not Bookable';
         } else if (userAlreadyBooked) {
             buttonText = 'Already Booked Today';
-        } else if (isDisabled) {
-            buttonText = isFullyBooked ? 'Full' : 'Booking Closed';
+        } else if (isFullyBooked) {
+            buttonText = 'Full (No WL)';
+        } else if (isPastOrTooClose) {
+             buttonText = 'Booking Closed';
+        } else if (!hasAvailability) {
+             buttonText = 'No Spots/WL';
         }
 
 
