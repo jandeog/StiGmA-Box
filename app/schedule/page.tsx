@@ -3,7 +3,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 // Assume DateStepper component path is correct
-// import DateStepper from '/components/DateStepper'; // Assuming PascalCase for component
 
 /* ========================= types ========================= */
 
@@ -36,8 +35,15 @@ const weekdays_full = [
 ];
 
 const today = () => new Date();
-const todayIso = () => today().toISOString().slice(0, 10);
-const nowHourMinute = () => today().toTimeString().slice(0, 5); // "hh:mm"
+const todayIso = () => {
+  // Χρησιμοποιούμε μια helper function για να πάρουμε την ημερομηνία σε ISO format (YYYY-MM-DD)
+  // στην τοπική ώρα, χωρίς να επηρεάζεται από το timezone offset κατά την εκκίνηση του component
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const keyConfig = 'schedule:config';
 const keyOverrides = 'schedule:overrides';
@@ -58,36 +64,33 @@ const cloneSlot = (s: SlotConfig): SlotConfig => ({ ...s, id: crypto.randomUUID(
  */
 function isDateBookable(dateStr: string): boolean {
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Ώρα μηδέν για σύγκριση ημερομηνίας
-  const selectedDate = new Date(dateStr + 'T00:00:00'); 
-  selectedDate.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0); // Σήμερα στις 00:00:00
 
-  const todayTime = today.getTime();
-  const selectedTime = selectedDate.getTime();
+  const selectedDate = new Date(dateStr);
+  selectedDate.setHours(0, 0, 0, 0); // Επιλεγμένη ημερομηνία στις 00:00:00
 
-  // 1. Έλεγχος για σήμερα
-  if (selectedTime === todayTime) {
+  // 1. Σήμερα
+  if (selectedDate.getTime() === today.getTime()) {
     return true;
   }
 
-  // 2. Έλεγχος για αύριο
+  // 2. Αύριο
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  // 3. Λογική Σάββατο (Day 6) -> Δευτέρα
+  const isSaturday = today.getDay() === 6;
+  const isMondayAfterSaturday = isSaturday && selectedDate.getDay() === 1 && selectedDate.getTime() === tomorrow.getTime() + 86400000; // tomorrow.getTime() + 1 day (Sunday) = Monday
 
-  // Ειδική λογική για Σάββατο (Day 6) -> Δευτέρα (Day 1)
-  if (today.getDay() === 6) { 
-      const dayAfterTomorrow = new Date(today);
-      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2); // Δευτέρα
-      
-      // Το bookable "αύριο" είναι η Δευτέρα, όχι η Κυριακή
+  if (isSaturday) {
+      const dayAfterTomorrow = new Date(tomorrow);
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1); // Δευτέρα
       if (selectedDate.getTime() === dayAfterTomorrow.getTime()) {
-        return true; 
+          return true;
       }
-
   } else {
-      // Για όλες τις άλλες ημέρες, απλά ελέγχουμε την επόμενη ημέρα
       if (selectedDate.getTime() === tomorrow.getTime()) {
-        return true;
+          return true;
       }
   }
 
@@ -148,7 +151,6 @@ export default function SchedulePage() {
   const weekdayName = weekdays_full[dow];
 
   // Κατάσταση για τις κρατήσεις του χρήστη (Ψεύτικα Δεδομένα)
-  // userBookings: Record<dateIso: string, slotTime: string>
   const [userBookings, setUserBookings] = useState<Record<string, string>>({});
   
   // Flag για τον κανόνα: Μόνο μια κράτηση την ημέρα
@@ -170,7 +172,7 @@ export default function SchedulePage() {
 
   // load config/overrides on mount
   useEffect(() => {
-    // ... (logic for loading config/overrides is the same)
+    // Load config/overrides
     const rawc = localStorage.getItem(keyConfig);
     if (rawc) {
       try {
@@ -189,14 +191,9 @@ export default function SchedulePage() {
       } catch {}
     }
     
-    // Φόρτωση Ψεύτικων Κρατήσεων Χρήστη 
-    const tomorrow = new Date(today());
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowIso = tomorrow.toISOString().slice(0, 10);
-    setUserBookings({
-        // Εισάγουμε μια ψεύτικη κράτηση για αύριο στις 18:00 για δοκιμή του κανόνα 3
-        [tomorrowIso]: '18:00' 
-    });
+    // Φόρτωση Ψεύτικων Κρατήσεων Χρήστη (για δοκιμή κανόνα 3)
+    // Αν θέλετε να δοκιμάσετε τον κανόνα "έχει κράτηση σήμερα", uncomment την παρακάτω γραμμή
+    // setUserBookings({ [todayIso()]: '08:30' }); 
   }, []);
 
   // load bookings per selected date
@@ -229,9 +226,9 @@ export default function SchedulePage() {
 
   const countsFor = (time: string) => {
     const rec = dayData[time];
-    // Εισαγωγή ψεύτικων κρατήσεων για δοκιμή του κανόνα 5 (Full WL)
+    // Ψεύτικες κρατήσεις για δοκιμή του κανόνα 5 (Full WL)
     if (date === todayIso() && time === '07:00') {
-         // Υποθέτουμε ότι το 07:00 είναι Full Main (12/12) και Full Waitlist (2/2) για δοκιμή
+         // Full Main (12/12) και Full Waitlist (2/2) για δοκιμή
          return { main: 12, wait: 2 }; 
     }
     return { main: rec?.main?.length || 0, wait: rec?.wait?.length || 0 };
@@ -251,25 +248,25 @@ export default function SchedulePage() {
     const isToday = todayIso() === date;
 
     if (isToday) {
-      // 1. Δημιουργία αντικειμένου Date για την ώρα έναρξης του slot
-      // Χρησιμοποιούμε την πλήρη ημερομηνία ISO για σωστή σύγκριση
-      const slotDateTime = new Date(`${date}T${time}:00`);
-
-      // 2. Ώρα τώρα + 30 λεπτά (όριο κράτησης)
+      // **ΔΙΟΡΘΩΣΗ:** Δημιουργία ημερομηνίας slot με τοπική ώρα
+      const [hour, minute] = time.split(':').map(Number);
+      
+      const slotDateTime = new Date();
+      slotDateTime.setFullYear(new Date(date).getFullYear(), new Date(date).getMonth(), new Date(date).getDate());
+      slotDateTime.setHours(hour, minute, 0, 0); // Ρύθμιση ώρας slot
+      
+      // Ώρα τώρα + 30 λεπτά (όριο κράτησης)
       const nowPlus30 = new Date();
       nowPlus30.setMinutes(nowPlus30.getMinutes() + 30);
 
-      // 3. Σύγκριση: Το slot είναι ανενεργό (πριν ή εντός 30') αν η ώρα έναρξης του slot είναι πριν την ώρα "τώρα + 30 λεπτά"
-      isPastOrTooClose = slotDateTime < nowPlus30;
+      // Το slot είναι ανενεργό (πριν ή εντός 30') αν η ώρα έναρξης του slot είναι πριν την ώρα "τώρα + 30 λεπτά"
+      isPastOrTooClose = slotDateTime.getTime() < nowPlus30.getTime();
     }
 
     // Κανόνας 5: Τμήματα που έχουν γεμίσει οι θέσεις τους και του WL
     const isFullyBooked = main >= capMain && wait >= capWait;
 
-    // Κανόνας 3: Μόνο μια κράτηση την ημέρα (ελέγχεται στο SlotsGrid)
-    const userAlreadyBooked = hasBookingForSelectedDay;
-
-    // Ελέγχει αν το slot μπορεί να γίνει book τώρα (αν η ημέρα ήταν bookable και ο χρήστης δεν είχε κράτηση)
+    // Ελέγχει αν το slot μπορεί να γίνει book τώρα
     const canBookThisSlot = hasAvailability && !isPastOrTooClose && !isFullyBooked;
     
     // Ελέγχει αν το slot πρέπει να φαίνεται "ανενεργό" στο UI (π.χ. παρελθόν ή γεμάτο)
@@ -758,7 +755,7 @@ function SlotsGrid({
         
         // Ελέγχουμε την γενική κατάσταση "ανενεργό"
         if (!isBookableDay || isDisabled || userAlreadyBooked) {
-             // Το slot είναι ΑΝΕΝΕΡΓΟ: είτε η ημέρα δεν επιτρέπεται, είτε είναι Full/Past, είτε ο χρήστης έχει ήδη κράτηση
+             // Το slot είναι ΑΝΕΝΕΡΓΟ
              slotClasses += ' border-zinc-900 bg-zinc-950 text-zinc-500 opacity-70';
              clickCursor = 'cursor-not-allowed';
              
@@ -803,7 +800,6 @@ function SlotsGrid({
                 </span>
             );
         } else {
-             // Εάν hasAvailability=true αλλά mainLeft=0 και waitLeft=0, αυτό είναι λογικό σφάλμα, αλλά για σιγουριά το καλύπτουμε
             availabilityText = <span className="text-red-400">No availability</span>;
         }
         
