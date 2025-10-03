@@ -800,8 +800,8 @@ function SlotsGrid({
                 </span>
             );
         } else {
-            // Διόρθωση: Χρησιμοποιούμε &apos; για να αποφύγουμε το σφάλμα
-availabilityText = <span className="text-red-400">Booking closed (less than 30&apos; remaining)</span>;
+            
+availabilityText = <span className="text-red-400">Booking closed (less than 30 remaining)</span>;
 
         }
         
