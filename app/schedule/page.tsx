@@ -1,16 +1,15 @@
 // app/schedule/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-// Assume DateStepper component path is correct
+import { useEffect, useMemo, useState, useCallback } from 'react';
 
-/* ========================= types ========================= */
+/* ========================= Types ========================= */
 
 type SlotConfig = {
   id: string;
-  time: string;           // "hh:mm"
+  time: string;           // "HH:MM"
   capacityMain: number;   // διαθέσιμες θέσεις
-  capacityWait: number;   // θέσεις αναμονής
+  capacityWait: number;   // θέσεις αναμονής (WL)
   label?: string;         // "competitive" | "novice" | "advanced" | custom
 };
 
@@ -23,27 +22,30 @@ type ScheduleConfig = {
   byDow: Record<number, DayConfig>;
 };
 
-// per-date overrides: yyyy-mm-dd -> slots for that exact date
+// Per-date overrides: YYYY-MM-DD -> slots for that exact date
 type ScheduleOverrides = Record<string, SlotConfig[]>;
 
 type DayBookings = Record<string, { main: string[]; wait: string[] }>;
 
-/* ===================== constants/helpers ===================== */
+type Session = { role: 'coach' | 'athlete'; athleteId?: string };
 
-const weekdays_full = [
+/* ===================== Constants/Helpers ===================== */
+
+const WEEKDAYS_FULL = [
   'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
 ];
 
-const today = () => new Date();
-const todayIso = () => {
-  // Χρησιμοποιούμε μια helper function για να πάρουμε την ημερομηνία σε ISO format (YYYY-MM-DD)
-  // στην τοπική ώρα, χωρίς να επηρεάζεται από το timezone offset κατά την εκκίνηση του component
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+const pad = (n: number) => String(n).padStart(2, '0');
+const dateToLocalISO = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const todayISO = () => dateToLocalISO(new Date());
+const addDaysISO = (iso: string, days: number) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return dateToLocalISO(dt);
 };
+const tomorrowISO = () => addDaysISO(todayISO(), 1);
 
 const keyConfig = 'schedule:config';
 const keyOverrides = 'schedule:overrides';
@@ -59,38 +61,20 @@ const selectValueFromLabel = (label?: string) => {
 
 const cloneSlot = (s: SlotConfig): SlotConfig => ({ ...s, id: crypto.randomUUID() });
 
-/**
- * Ελέγχει αν η ημερομηνία είναι σήμερα ή αύριο (με ειδική λογική για Σάββατο -> Δευτέρα)
- */
-function isDateBookable(dateStr: string): boolean {
-  const base = new Date();
-  base.setHours(0, 0, 0, 0); // Σήμερα στις 00:00:00
+const parseHM = (time: string) => {
+  const [h, m] = time.split(':').map((x) => parseInt(x, 10));
+  return { h: h || 0, m: m || 0 };
+};
+const toDateAt = (isoDate: string, time: string) => {
+  const { h, m } = parseHM(time);
+  const d = new Date(isoDate + 'T00:00:00');
+  d.setHours(h, m, 0, 0);
+  return d;
+};
 
-  const selectedDate = new Date(dateStr);
-  selectedDate.setHours(0, 0, 0, 0); // Επιλεγμένη ημερομηνία στις 00:00:00
+/* ===================== Default Templates ===================== */
 
-  // 1) Σήμερα
-  if (selectedDate.getTime() === base.getTime()) return true;
-
-  // 2) Αύριο
-  const tomorrow = new Date(base);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  // 3) Σάββατο -> επιτρέπουμε και Δευτέρα (παρακάμπτοντας την Κυριακή)
-  const isSaturday = base.getDay() === 6;
-  if (isSaturday) {
-    const monday = new Date(base);
-    monday.setDate(monday.getDate() + 2);
-    if (selectedDate.getTime() === monday.getTime()) return true;
-  } else {
-    if (selectedDate.getTime() === tomorrow.getTime()) return true;
-  }
-
-  return false;
-}
-
-/* ===================== default templates (no change) ===================== */
-
+// Weekdays (Mon–Fri) default slots incl. 17:00
 const defaultWeekdaySlots = (): SlotConfig[] => [
   { id: crypto.randomUUID(), time: '07:00', capacityMain: 12, capacityWait: 2 },
   { id: crypto.randomUUID(), time: '08:30', capacityMain: 12, capacityWait: 2 },
@@ -103,10 +87,13 @@ const defaultWeekdaySlots = (): SlotConfig[] => [
   { id: crypto.randomUUID(), time: '21:00', capacityMain: 12, capacityWait: 2 },
 ];
 
+// Saturday default: 10:00 & 18:00
 const defaultSaturdaySlots = (): SlotConfig[] => [
   { id: crypto.randomUUID(), time: '10:00', capacityMain: 12, capacityWait: 2 },
   { id: crypto.randomUUID(), time: '18:00', capacityMain: 12, capacityWait: 2 },
 ];
+
+// Sunday (rest day): no slots by default
 
 const defaultConfig = (): ScheduleConfig => ({
   byDow: {
@@ -128,7 +115,7 @@ function ensureSlotExists(slots: SlotConfig[], time: string): SlotConfig[] {
 
 function migrateConfig(c: ScheduleConfig): ScheduleConfig {
   const next: ScheduleConfig = { byDow: { ...c.byDow } };
-  // ensure 17:00 exists on Mon–Fri (1..5)
+  // Ensure 17:00 exists on Mon–Fri (1..5)
   for (const d of [1, 2, 3, 4, 5]) {
     const day = next.byDow[d] ?? { slots: [] };
     next.byDow[d] = { slots: ensureSlotExists(day.slots, '17:00') };
@@ -136,65 +123,64 @@ function migrateConfig(c: ScheduleConfig): ScheduleConfig {
   return next;
 }
 
-/* ===================== main component ===================== */
+/* ===================== Main Component ===================== */
 
 export default function SchedulePage() {
-  const [date, setDate] = useState<string>(todayIso());
+  const [date, setDate] = useState<string>(todayISO());
   const dow = useMemo(() => new Date(date + 'T00:00:00').getDay(), [date]);
-  const weekdayName = weekdays_full[dow];
+  const weekdayName = WEEKDAYS_FULL[dow];
 
-  // Κατάσταση για τις κρατήσεις του χρήστη (Ψεύτικα Δεδομένα)
-  const [userBookings, setUserBookings] = useState<Record<string, string>>({});
-  
-  // Flag για τον κανόνα: Μόνο μια κράτηση την ημέρα
-  const hasBookingForSelectedDay = useMemo(() => !!userBookings[date], [userBookings, date]);
+  // session (για athleteId)
+  const [session, setSession] = useState<Session | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('auth:user');
+      setSession(raw ? (JSON.parse(raw) as Session) : null);
+    } catch {}
+  }, []);
+  const myAthleteId = session?.athleteId || null;
 
-  // base templates (per dow)
+  // Base templates (per DOW)
   const [config, setConfig] = useState<ScheduleConfig>(defaultConfig());
-  // per-date overrides
+  // Per-date overrides
   const [overrides, setOverrides] = useState<ScheduleOverrides>({});
 
-  // day bookings (display only for now)
+  // Day bookings
   const [dayData, setDayData] = useState<DayBookings>({});
 
-  // editor state
+  // Editor state
   const [editing, setEditing] = useState<boolean>(false);
   const [draftSlots, setDraftSlots] = useState<SlotConfig[]>([]);
   const [applyScope, setApplyScope] = useState<'date' | 'weekday' | 'weekdays'>('weekday'); // επιλογή αποθήκευσης
 
-  // load config/overrides on mount
+  // Load config/overrides on mount
   useEffect(() => {
-    // Load config/overrides
-    const rawc = localStorage.getItem(keyConfig);
-    if (rawc) {
+    const rawC = localStorage.getItem(keyConfig);
+    if (rawC) {
       try {
-        const parsed = JSON.parse(rawc) as ScheduleConfig;
+        const parsed = JSON.parse(rawC) as ScheduleConfig;
         const migrated = migrateConfig(parsed);
         setConfig(migrated);
-        if (JSON.stringify(migrated) !== rawc) {
+        if (JSON.stringify(migrated) !== rawC) {
           localStorage.setItem(keyConfig, JSON.stringify(migrated));
         }
       } catch {}
     }
-    const rawo = localStorage.getItem(keyOverrides);
-    if (rawo) {
+    const rawO = localStorage.getItem(keyOverrides);
+    if (rawO) {
       try {
-        setOverrides(JSON.parse(rawo) as ScheduleOverrides);
+        setOverrides(JSON.parse(rawO) as ScheduleOverrides);
       } catch {}
     }
-    
-    // Φόρτωση Ψεύτικων Κρατήσεων Χρήστη (για δοκιμή κανόνα 3)
-    // Αν θέλετε να δοκιμάσετε τον κανόνα "έχει κράτηση σήμερα", uncomment την παρακάτω γραμμή
-    // setUserBookings({ [todayIso()]: '08:30' }); 
   }, []);
 
-  // load bookings per selected date
+  // Load bookings per selected date
   useEffect(() => {
     const raw = localStorage.getItem(keyBookings(date));
     setDayData(raw ? (JSON.parse(raw) as DayBookings) : {});
   }, [date]);
 
-  // visible slots: override wins, otherwise template by dow
+  // visible slots: override wins, otherwise template by DOW
   const visibleSlots: SlotConfig[] = useMemo(() => {
     const ov = overrides[date];
     if (ov) return ov.slice().sort((a, b) => a.time.localeCompare(b.time));
@@ -216,70 +202,119 @@ export default function SchedulePage() {
     }
   }, [editing, date, dow, config, overrides]);
 
-  const countsFor = (time: string) => {
-    const rec = dayData[time];
-    // Ψεύτικες κρατήσεις για δοκιμή του κανόνα 5 (Full WL)
-    if (date === todayIso() && time === '07:00') {
-      // Full Main (12/12) και Full Waitlist (2/2) για δοκιμή
-      return { main: 12, wait: 2 }; 
-    }
-    return { main: rec?.main?.length || 0, wait: rec?.wait?.length || 0 };
-  };
+  /* ---------------- Booking helpers ---------------- */
 
-  /**
-   * Τροποποιημένη συνάρτηση ελέγχου διαθεσιμότητας και bookability
-   */
-  const availabilityFor = (time: string, capMain: number, capWait: number) => {
+  const countsFor = useCallback((time: string) => {
+    const rec = dayData[time];
+    return { main: rec?.main?.length || 0, wait: rec?.wait?.length || 0 };
+  }, [dayData]);
+
+  const availabilityFor = useCallback((time: string, capMain: number, capWait: number) => {
     const { main, wait } = countsFor(time);
     const mainLeft = Math.max(capMain - main, 0);
     const waitLeft = Math.max(capWait - wait, 0);
     const hasAvailability = main < capMain || (main >= capMain && wait < capWait);
-    
-    // Κανόνας 4 & 1: Τμήματα που είναι πριν την τωρινή ώρα + 30'
-    let isPastOrTooClose = false;
-    const isToday = todayIso() === date;
+    const isFullyBooked = main >= capMain && wait >= capWait;
+    return { main, wait, mainLeft, waitLeft, hasAvailability, isFullyBooked };
+  }, [countsFor]);
 
+  // today's rule checks
+  const now = new Date();
+  const isToday = date === todayISO();
+  const isTomorrow = date === tomorrowISO();
+
+  // Only today or tomorrow are bookable (χωρίς Σαββατο-Δευτέρα εξαίρεση)
+  const dateAllowed = isToday || isTomorrow;
+
+  // find if user already booked a slot this selected day
+  const myBookingTime: string | null = useMemo(() => {
+    if (!myAthleteId) return null;
+    for (const [t, rec] of Object.entries(dayData)) {
+      if (rec.main?.includes(myAthleteId) || rec.wait?.includes(myAthleteId)) return t;
+    }
+    return null;
+  }, [dayData, myAthleteId]);
+
+  const canBookThisSlot = (slot: SlotConfig) => {
+    if (!myAthleteId) return { ok: false, reason: 'Please login first.' };
+    if (!dateAllowed) return { ok: false, reason: 'Booking is allowed only for today or tomorrow.' };
+
+    const start = toDateAt(date, slot.time);
+
+    // Unavailable for past or in-progress slots
+    if (isToday && now >= start) return { ok: false, reason: 'This class has already started or finished.' };
+
+    // Cut-off: must be >= 30 minutes before start
     if (isToday) {
-      // **ΔΙΟΡΘΩΣΗ:** Δημιουργία ημερομηνίας slot με τοπική ώρα
-      const [hour, minute] = time.split(':').map(Number);
-      
-      const slotDateTime = new Date();
-      slotDateTime.setFullYear(new Date(date).getFullYear(), new Date(date).getMonth(), new Date(date).getDate());
-      slotDateTime.setHours(hour, minute, 0, 0); // Ρύθμιση ώρας slot
-      
-      // Ώρα τώρα + 30 λεπτά (όριο κράτησης)
-      const nowPlus30 = new Date();
-      nowPlus30.setMinutes(nowPlus30.getMinutes() + 30);
-
-      // Το slot είναι ανενεργό (πριν ή εντός 30') αν η ώρα έναρξης του slot είναι πριν την ώρα "τώρα + 30 λεπτά"
-      isPastOrTooClose = slotDateTime.getTime() < nowPlus30.getTime();
+      const diffMs = start.getTime() - now.getTime();
+      if (diffMs < 30 * 60 * 1000) {
+        return { ok: false, reason: 'Bookings close 30 minutes before start.' };
+      }
     }
 
-    // Κανόνας 5: Τμήματα που έχουν γεμίσει οι θέσεις τους και του WL
-    const isFullyBooked = main >= capMain && wait >= capWait;
+    // Single booking per day
+    if (myBookingTime && myBookingTime !== slot.time) {
+      return { ok: false, reason: `You already booked ${myBookingTime}. Cancel it to change.` };
+    }
 
-    // Ελέγχει αν το slot μπορεί να γίνει book τώρα
-    const canBookThisSlot = hasAvailability && !isPastOrTooClose && !isFullyBooked;
-    
-    // Ελέγχει αν το slot πρέπει να φαίνεται "ανενεργό" στο UI (π.χ. παρελθόν ή γεμάτο)
-    const isDisabled = isFullyBooked || isPastOrTooClose;
-    
-    return { 
-      main, 
-      wait, 
-      mainLeft, 
-      waitLeft, 
-      hasAvailability,
-      isFullyBooked,
-      isPastOrTooClose,
-      canBookThisSlot, 
-      isDisabled, 
-    };
+    const { hasAvailability } = availabilityFor(slot.time, slot.capacityMain, slot.capacityWait);
+    if (!hasAvailability) return { ok: false, reason: 'Full (including waitlist).' };
+
+    return { ok: true };
+  };
+
+  const saveBookings = (next: DayBookings) => {
+    setDayData(next);
+    localStorage.setItem(keyBookings(date), JSON.stringify(next));
+  };
+
+  const bookSlot = (slot: SlotConfig) => {
+    if (!myAthleteId) return alert('Please login first.');
+    const rule = canBookThisSlot(slot);
+    if (!rule.ok) return alert(rule.reason);
+
+    if (!confirm(`Confirm booking for ${date} at ${slot.time}?`)) return;
+
+    const current = structuredClone(dayData) as DayBookings;
+    const rec = current[slot.time] || { main: [], wait: [] };
+    const { mainLeft, waitLeft } = availabilityFor(slot.time, slot.capacityMain, slot.capacityWait);
+
+    // Avoid duplicates
+    if (rec.main.includes(myAthleteId) || rec.wait.includes(myAthleteId)) {
+      return alert('Already booked.');
+    }
+
+    if (mainLeft > 0) rec.main.push(myAthleteId);
+    else if (waitLeft > 0) rec.wait.push(myAthleteId);
+    else return alert('No availability.');
+
+    current[slot.time] = rec;
+    saveBookings(current);
+  };
+
+  const cancelSlot = (slot: SlotConfig) => {
+    if (!myAthleteId) return;
+    if (!confirm(`Cancel your booking for ${date} at ${slot.time}?`)) return;
+
+    const current = structuredClone(dayData) as DayBookings;
+    const rec = current[slot.time];
+    if (!rec) return;
+
+    const beforeMain = rec.main.length;
+    rec.main = rec.main.filter((id) => id !== myAthleteId);
+    const removedFromMain = beforeMain !== rec.main.length;
+
+    if (!removedFromMain) {
+      rec.wait = rec.wait.filter((id) => id !== myAthleteId);
+    }
+
+    current[slot.time] = rec;
+    saveBookings(current);
   };
 
   const onToggleEditor = () => setEditing((v) => !v);
 
-  /* ---------------- editor helpers (no change) ---------------- */
+  /* ---------------- Editor helpers ---------------- */
 
   const setDraftValue = (id: string, patch: Partial<SlotConfig>) => {
     setDraftSlots((arr) => arr.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -329,14 +364,6 @@ export default function SchedulePage() {
       };
       setConfig(next);
       localStorage.setItem(keyConfig, JSON.stringify(next));
-
-      // Clear override for the current date if it exists
-      if (overrides[date]) {
-        const { [date]: _omit, ...rest } = overrides;
-        setOverrides(rest);
-        localStorage.setItem(keyOverrides, JSON.stringify(rest));
-      }
-
     } else if (applyScope === 'weekdays') {
       const next: ScheduleConfig = { byDow: { ...config.byDow } };
       for (const d of [1, 2, 3, 4, 5]) {
@@ -344,16 +371,7 @@ export default function SchedulePage() {
       }
       setConfig(next);
       localStorage.setItem(keyConfig, JSON.stringify(next));
-
-      // Clear override for the current date if it exists and it's a weekday
-      if (overrides[date] && dow >= 1 && dow <= 5) {
-        const { [date]: _omit, ...rest } = overrides;
-        setOverrides(rest);
-        localStorage.setItem(keyOverrides, JSON.stringify(rest));
-      }
-
     } else {
-      // applyScope === 'date'
       const nextOv: ScheduleOverrides = { ...overrides, [date]: norm };
       setOverrides(nextOv);
       localStorage.setItem(keyOverrides, JSON.stringify(nextOv));
@@ -369,23 +387,12 @@ export default function SchedulePage() {
     localStorage.setItem(keyOverrides, JSON.stringify(rest));
   };
 
-  /* ---------------- render ---------------- */
+  /* ---------------- Render ---------------- */
 
-  // Κανόνας 2: Έλεγχος αν η ημερομηνία είναι bookable
-  const isBookableDay = isDateBookable(date);
-  
-  // Υπολογισμός μηνύματος για την ημέρα
-  let dayMessage = '';
-  if (!isBookableDay) {
-    dayMessage = 'Bookings are only allowed for today or tomorrow (or Monday if it\'s Saturday).';
-  } else if (hasBookingForSelectedDay) {
-    dayMessage = `You already have a booking for ${date} at ${userBookings[date]}.`;
-  }
-  
   return (
     <section className="max-w-4xl">
-      {/* header */}
-      <div className="mb-4 flex items-center gap-3">
+      {/* Header */}
+      <div className="mb-3 flex items-center gap-3">
         <h1 className="text-2xl font-bold">Schedule</h1>
 
         <div className="ml-auto flex items-center gap-2">
@@ -395,11 +402,9 @@ export default function SchedulePage() {
               editing ? 'bg-zinc-800' : 'hover:bg-zinc-800'
             }`}
           >
-            {editing ? 'Close Editor' : 'Change Schedule'}
+            {editing ? 'Close editor' : 'Change schedule'}
           </button>
-          {/* Ensure DateStepper is correctly imported and named */}
-          {/* <DateStepper value={date} onChange={setDate} /> */}
-          {/* Placeholder for DateStepper */}
+          {/* Απλό date input (αντί για DateStepper) */}
           <input
             type="date"
             value={date}
@@ -409,258 +414,61 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* info line */}
-      <div className="text-sm text-zinc-400 mb-3">
+      {/* Info line */}
+      <div className="text-sm text-zinc-400 mb-2">
         {weekdayName} • {date}{' '}
         {overrides[date] ? (
           <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-amber-700 text-amber-300">
             Override
           </span>
         ) : null}
+        {!dateAllowed && (
+          <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300">
+            Booking allowed only for today & tomorrow
+          </span>
+        )}
       </div>
-      
-      {/* Day Message for Booking Rules */}
-      {dayMessage ? (
-        <div className="p-3 mb-4 rounded border border-red-700 bg-red-900/20 text-sm text-red-300">
-          {dayMessage}
-        </div>
-      ) : null}
 
-      {/* editor (No Change) */}
+      {/* EDITOR */}
       {editing ? (
-        <div className="border border-zinc-800 bg-zinc-900 rounded p-4">
-          {/* ... (Editor content is the same) ... */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
-            <div className="font-semibold">
-              Editing schedule for: {weekdayName} ({date})
-            </div>
-            <div className="text-xs text-zinc-400">
-              Sunday is rest day by default; you can add slots only via date override.
-            </div>
-          </div>
-
-          {/* save scope */}
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="text-sm text-zinc-300">Apply change to:</div>
-            <label className="text-sm flex items-center gap-2">
-              <input
-                type="radio"
-                name="scope"
-                value="weekday"
-                checked={applyScope === 'weekday'}
-                onChange={() => setApplyScope('weekday')}
-              />
-              Every <span className="font-medium">{weekdayName}</span>
-            </label>
-            <label className="text-sm flex items-center gap-2">
-              <input
-                type="radio"
-                name="scope"
-                value="weekdays"
-                checked={applyScope === 'weekdays'}
-                onChange={() => setApplyScope('weekdays')}
-              />
-              Every weekday (Mon–Fri)
-            </label>
-            <label className="text-sm flex items-center gap-2">
-              <input
-                type="radio"
-                name="scope"
-                value="date"
-                checked={applyScope === 'date'}
-                onChange={() => setApplyScope('date')}
-              />
-              This date only (<span className="font-mono">{date}</span>)
-            </label>
-
-            {overrides[date] ? (
-              <button
-                type="button"
-                onClick={clearDateOverride}
-                className="sm:ml-auto px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
-                title="Remove override for this date"
-              >
-                Remove this date’s override
-              </button>
-            ) : null}
-          </div>
-
-          {/* table of slots */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-zinc-300">
-                <tr className="border-b border-zinc-800">
-                  <th className="py-2 text-left w-28">Time</th>
-                  <th className="py-2 text-left w-28">Capacity</th>
-                  <th className="py-2 text-left w-32">Waitlist</th>
-                  <th className="py-2 text-left">Label</th>
-                  <th className="py-2 text-right w-32">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {draftSlots.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-zinc-500">
-                      No slots. Add one below.
-                    </td>
-                  </tr>
-                ) : (
-                  draftSlots.map((s, idx) => (
-                    <tr key={s.id} className="border-b border-zinc-800">
-                      <td className="py-2 pr-2">
-                        <input
-                          value={s.time}
-                          onChange={(e) => setDraftValue(s.id, { time: e.target.value })}
-                          className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                          placeholder="hh:mm"
-                        />
-                      </td>
-                      <td className="py-2 pr-2">
-                        <input
-                          inputMode="numeric"
-                          value={String(s.capacityMain)}
-                          onChange={(e) =>
-                            setDraftValue(s.id, {
-                              capacityMain: Math.max(0, parseInt(e.target.value || '0', 10)),
-                            })
-                          }
-                          className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                          placeholder="12"
-                        />
-                      </td>
-                      <td className="py-2 pr-2">
-                        <input
-                          inputMode="numeric"
-                          value={String(s.capacityWait)}
-                          onChange={(e) =>
-                            setDraftValue(s.id, {
-                              capacityWait: Math.max(0, parseInt(e.target.value || '0', 10)),
-                            })
-                          }
-                          className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                          placeholder="2"
-                        />
-                      </td>
-                      <td className="py-2 pr-2">
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={selectValueFromLabel(s.label)}
-                            onChange={(e) => {
-                              const sel = e.target.value;
-                              if (sel === 'custom') {
-                                // επιτρέπουμε free text στο διπλανό input
-                                setDraftValue(s.id, { label: 'custom' });
-                              } else if (sel === '') {
-                                setDraftValue(s.id, { label: '' });
-                              } else {
-                                setDraftValue(s.id, { label: sel }); // competitive / novice / advanced
-                              }
-                            }}
-                            className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                          >
-                            <option value="">—</option>
-                            <option value="competitive">competitive</option>
-                            <option value="novice">novice</option>
-                            <option value="advanced">advanced</option>
-                            <option value="custom">custom…</option>
-                          </select>
-                          {/* free text όταν είναι custom (ή κενό) */}
-                          {!isPresetLabel(s.label || '') && (
-                            <input
-                              value={s.label === 'custom' ? '' : (s.label || '')}
-                              onChange={(e) => setDraftValue(s.id, { label: e.target.value })}
-                              className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                              placeholder="Custom label"
-                            />
-                          )}
-
-                        </div>
-                      </td>
-                      <td className="py-2 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => moveUp(idx)}
-                            className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
-                            title="Move up"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveDown(idx)}
-                            className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
-                            title="Move down"
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeDraftSlot(s.id)}
-                            className="px-2 py-1 rounded border border-red-800 text-red-300 hover:bg-red-900/30"
-                            title="Remove"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={addDraftSlot}
-              className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-            >
-              + Add Slot
-            </button>
-
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveDraft}
-                className="px-3 py-2 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
-                title="Save schedule"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-2 text-xs text-zinc-500">
-            Sunday is a rest day by default. You can still add slots for a specific Sunday by selecting
-            <span className="mx-1 font-medium">“this date only”</span> and saving.
-          </div>
-        </div>
+        <Editor
+          date={date}
+          dow={dow}
+          weekdayName={weekdayName}
+          overrides={overrides}
+          clearDateOverride={clearDateOverride}
+          draftSlots={draftSlots}
+          setDraftSlots={setDraftSlots}
+          setDraftValue={setDraftValue}
+          moveUp={moveUp}
+          moveDown={moveDown}
+          removeDraftSlot={removeDraftSlot}
+          addDraftSlot={addDraftSlot}
+          applyScope={applyScope}
+          setApplyScope={setApplyScope}
+          saveDraft={saveDraft}
+        />
       ) : (
-        // view mode
+        // VIEW MODE
         <>
           {visibleSlots.length === 0 ? (
-            <div className="p-4 border border-zinc-800 bg-zinc-900 rounded">
+            <div className="p-3 border border-zinc-800 bg-zinc-900 rounded text-sm">
               {weekdayName === 'Sunday'
                 ? 'Rest day. No classes scheduled. (You can add a date override if needed.)'
-                : `No slots configured for ${weekdayName}. Click “Change Schedule” to add slots.`}
+                : `No slots configured for ${weekdayName}. Click “Change schedule” to add slots.`}
             </div>
           ) : (
             <SlotsGrid
               slots={visibleSlots}
               date={date}
+              dateAllowed={dateAllowed}
+              myAthleteId={myAthleteId}
+              myBookingTime={myBookingTime}
               countsFor={countsFor}
               availabilityFor={availabilityFor}
-              isBookableDay={isBookableDay} // Νέα Prop
-              userAlreadyBooked={hasBookingForSelectedDay} // Νέα Prop
+              canBookThisSlot={canBookThisSlot}
+              bookSlot={bookSlot}
+              cancelSlot={cancelSlot}
             />
           )}
         </>
@@ -669,180 +477,378 @@ export default function SchedulePage() {
   );
 }
 
-/* ===================== subcomponent (Τροποποιημένο) ===================== */
+/* ===================== Editor Subcomponent ===================== */
+
+function Editor(props: {
+  date: string;
+  dow: number;
+  weekdayName: string;
+  overrides: ScheduleOverrides;
+  clearDateOverride: () => void;
+  draftSlots: SlotConfig[];
+  setDraftSlots: React.Dispatch<React.SetStateAction<SlotConfig[]>>;
+  setDraftValue: (id: string, patch: Partial<SlotConfig>) => void;
+  moveUp: (i: number) => void;
+  moveDown: (i: number) => void;
+  removeDraftSlot: (id: string) => void;
+  addDraftSlot: () => void;
+  applyScope: 'date' | 'weekday' | 'weekdays';
+  setApplyScope: (v: 'date' | 'weekday' | 'weekdays') => void;
+  saveDraft: () => void;
+}) {
+  const {
+    date, weekdayName, overrides, clearDateOverride,
+    draftSlots, setDraftValue, moveUp, moveDown, removeDraftSlot, addDraftSlot,
+    applyScope, setApplyScope, saveDraft,
+  } = props;
+
+  return (
+    <div className="border border-zinc-800 bg-zinc-900 rounded p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+        <div className="font-semibold">
+          Editing schedule for: {weekdayName} ({date})
+        </div>
+        <div className="text-xs text-zinc-400">
+          Sunday is rest day by default; you can add slots only via date override.
+        </div>
+      </div>
+
+      {/* Save scope */}
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="text-sm text-zinc-300">Apply change to:</div>
+        <label className="text-sm flex items-center gap-2">
+          <input
+            type="radio"
+            name="scope"
+            value="weekday"
+            checked={applyScope === 'weekday'}
+            onChange={() => setApplyScope('weekday')}
+          />
+          Every <span className="font-medium">{weekdayName}</span>
+        </label>
+        <label className="text-sm flex items-center gap-2">
+          <input
+            type="radio"
+            name="scope"
+            value="weekdays"
+            checked={applyScope === 'weekdays'}
+            onChange={() => setApplyScope('weekdays')}
+          />
+          Every weekday (Mon–Fri)
+        </label>
+        <label className="text-sm flex items-center gap-2">
+          <input
+            type="radio"
+            name="scope"
+            value="date"
+            checked={applyScope === 'date'}
+            onChange={() => setApplyScope('date')}
+          />
+          This date only (<span className="font-mono">{date}</span>)
+        </label>
+
+        {overrides[date] ? (
+          <button
+            type="button"
+            onClick={clearDateOverride}
+            className="sm:ml-auto px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+            title="Remove override for this date"
+          >
+            Remove this date’s override
+          </button>
+        ) : null}
+      </div>
+
+      {/* Table of slots */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-zinc-300">
+            <tr className="border-b border-zinc-800">
+              <th className="py-2 text-left w-28">Time</th>
+              <th className="py-2 text-left w-28">Capacity</th>
+              <th className="py-2 text-left w-32">Waitlist</th>
+              <th className="py-2 text-left">Label</th>
+              <th className="py-2 text-right w-32">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {draftSlots.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="py-4 text-center text-zinc-500">
+                  No slots. Add one below.
+                </td>
+              </tr>
+            ) : (
+              draftSlots.map((s, idx) => (
+                <tr key={s.id} className="border-b border-zinc-800">
+                  <td className="py-2 pr-2">
+                    <input
+                      value={s.time}
+                      onChange={(e) => setDraftValue(s.id, { time: e.target.value })}
+                      className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+                      placeholder="HH:MM"
+                    />
+                  </td>
+                  <td className="py-2 pr-2">
+                    <input
+                      inputMode="numeric"
+                      value={String(s.capacityMain)}
+                      onChange={(e) =>
+                        setDraftValue(s.id, {
+                          capacityMain: Math.max(0, parseInt(e.target.value || '0', 10)),
+                        })
+                      }
+                      className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+                      placeholder="12"
+                    />
+                  </td>
+                  <td className="py-2 pr-2">
+                    <input
+                      inputMode="numeric"
+                      value={String(s.capacityWait)}
+                      onChange={(e) =>
+                        setDraftValue(s.id, {
+                          capacityWait: Math.max(0, parseInt(e.target.value || '0', 10)),
+                        })
+                      }
+                      className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+                      placeholder="2"
+                    />
+                  </td>
+                  <td className="py-2 pr-2">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectValueFromLabel(s.label)}
+                        onChange={(e) => {
+                          const sel = e.target.value;
+                          if (sel === 'custom') {
+                            setDraftValue(s.id, { label: 'custom' });
+                          } else if (sel === '') {
+                            setDraftValue(s.id, { label: '' });
+                          } else {
+                            setDraftValue(s.id, { label: sel }); // competitive / novice / advanced
+                          }
+                        }}
+                        className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+                      >
+                        <option value="">—</option>
+                        <option value="competitive">Competitive</option>
+                        <option value="novice">Novice</option>
+                        <option value="advanced">Advanced</option>
+                        <option value="custom">Custom…</option>
+                      </select>
+                      {!isPresetLabel(s.label || '') && (
+                        <input
+                          value={s.label || ''}
+                          onChange={(e) => setDraftValue(s.id, { label: e.target.value })}
+                          className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+                          placeholder="Custom label"
+                        />
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveUp(idx)}
+                        className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
+                        title="Move up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveDown(idx)}
+                        className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
+                        title="Move down"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeDraftSlot(s.id)}
+                        className="px-2 py-1 rounded border border-red-800 text-red-300 hover:bg-red-900/30"
+                        title="Remove"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={addDraftSlot}
+          className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+        >
+          + Add slot
+        </button>
+
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => (document.activeElement as HTMLElement)?.blur()}
+            className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={saveDraft}
+            className="px-3 py-2 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
+            title="Save schedule"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-2 text-xs text-zinc-500">
+        Sunday is a rest day by default. You can still add slots for a specific Sunday by selecting
+        <span className="mx-1 font-medium">“This date only”</span> and saving.
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Slots Grid (View) ===================== */
 
 function SlotsGrid({
   slots,
   date,
+  dateAllowed,
+  myAthleteId,
+  myBookingTime,
   countsFor,
   availabilityFor,
-  isBookableDay,
-  userAlreadyBooked,
+  canBookThisSlot,
+  bookSlot,
+  cancelSlot,
 }: {
   slots: SlotConfig[];
   date: string;
+  dateAllowed: boolean;
+  myAthleteId: string | null;
+  myBookingTime: string | null;
   countsFor: (time: string) => { main: number; wait: number };
-  availabilityFor: (
-    time: string, 
-    capMain: number, 
-    capWait: number
-  ) => {
+  availabilityFor: (time: string, capMain: number, capWait: number) => {
     main: number;
     wait: number;
     mainLeft: number;
     waitLeft: number;
     hasAvailability: boolean;
     isFullyBooked: boolean;
-    isPastOrTooClose: boolean;
-    canBookThisSlot: boolean; // Δείχνει αν το slot είναι bookable ΑΝ η ημέρα είναι bookable
-    isDisabled: boolean; // Δείχνει αν το slot είναι Full/Past
   };
-  isBookableDay: boolean;
-  userAlreadyBooked: boolean;
+  canBookThisSlot: (slot: SlotConfig) => { ok: boolean; reason?: string };
+  bookSlot: (slot: SlotConfig) => void;
+  cancelSlot: (slot: SlotConfig) => void;
 }) {
-  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
-  // ΜΗΝ κάνεις setState μέσα στο render: καθάρισε την επιλογή αν δεν πρέπει να είναι επιλέξιμη
-  useEffect(() => {
-    if (!selectedSlotId) return;
-
-    const sel = slots.find(s => s.id === selectedSlotId);
-    if (!sel) return;
-
-    const { isDisabled } = availabilityFor(sel.time, sel.capacityMain, sel.capacityWait);
-    if (!isBookableDay || userAlreadyBooked || isDisabled) {
-      setSelectedSlotId(null);
-    }
-  }, [selectedSlotId, slots, availabilityFor, isBookableDay, userAlreadyBooked]);
-
-  const toggleSlotSelection = (slotId: string) => {
-    setSelectedSlotId(currentId => (currentId === slotId ? null : slotId));
-  };
+  const now = new Date();
+  const isToday = date === todayISO();
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {slots.map((slot) => {
-        const { id, time, label, capacityMain, capacityWait } = slot;
-        const { 
-          main, 
-          wait, 
-          mainLeft, 
-          waitLeft, 
-          hasAvailability, 
-          isFullyBooked, 
-          isPastOrTooClose,
-          canBookThisSlot, 
-          isDisabled 
-        } = availabilityFor(
-          time,
-          capacityMain,
-          capacityWait
-        );
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {slots.map((slot) => {
+          const { id, time, label, capacityMain, capacityWait } = slot;
+          const { main, wait, mainLeft, waitLeft, hasAvailability, isFullyBooked } =
+            availabilityFor(time, capacityMain, capacityWait);
 
-        const isSelected = id === selectedSlotId;
-        
-        // Το slot είναι bookable μόνο αν:
-        // - Η ημέρα είναι bookable,
-        // - Ο χρήστης δεν έχει άλλη κράτηση την ίδια ημέρα,
-        // - Και το ίδιο το slot δεν είναι full/παρελθόν/πολύ κοντά
-        const isActuallyBookable = canBookThisSlot && isBookableDay && !userAlreadyBooked;
+          const start = toDateAt(date, time);
+          const diffMs = start.getTime() - now.getTime();
+          const isPastOrStarted = isToday && now >= start;
+          const cutoffPassed = isToday && diffMs < 30 * 60 * 1000; // <30'
+          const alreadyMine = myBookingTime === time;
 
-        // Στυλ κάρτας
-        let slotClasses = 'w-full text-left rounded border p-3 transition';
-        let clickCursor = 'cursor-pointer';
+          const rule = canBookThisSlot(slot);
+          const disabledUI =
+            !dateAllowed ||
+            isPastOrStarted ||
+            (!alreadyMine && cutoffPassed) ||
+            (!alreadyMine && !hasAvailability);
 
-        if (!isBookableDay || isDisabled || userAlreadyBooked) {
-          slotClasses += ' border-zinc-900 bg-zinc-950 text-zinc-500 opacity-70';
-          clickCursor = 'cursor-not-allowed';
-        } else if (isSelected) {
-          slotClasses += ' border-emerald-600 bg-emerald-900/20';
-        } else {
-          slotClasses += ' border-zinc-800 bg-zinc-900 hover:border-zinc-700';
-        }
+          const canShowBook = selectedTime === time; // εμφανίζουμε μικρό κουμπί όταν γίνει click στο slot
 
-        slotClasses += ` ${clickCursor}`;
+          return (
+            <div
+              key={id}
+              onClick={() => setSelectedTime(time)}
+              className={`relative w-full text-left rounded border transition p-2
+                ${selectedTime === time ? 'border-zinc-600 bg-zinc-900' : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700'}
+                ${disabledUI ? 'opacity-60' : ''}`}
+            >
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-semibold leading-none">{time}</div>
+                {label ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 capitalize">
+                    {label}
+                  </span>
+                ) : null}
 
-        const handleSlotClick = () => {
-          if (isActuallyBookable) {
-            toggleSlotSelection(id);
-          }
-        };
+                {/* Μικρό κουμπί ΔΕΞΙΑ-ΚΑΤΩ (floating bottom-right) */}
+                {canShowBook && (
+                  <div className="absolute right-2 bottom-2">
+                    {alreadyMine ? (
+                      <button
+                        className="px-2 py-1 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-[11px] leading-none"
+                        onClick={(e) => { e.stopPropagation(); cancelSlot(slot); }}
+                      >
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-[11px] leading-none"
+                        disabled={disabledUI || !rule.ok}
+                        title={rule.ok ? 'Book this class' : rule.reason}
+                        onClick={(e) => { e.stopPropagation(); bookSlot(slot); }}
+                      >
+                        BOOK NOW
+                      </button>
+                    )}
+                  </div>
+                )}
 
-        // Κείμενο διαθεσιμότητας
-        let availabilityText;
-        if (isFullyBooked) {
-          availabilityText = <span className="text-red-400">Full (including waitlist)</span>;
-        } else if (isPastOrTooClose) {
-          availabilityText = <span className="text-red-400">Booking closed (less than 30’ remaining)</span>;
-        } else if (mainLeft > 0) {
-          availabilityText = <span className="text-emerald-400">Spots left: {mainLeft}</span>;
-        } else if (waitLeft > 0) {
-          availabilityText = <span className="text-yellow-400">Waitlist left: {waitLeft}</span>;
-        } else {
-          availabilityText = <span className="text-red-400">Booking closed</span>;
-        }
-        
-        // Κείμενο κουμπιού
-        let buttonText = 'Book Now';
-        if (!isBookableDay) {
-          buttonText = 'Day Not Bookable';
-        } else if (userAlreadyBooked) {
-          buttonText = 'Already Booked Today';
-        } else if (isFullyBooked) {
-          buttonText = 'Full (No WL)';
-        } else if (isPastOrTooClose) {
-          buttonText = 'Booking Closed';
-        } else if (!hasAvailability) {
-          buttonText = 'No Spots/WL';
-        }
+                <div className="ml-auto text-[11px] text-zinc-400">
+                  {main}/{capacityMain} • WL {wait}/{capacityWait}
+                </div>
+              </div>
 
-        return (
-          <div
-            key={id}
-            onClick={handleSlotClick}
-            className={slotClasses}
-          >
-            <div className="flex items-center">
-              <div className="text-lg font-semibold">{time}</div>
-              {label ? (
-                <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 capitalize">
-                  {label}
-                </span>
-              ) : null}
-              <div className="ml-auto text-xs text-zinc-400">
-                {main}/{capacityMain} • WL {wait}/{capacityWait}
+              {/* πιο compact πληροφορίες διαθέσιμων */}
+              <div className="mt-1 text-[12px] min-h-[1rem]">
+                {!dateAllowed ? (
+                  <span className="text-zinc-400">Bookable only for today & tomorrow</span>
+                ) : isPastOrStarted ? (
+                  <span className="text-red-400">Unavailable (past/started)</span>
+                ) : !alreadyMine && cutoffPassed ? (
+                  <span className="text-red-400">Bookings close 30’ before start</span>
+                ) : !alreadyMine && !hasAvailability ? (
+                  <span className="text-red-400">Full incl. waitlist</span>
+                ) : alreadyMine ? (
+                  <span className="text-emerald-400">You are booked here</span>
+                ) : (
+                  <span className="text-emerald-400">
+                    {mainLeft > 0 ? `Spots left: ${mainLeft}` : `Waitlist left: ${waitLeft}`}
+                  </span>
+                )}
               </div>
             </div>
-            
-            <div className="mt-1 text-sm">
-              {availabilityText}
-            </div>
+          );
+        })}
+      </div>
 
-            {/* Book Now Button - εμφανίζεται ΜΟΝΟ αν το slot είναι επιλεγμένο */}
-            {isSelected && (
-              <div className="mt-3 flex justify-center">
-                <button
-                  className={`px-4 py-2 rounded text-white text-sm ${
-                    isActuallyBookable 
-                      ? 'bg-emerald-600 hover:bg-emerald-700' 
-                      : 'bg-zinc-700 cursor-not-allowed'
-                  }`}
-                  disabled={!isActuallyBookable}
-                  onClick={(e) => {
-                    e.stopPropagation(); 
-                    if (isActuallyBookable) {
-                      alert(`Booking flow for ${slot.time} on ${date} started...`);
-                      // TODO: call actual booking logic
-                    }
-                  }}
-                >
-                  {buttonText}
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+      {/* Mini help under grid */}
+      <div className="mt-3 text-xs text-zinc-500">
+        Tap a slot to reveal the bottom-right action. Bookings close <b>30’</b> before start. One booking per day.
+      </div>
+    </>
   );
 }
