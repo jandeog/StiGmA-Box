@@ -60,38 +60,30 @@ const selectValueFromLabel = (label?: string) => {
 const cloneSlot = (s: SlotConfig): SlotConfig => ({ ...s, id: crypto.randomUUID() });
 
 /**
- * Ελέγχει αν η ημερομηνία είναι σήμερα ή αύριο (με ειδική λογική για Σάββατο)
+ * Ελέγχει αν η ημερομηνία είναι σήμερα ή αύριο (με ειδική λογική για Σάββατο -> Δευτέρα)
  */
 function isDateBookable(dateStr: string): boolean {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Σήμερα στις 00:00:00
+  const base = new Date();
+  base.setHours(0, 0, 0, 0); // Σήμερα στις 00:00:00
 
   const selectedDate = new Date(dateStr);
   selectedDate.setHours(0, 0, 0, 0); // Επιλεγμένη ημερομηνία στις 00:00:00
 
-  // 1. Σήμερα
-  if (selectedDate.getTime() === today.getTime()) {
-    return true;
-  }
+  // 1) Σήμερα
+  if (selectedDate.getTime() === base.getTime()) return true;
 
-  // 2. Αύριο
-  const tomorrow = new Date(today);
+  // 2) Αύριο
+  const tomorrow = new Date(base);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  
-  // 3. Λογική Σάββατο (Day 6) -> Δευτέρα
-  const isSaturday = today.getDay() === 6;
-  const isMondayAfterSaturday = isSaturday && selectedDate.getDay() === 1 && selectedDate.getTime() === tomorrow.getTime() + 86400000; // tomorrow.getTime() + 1 day (Sunday) = Monday
 
+  // 3) Σάββατο -> επιτρέπουμε και Δευτέρα (παρακάμπτοντας την Κυριακή)
+  const isSaturday = base.getDay() === 6;
   if (isSaturday) {
-      const dayAfterTomorrow = new Date(tomorrow);
-      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1); // Δευτέρα
-      if (selectedDate.getTime() === dayAfterTomorrow.getTime()) {
-          return true;
-      }
+    const monday = new Date(base);
+    monday.setDate(monday.getDate() + 2);
+    if (selectedDate.getTime() === monday.getTime()) return true;
   } else {
-      if (selectedDate.getTime() === tomorrow.getTime()) {
-          return true;
-      }
+    if (selectedDate.getTime() === tomorrow.getTime()) return true;
   }
 
   return false;
@@ -143,6 +135,7 @@ function migrateConfig(c: ScheduleConfig): ScheduleConfig {
   }
   return next;
 }
+
 /* ===================== main component ===================== */
 
 export default function SchedulePage() {
@@ -155,7 +148,6 @@ export default function SchedulePage() {
   
   // Flag για τον κανόνα: Μόνο μια κράτηση την ημέρα
   const hasBookingForSelectedDay = useMemo(() => !!userBookings[date], [userBookings, date]);
-
 
   // base templates (per dow)
   const [config, setConfig] = useState<ScheduleConfig>(defaultConfig());
@@ -177,11 +169,11 @@ export default function SchedulePage() {
     if (rawc) {
       try {
         const parsed = JSON.parse(rawc) as ScheduleConfig;
-         const migrated = migrateConfig(parsed);
-         setConfig(migrated);
-         if (JSON.stringify(migrated) !== rawc) {
+        const migrated = migrateConfig(parsed);
+        setConfig(migrated);
+        if (JSON.stringify(migrated) !== rawc) {
           localStorage.setItem(keyConfig, JSON.stringify(migrated));
-         }
+        }
       } catch {}
     }
     const rawo = localStorage.getItem(keyOverrides);
@@ -228,8 +220,8 @@ export default function SchedulePage() {
     const rec = dayData[time];
     // Ψεύτικες κρατήσεις για δοκιμή του κανόνα 5 (Full WL)
     if (date === todayIso() && time === '07:00') {
-         // Full Main (12/12) και Full Waitlist (2/2) για δοκιμή
-         return { main: 12, wait: 2 }; 
+      // Full Main (12/12) και Full Waitlist (2/2) για δοκιμή
+      return { main: 12, wait: 2 }; 
     }
     return { main: rec?.main?.length || 0, wait: rec?.wait?.length || 0 };
   };
@@ -280,7 +272,6 @@ export default function SchedulePage() {
       hasAvailability,
       isFullyBooked,
       isPastOrTooClose,
-      userAlreadyBooked,
       canBookThisSlot, 
       isDisabled, 
     };
@@ -326,51 +317,50 @@ export default function SchedulePage() {
       return copy;
     });
 
-const saveDraft = () => {
-  const norm = [...draftSlots].sort((a, b) => a.time.localeCompare(b.time));
+  const saveDraft = () => {
+    const norm = [...draftSlots].sort((a, b) => a.time.localeCompare(b.time));
 
-  if (applyScope === 'weekday') {
-    const next: ScheduleConfig = {
-      byDow: {
-        ...config.byDow,
-        [dow]: { slots: norm },
-      },
-    };
-    setConfig(next);
-    localStorage.setItem(keyConfig, JSON.stringify(next));
+    if (applyScope === 'weekday') {
+      const next: ScheduleConfig = {
+        byDow: {
+          ...config.byDow,
+          [dow]: { slots: norm },
+        },
+      };
+      setConfig(next);
+      localStorage.setItem(keyConfig, JSON.stringify(next));
 
-    // Clear override for the current date if it exists
-    if (overrides[date]) {
-      const { [date]: _omit, ...rest } = overrides;
-      setOverrides(rest);
-      localStorage.setItem(keyOverrides, JSON.stringify(rest));
+      // Clear override for the current date if it exists
+      if (overrides[date]) {
+        const { [date]: _omit, ...rest } = overrides;
+        setOverrides(rest);
+        localStorage.setItem(keyOverrides, JSON.stringify(rest));
+      }
+
+    } else if (applyScope === 'weekdays') {
+      const next: ScheduleConfig = { byDow: { ...config.byDow } };
+      for (const d of [1, 2, 3, 4, 5]) {
+        next.byDow[d] = { slots: norm.map(s => ({ ...s })) }; // clone per day
+      }
+      setConfig(next);
+      localStorage.setItem(keyConfig, JSON.stringify(next));
+
+      // Clear override for the current date if it exists and it's a weekday
+      if (overrides[date] && dow >= 1 && dow <= 5) {
+        const { [date]: _omit, ...rest } = overrides;
+        setOverrides(rest);
+        localStorage.setItem(keyOverrides, JSON.stringify(rest));
+      }
+
+    } else {
+      // applyScope === 'date'
+      const nextOv: ScheduleOverrides = { ...overrides, [date]: norm };
+      setOverrides(nextOv);
+      localStorage.setItem(keyOverrides, JSON.stringify(nextOv));
     }
 
-  } else if (applyScope === 'weekdays') {
-    const next: ScheduleConfig = { byDow: { ...config.byDow } };
-    for (const d of [1, 2, 3, 4, 5]) {
-      next.byDow[d] = { slots: norm.map(s => ({ ...s })) }; // clone per day
-    }
-    setConfig(next);
-    localStorage.setItem(keyConfig, JSON.stringify(next));
-
-    // Clear override for the current date if it exists and it's a weekday
-    if (overrides[date] && dow >= 1 && dow <= 5) {
-      const { [date]: _omit, ...rest } = overrides;
-      setOverrides(rest);
-      localStorage.setItem(keyOverrides, JSON.stringify(rest));
-    }
-
-  } else {
-    // applyScope === 'date'
-    const nextOv: ScheduleOverrides = { ...overrides, [date]: norm };
-    setOverrides(nextOv);
-    localStorage.setItem(keyOverrides, JSON.stringify(nextOv));
-  }
-
-  setEditing(false);
-};
-
+    setEditing(false);
+  };
 
   const clearDateOverride = () => {
     if (!overrides[date]) return;
@@ -387,9 +377,9 @@ const saveDraft = () => {
   // Υπολογισμός μηνύματος για την ημέρα
   let dayMessage = '';
   if (!isBookableDay) {
-      dayMessage = 'Bookings are only allowed for today or tomorrow (or Monday if it\'s Saturday).';
+    dayMessage = 'Bookings are only allowed for today or tomorrow (or Monday if it\'s Saturday).';
   } else if (hasBookingForSelectedDay) {
-      dayMessage = `You already have a booking for ${date} at ${userBookings[date]}.`;
+    dayMessage = `You already have a booking for ${date} at ${userBookings[date]}.`;
   }
   
   return (
@@ -407,15 +397,15 @@ const saveDraft = () => {
           >
             {editing ? 'Close Editor' : 'Change Schedule'}
           </button>
-         {/* Ensure DateStepper is correctly imported and named */}
-         {/* <DateStepper value={date} onChange={setDate} /> */}
-         {/* Placeholder for DateStepper */}
-         <input
+          {/* Ensure DateStepper is correctly imported and named */}
+          {/* <DateStepper value={date} onChange={setDate} /> */}
+          {/* Placeholder for DateStepper */}
+          <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
-         />
+          />
         </div>
       </div>
 
@@ -431,9 +421,9 @@ const saveDraft = () => {
       
       {/* Day Message for Booking Rules */}
       {dayMessage ? (
-          <div className="p-3 mb-4 rounded border border-red-700 bg-red-900/20 text-sm text-red-300">
-              {dayMessage}
-          </div>
+        <div className="p-3 mb-4 rounded border border-red-700 bg-red-900/20 text-sm text-red-300">
+          {dayMessage}
+        </div>
       ) : null}
 
       {/* editor (No Change) */}
@@ -463,14 +453,14 @@ const saveDraft = () => {
               Every <span className="font-medium">{weekdayName}</span>
             </label>
             <label className="text-sm flex items-center gap-2">
-                <input
-                    type="radio"
-                    name="scope"
-                    value="weekdays"
-                    checked={applyScope === 'weekdays'}
-                    onChange={() => setApplyScope('weekdays')}
-                />
-                Every weekday (Mon–Fri)
+              <input
+                type="radio"
+                name="scope"
+                value="weekdays"
+                checked={applyScope === 'weekdays'}
+                onChange={() => setApplyScope('weekdays')}
+              />
+              Every weekday (Mon–Fri)
             </label>
             <label className="text-sm flex items-center gap-2">
               <input
@@ -559,7 +549,7 @@ const saveDraft = () => {
                               const sel = e.target.value;
                               if (sel === 'custom') {
                                 // επιτρέπουμε free text στο διπλανό input
-                               setDraftValue(s.id, { label: 'custom' });
+                                setDraftValue(s.id, { label: 'custom' });
                               } else if (sel === '') {
                                 setDraftValue(s.id, { label: '' });
                               } else {
@@ -693,9 +683,9 @@ function SlotsGrid({
   date: string;
   countsFor: (time: string) => { main: number; wait: number };
   availabilityFor: (
-      time: string, 
-      capMain: number, 
-      capWait: number
+    time: string, 
+    capMain: number, 
+    capWait: number
   ) => {
     main: number;
     wait: number;
@@ -704,17 +694,27 @@ function SlotsGrid({
     hasAvailability: boolean;
     isFullyBooked: boolean;
     isPastOrTooClose: boolean;
-    userAlreadyBooked: boolean;
     canBookThisSlot: boolean; // Δείχνει αν το slot είναι bookable ΑΝ η ημέρα είναι bookable
     isDisabled: boolean; // Δείχνει αν το slot είναι Full/Past
   };
   isBookableDay: boolean;
   userAlreadyBooked: boolean;
 }) {
-  // State για την παρακολούθηση του ID του επιλεγμένου slot
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
 
-  // Toggle function για την επιλογή του slot
+  // ΜΗΝ κάνεις setState μέσα στο render: καθάρισε την επιλογή αν δεν πρέπει να είναι επιλέξιμη
+  useEffect(() => {
+    if (!selectedSlotId) return;
+
+    const sel = slots.find(s => s.id === selectedSlotId);
+    if (!sel) return;
+
+    const { isDisabled } = availabilityFor(sel.time, sel.capacityMain, sel.capacityWait);
+    if (!isBookableDay || userAlreadyBooked || isDisabled) {
+      setSelectedSlotId(null);
+    }
+  }, [selectedSlotId, slots, availabilityFor, isBookableDay, userAlreadyBooked]);
+
   const toggleSlotSelection = (slotId: string) => {
     setSelectedSlotId(currentId => (currentId === slotId ? null : slotId));
   };
@@ -724,101 +724,77 @@ function SlotsGrid({
       {slots.map((slot) => {
         const { id, time, label, capacityMain, capacityWait } = slot;
         const { 
-            main, 
-            wait, 
-            mainLeft, 
-            waitLeft, 
-            hasAvailability, 
-            isFullyBooked, 
-            isPastOrTooClose,
-            canBookThisSlot, 
-            isDisabled 
+          main, 
+          wait, 
+          mainLeft, 
+          waitLeft, 
+          hasAvailability, 
+          isFullyBooked, 
+          isPastOrTooClose,
+          canBookThisSlot, 
+          isDisabled 
         } = availabilityFor(
           time,
           capacityMain,
           capacityWait
         );
 
-        // Έλεγχος αν το τρέχον slot είναι επιλεγμένο
         const isSelected = id === selectedSlotId;
         
-        // **Τελικός έλεγχος: Το slot είναι bookable μόνο αν:**
-        // 1. Η ημέρα είναι bookable (Κανόνας 2).
-        // 2. Ο χρήστης δεν έχει άλλη κράτηση σήμερα (Κανόνας 3).
-        // 3. Το slot δεν είναι γεμάτο ή παρελθόν / πολύ κοντά (Κανόνες 1, 4, 5 - δηλαδή το canBookThisSlot είναι true).
+        // Το slot είναι bookable μόνο αν:
+        // - Η ημέρα είναι bookable,
+        // - Ο χρήστης δεν έχει άλλη κράτηση την ίδια ημέρα,
+        // - Και το ίδιο το slot δεν είναι full/παρελθόν/πολύ κοντά
         const isActuallyBookable = canBookThisSlot && isBookableDay && !userAlreadyBooked;
 
-
-        // **ΚΑΘΟΡΙΣΜΟΣ ΣΤΥΛ:**
+        // Στυλ κάρτας
         let slotClasses = 'w-full text-left rounded border p-3 transition';
         let clickCursor = 'cursor-pointer';
-        
-        // Ελέγχουμε την γενική κατάσταση "ανενεργό"
+
         if (!isBookableDay || isDisabled || userAlreadyBooked) {
-             // Το slot είναι ΑΝΕΝΕΡΓΟ
-             slotClasses += ' border-zinc-900 bg-zinc-950 text-zinc-500 opacity-70';
-             clickCursor = 'cursor-not-allowed';
-             
-             // Εάν το slot είναι ανενεργό, το αποεπιλέγουμε
-             if (isSelected) {
-                 setSelectedSlotId(null);
-             }
+          slotClasses += ' border-zinc-900 bg-zinc-950 text-zinc-500 opacity-70';
+          clickCursor = 'cursor-not-allowed';
         } else if (isSelected) {
-             // Ενεργό και Επιλεγμένο
-             slotClasses += ' border-emerald-600 bg-emerald-900/20';
+          slotClasses += ' border-emerald-600 bg-emerald-900/20';
         } else {
-             // Ενεργό και Μη Επιλεγμένο
-             slotClasses += ' border-zinc-800 bg-zinc-900 hover:border-zinc-700';
+          slotClasses += ' border-zinc-800 bg-zinc-900 hover:border-zinc-700';
         }
 
-        // Εφαρμογή του cursor
         slotClasses += ` ${clickCursor}`;
-        
-        // Λογική για το κλικ στο slot (επιλογή/αποεπιλογή), μόνο αν μπορεί να γίνει book.
+
         const handleSlotClick = () => {
-             if (isActuallyBookable) {
-                toggleSlotSelection(id);
-            }
+          if (isActuallyBookable) {
+            toggleSlotSelection(id);
+          }
         };
 
-        // Καθορισμός κειμένου διαθεσιμότητας
+        // Κείμενο διαθεσιμότητας
         let availabilityText;
         if (isFullyBooked) {
-            availabilityText = <span className="text-red-400">Full (including waitlist)</span>;
+          availabilityText = <span className="text-red-400">Full (including waitlist)</span>;
         } else if (isPastOrTooClose) {
-            availabilityText = <span className="text-red-400">Booking closed (less than 30' remaining)</span>;
+          availabilityText = <span className="text-red-400">Booking closed (less than 30’ remaining)</span>;
         } else if (mainLeft > 0) {
-            availabilityText = (
-                <span className="text-emerald-400">
-                    Spots left: {mainLeft}
-                </span>
-            );
+          availabilityText = <span className="text-emerald-400">Spots left: {mainLeft}</span>;
         } else if (waitLeft > 0) {
-            availabilityText = (
-                 <span className="text-yellow-400">
-                    Waitlist left: {waitLeft}
-                </span>
-            );
+          availabilityText = <span className="text-yellow-400">Waitlist left: {waitLeft}</span>;
         } else {
-            
-availabilityText = <span className="text-red-400">Booking closed (less than 30 remaining)</span>;
-
+          availabilityText = <span className="text-red-400">Booking closed</span>;
         }
         
-        // Τελικό κείμενο κουμπιού
+        // Κείμενο κουμπιού
         let buttonText = 'Book Now';
         if (!isBookableDay) {
-            buttonText = 'Day Not Bookable';
+          buttonText = 'Day Not Bookable';
         } else if (userAlreadyBooked) {
-            buttonText = 'Already Booked Today';
+          buttonText = 'Already Booked Today';
         } else if (isFullyBooked) {
-            buttonText = 'Full (No WL)';
+          buttonText = 'Full (No WL)';
         } else if (isPastOrTooClose) {
-             buttonText = 'Booking Closed';
+          buttonText = 'Booking Closed';
         } else if (!hasAvailability) {
-             buttonText = 'No Spots/WL';
+          buttonText = 'No Spots/WL';
         }
-
 
         return (
           <div
@@ -839,28 +815,28 @@ availabilityText = <span className="text-red-400">Booking closed (less than 30 r
             </div>
             
             <div className="mt-1 text-sm">
-                {availabilityText}
+              {availabilityText}
             </div>
 
             {/* Book Now Button - εμφανίζεται ΜΟΝΟ αν το slot είναι επιλεγμένο */}
             {isSelected && (
               <div className="mt-3 flex justify-center">
                 <button
-                    className={`px-4 py-2 rounded text-white text-sm ${
-                        isActuallyBookable 
-                            ? 'bg-emerald-600 hover:bg-emerald-700' 
-                            : 'bg-zinc-700 cursor-not-allowed'
-                    }`}
-                    disabled={!isActuallyBookable}
-                    onClick={(e) => {
-                        e.stopPropagation(); 
-                        if (isActuallyBookable) {
-                            alert(`Booking flow for ${slot.time} on ${date} started...`);
-                            // Εδώ θα έμπαινε η κλήση για την πραγματική κράτηση
-                        }
-                    }}
-                  >
-                    {buttonText}
+                  className={`px-4 py-2 rounded text-white text-sm ${
+                    isActuallyBookable 
+                      ? 'bg-emerald-600 hover:bg-emerald-700' 
+                      : 'bg-zinc-700 cursor-not-allowed'
+                  }`}
+                  disabled={!isActuallyBookable}
+                  onClick={(e) => {
+                    e.stopPropagation(); 
+                    if (isActuallyBookable) {
+                      alert(`Booking flow for ${slot.time} on ${date} started...`);
+                      // TODO: call actual booking logic
+                    }
+                  }}
+                >
+                  {buttonText}
                 </button>
               </div>
             )}
