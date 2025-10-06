@@ -67,7 +67,7 @@ export default function AthletesPage() {
   }, [q, athletes]);
 
   return (
-    <section className="max-w-3xl">
+    <section className="max-w-4xl">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-2xl font-bold">Athletes</h1>
         <div className="ml-auto flex items-center gap-2">

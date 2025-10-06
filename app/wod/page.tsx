@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
 
-
 type ScoringType = 'for_time' | 'amrap' | 'emom';
 
 type StrengthPart = {
@@ -24,10 +23,15 @@ type WOD = {
   recordMainScore: boolean;
 };
 
-// Locked (read-only) UI for all fields except the Date
+// Helpers
+const todayStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 
-
-const todayStr = () => new Date().toISOString().slice(0, 10);
 const fmtDDMMYYYY = (iso: string) => {
   if (!iso) return '';
   const [y, m, d] = iso.split('-');
@@ -45,60 +49,48 @@ const defaultWOD = (): WOD => ({
 
 export default function WodPage() {
   // Date is independent so you can change it freely
-  
   const [date, setDate] = useState<string>(todayStr());
 
   // WOD contents for the selected date
   const [wod, setWod] = useState<WOD>(defaultWOD());
 
   const [savedMsg, setSavedMsg] = useState('');
-const [locked, setLocked] = useState(false); 
+  const [locked, setLocked] = useState(false);
+
   // Load from localStorage when the date changes; reset to defaults if not found
-useEffect(() => {
-  const key = `wod:${date}`;
-  const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as Partial<WOD>;
-      setWod({
-        // ΔΕΝ γράφουμε/διαβάζουμε parsed.date εδώ
-        strength: {
-          title: parsed.strength?.title ?? '',
-          description: parsed.strength?.description ?? '',
-          scoreHint: parsed.strength?.scoreHint ?? '',
-          recordScore: parsed.strength?.recordScore ?? false,
-        },
-        title: parsed.title ?? '',
-        description: parsed.description ?? '',
-        scoring: (parsed.scoring as ScoringType) ?? 'for_time',
-        timeCap: parsed.timeCap ?? '',
-        recordMainScore: parsed.recordMainScore ?? true,
-      });
-      return;
-    } catch {}
-  }
-  // default κενό για τη συγκεκριμένη date
-  setWod({
-    strength: { title: '', description: '', scoreHint: '', recordScore: false },
-    title: '',
-    description: '',
-    scoring: 'for_time',
-    timeCap: '',
-    recordMainScore: true,
-  });
-}, [date]);
+  useEffect(() => {
+    const key = `wod:${date}`;
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Partial<WOD>;
+        setWod({
+          strength: {
+            title: parsed.strength?.title ?? '',
+            description: parsed.strength?.description ?? '',
+            scoreHint: parsed.strength?.scoreHint ?? '',
+            recordScore: parsed.strength?.recordScore ?? false,
+          },
+          title: parsed.title ?? '',
+          description: parsed.description ?? '',
+          scoring: (parsed.scoring as ScoringType) ?? 'for_time',
+          timeCap: parsed.timeCap ?? '',
+          recordMainScore: parsed.recordMainScore ?? true,
+        });
+        return;
+      } catch {}
+    }
+    // default κενό για τη συγκεκριμένη date
+    setWod(defaultWOD());
+  }, [date]);
 
-
-
-  // Save stays disabled in read-only mode, but we keep the logic if you unlock later
-const saveWod = () => {
-  const key = `wod:${date}`;
-  localStorage.setItem(key, JSON.stringify(wod));
-  setSavedMsg('✅ Saved for this date');
-  setTimeout(() => setSavedMsg(''), 1600);
-};
-
-
+  // Save (kept even if locked for future unlock flow)
+  const saveWod = () => {
+    const key = `wod:${date}`;
+    localStorage.setItem(key, JSON.stringify(wod));
+    setSavedMsg('✅ Saved for this date');
+    setTimeout(() => setSavedMsg(''), 1600);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,17 +102,14 @@ const saveWod = () => {
   };
 
   return (
-    <section className="max-w-2xl">
-      <h1 className="text-2xl font-bold mb-4">WOD (demo)</h1>
+    <section className="max-w-4xl mx-auto text-left">
+      <h1 className="text-2xl font-bold mb-4">WOD</h1>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Date — standalone and ENABLED */}
         <div>
           <label className="block text-sm mb-1 text-zinc-300">Date</label>
-<DateStepper
-  value={date}
-  onChange={setDate}
-/>
+          <DateStepper value={date} onChange={setDate} />
         </div>
 
         {/* Strength / Skills */}
@@ -177,7 +166,7 @@ const saveWod = () => {
             />
           </div>
 
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 inline-flex items-center gap-2">
             <input
               disabled={locked}
               id="strength-record"
@@ -191,7 +180,7 @@ const saveWod = () => {
               }
               className="h-4 w-4 accent-zinc-200"
             />
-            <label htmlFor="strength-record" className="text-sm text-zinc-300">
+            <label htmlFor="strength-record" className="text-sm text-zinc-300 whitespace-nowrap">
               Record score for Strength / Skills
             </label>
           </div>
@@ -240,7 +229,7 @@ const saveWod = () => {
             />
           </div>
 
-          {/* Time cap + checkbox (checkbox below) */}
+          {/* Time cap + checkbox */}
           <div className="mt-3">
             <label className="block text-sm mb-1 text-zinc-300">Time cap</label>
             <input
@@ -250,7 +239,7 @@ const saveWod = () => {
               onChange={(e) => setWod((s) => ({ ...s, timeCap: e.target.value }))}
               className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
             />
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 inline-flex items-center gap-2">
               <input
                 disabled={locked}
                 id="main-record"
@@ -259,7 +248,7 @@ const saveWod = () => {
                 onChange={(e) => setWod((s) => ({ ...s, recordMainScore: e.target.checked }))}
                 className="h-4 w-4 accent-zinc-200"
               />
-              <label htmlFor="main-record" className="text-sm text-zinc-300">
+              <label htmlFor="main-record" className="text-sm text-zinc-300 whitespace-nowrap">
                 Record score for Main WOD
               </label>
             </div>
@@ -270,8 +259,8 @@ const saveWod = () => {
           <button
             type="submit"
             className={`px-4 py-2 rounded border border-zinc-700 text-sm ${locked ? 'opacity-60 cursor-not-allowed' : 'hover:bg-zinc-800'}`}
-disabled={locked}
-title={locked ? 'This date already has a saved WOD (locked)' : 'Save WOD for this date'}
+            disabled={locked}
+            title={locked ? 'This date already has a saved WOD (locked)' : 'Save WOD for this date'}
           >
             Save
           </button>

@@ -268,7 +268,7 @@ const nameWithNick = (fullName: string) => {
 };
 
   return (
-    <section className="max-w-3xl">
+    <section className="max-w-4xl">
       {/* Title */}
       <h1 className="text-2xl font-bold mb-4">Scores</h1>
 

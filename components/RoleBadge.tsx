@@ -17,21 +17,28 @@ function readRole(): 'coach' | 'athlete' | null {
 }
 
 export default function RoleBadge() {
-  const [role, setRole] = useState<'coach' | 'athlete' | null>(() => readRole());
+  const [role, setRole] = useState<'coach' | 'athlete' | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     const update = () => setRole(readRole());
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'auth:user') update();
-    });
-    window.addEventListener('auth:changed', update);
     update();
+    setMounted(true);
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'auth:user') update();
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('auth:changed', update);
+
     return () => {
+      window.removeEventListener('storage', onStorage);
       window.removeEventListener('auth:changed', update);
     };
   }, []);
 
-  if (role !== 'coach') return null;
+  if (!mounted || role !== 'coach') return null;
 
   return (
     <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-emerald-700 text-emerald-300">
