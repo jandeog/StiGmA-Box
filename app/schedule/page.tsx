@@ -406,7 +406,7 @@ export default function SchedulePage() {
   return (
     <section className="relative max-w-4xl h-auto min-h-0">
       {/* Header */}
-      <div className="mb-3 flex items-center gap-3">
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
         <h1 className="text-2xl font-bold">Schedule</h1>
 
         <div className="ml-auto flex items-center gap-2">

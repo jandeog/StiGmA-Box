@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="el">
       <body className="min-h-screen bg-zinc-950 text-zinc-100">
-        <header className="sticky top-0 z-10 bg-zinc-950 border-b border-zinc-800">
+        <header className="flex flex-wrap items-center justify-between  gap-x-2 gap-y-4 px-4 py-2">
 <nav className="max-w-4xl mx-auto flex items-center gap-2 px-3 py-2 text-base md:text-sm text-zinc-200">
             <Link href="/" className="flex items-center">
 <Image
