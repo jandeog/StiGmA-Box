@@ -1,0 +1,65 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Ημερήσιο WOD (ένα ανά ημερομηνία)
+model Wod {
+  id          String   @id @default(cuid())
+  date        DateTime @unique          // YYYY-MM-DD 00:00:00
+  title       String
+  description String
+  scoring     String                    // "for_time" | "amrap" | "emom"
+  timeCap     String?
+  // Strength / Skills
+  strengthTitle       String?
+  strengthDescription String?
+  strengthScoreHint   String?
+  strengthRecordScore Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([date])
+}
+
+/// Κρατήσεις slots (main ή waitlist)
+model Booking {
+  id        String   @id @default(cuid())
+  date      DateTime              // YYYY-MM-DD 00:00:00
+  time      String                // "HH:MM"
+  athleteId String
+  status    BookingStatus @default(MAIN)   // MAIN | WAIT
+  createdAt DateTime @default(now())
+
+  @@unique([date, time, athleteId])  // μία κράτηση/ημέρα/ώρα/athlete
+  @@index([date, time])
+}
+
+enum BookingStatus {
+  MAIN
+  WAIT
+}
+
+/// Καταχωρήσεις σκορ
+model Score {
+  id        String   @id @default(cuid())
+  date      DateTime              // YYYY-MM-DD 00:00:00
+  athleteId String
+  part      ScorePart             // STRENGTH | MAIN
+  value     String                // ελεύθερο πεδίο (π.χ. "7:32", "5x5@80kg")
+  createdAt DateTime @default(now())
+
+  @@index([date, athleteId, part])
+}
+
+enum ScorePart {
+  STRENGTH
+  MAIN
+}

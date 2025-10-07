@@ -1,7 +1,7 @@
 // app/display/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import DateStepper from '@/components/DateStepper';
 
 
@@ -23,18 +23,19 @@ export default function DisplayPage() {
   const [wod, setWod] = useState<WOD | null>(null);
   const [scores, setScores] = useState<Score[]>([]);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     const w = localStorage.getItem(wodKey(date));
     setWod(w ? (JSON.parse(w) as WOD) : null);
     const s = localStorage.getItem(scoresKey(date));
     setScores(s ? (JSON.parse(s) as Score[]) : []);
-  };
+  }, [date]);
 
-  useEffect(() => {
+ useEffect(() => {
+    // τρέξε άμεσα και μετά κάθε 2"
     refresh();
     const t = setInterval(refresh, 2000);
     return () => clearInterval(t);
-  }, [date, refresh]);
+  }, [refresh]);
 
   const sorted = useMemo(() => {
     if (!wod) return scores;
