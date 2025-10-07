@@ -363,6 +363,7 @@ export default function SchedulePage() {
 
       // Καθαρισμός override της ίδιας ημερομηνίας αν υπάρχει
       if (overrides[date]) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { [date]: _omit, ...rest } = overrides;
         setOverrides(rest);
         localStorage.setItem(keyOverrides, JSON.stringify(rest));
@@ -376,6 +377,7 @@ export default function SchedulePage() {
       localStorage.setItem(keyConfig, JSON.stringify(next));
 
       if (overrides[date] && dow >= 1 && dow <= 5) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { [date]: _omit, ...rest } = overrides;
         setOverrides(rest);
         localStorage.setItem(keyOverrides, JSON.stringify(rest));
@@ -388,7 +390,7 @@ export default function SchedulePage() {
 
     setEditing(false);
   };
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
   const clearDateOverride = () => {
     if (!overrides[date]) return;
     const { [date]: _omit, ...rest } = overrides;
