@@ -2,12 +2,15 @@
   "name": "wodbox",
   "version": "0.1.0",
   "private": true,
+  {
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "prisma migrate deploy && next build",
+    "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate"
+  }
+}
   },
   "dependencies": {
     "@prisma/client": "^6.17.0",
