@@ -10,7 +10,7 @@
     "lint": "eslint",
     "postinstall": "prisma generate"
   }
-}
+
   },
   "dependencies": {
     "@prisma/client": "^6.17.0",
