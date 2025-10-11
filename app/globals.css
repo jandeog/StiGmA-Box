@@ -5,6 +5,11 @@
 
 /* τα δικά σου styles από κάτω... */
 
+@layer components {
+  .field-muted {
+    @apply text-zinc-300 placeholder:text-zinc-600;
+  }
+}
 /* ===== Mobile-first, dark base ===== */
 :root {
   color-scheme: dark;            /* ζητά dark native UI όπου γίνεται */
