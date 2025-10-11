@@ -1,4 +1,4 @@
-// app/layout.tsx
+// app/layout.tsx — cleaned
 import type { Metadata } from 'next';
 import './globals.css';
 import Link from 'next/link';
@@ -10,7 +10,6 @@ export const metadata: Metadata = {
 };
 
 function NavLink({ href, label }: { href: string; label: string }) {
-  // NOTE: keep it server-safe (no hooks). We use pathname via CSS data-attr when needed.
   return (
     <Link
       href={href}
@@ -21,7 +20,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
   );
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) { children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full bg-zinc-950 text-zinc-100 antialiased">
@@ -31,22 +30,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="flex items-center justify-between gap-3 py-3">
               {/* Left: Logo */}
               <Link href="/" className="flex items-center gap-2 shrink-0 group">
-                {/*
-                  Put your logo file under /public/logo.svg or /public/logo.png
-                  If your SVG is black, either make it use currentColor or keep className="invert" below
-                */}
                 <Image
-                  src="/logo.svg"
+                  src="/images/Stigma-Logo-white-650x705.png"
                   alt="ΣtiGmA Box"
-                  width={124}
-                  height={28}
+                  width={48}
+                  height={52}
                   priority
                   className="h-7 w-auto select-none [image-rendering:crisp-edges]"
                 />
                 <span className="sr-only">Home</span>
               </Link>
 
-              {/* Center: Tabs */}
+              {/* Center: Tabs (desktop) */}
               <nav className="hidden md:flex items-center gap-1">
                 <NavLink href="/athletes" label="Athlete" />
                 <NavLink href="/schedule" label="Schedule" />
