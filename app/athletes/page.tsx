@@ -37,7 +37,7 @@ interface Athlete {
   emergencyPhone?: string;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 const KEY_ATHLETES = 'athletes';
 
@@ -60,20 +60,6 @@ export default function AthletesPage() {
 
   const isCoach = session?.role === 'coach';
   const myAthleteId = session?.athleteId;
-
-  // simple search by name / nickname / team
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return athletes;
-    return athletes.filter((a) => {
-      const full = `${a.firstName} ${a.lastName}`.toLowerCase();
-      return (
-        full.includes(needle) ||
-        (a.nickname?.toLowerCase() ?? '').includes(needle) ||
-        (a.teamName?.toLowerCase() ?? '').includes(needle)
-      );
-    });
-  }, [q, athletes]);
 
   // simple search by name / nickname / team
   const filtered = useMemo(() => {
@@ -222,30 +208,3 @@ export default function AthletesPage() {
     </div>
   );
 }
-
-
-Ωραία, αυτό είναι απλό: το build λέει ότι λείπει η δήλωση της μεταβλητής filtered που χρησιμοποιείς στο JSX.
-
-Διόρθωσα τον καμβά και ξανάβαλα το memoized φίλτρο ακριβώς κάτω από τα:
-
-const isCoach = session?.role === 'coach';
-const myAthleteId = session?.athleteId;
-
-Το snippet που πρόσθεσα είναι αυτό:
-
-// simple search by name / nickname / team
-const filtered = useMemo(() => {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return athletes;
-  return athletes.filter((a) => {
-    const full = `${a.firstName} ${a.lastName}`.toLowerCase();
-    return (
-      full.includes(needle) ||
-      (a.nickname?.toLowerCase() ?? '').includes(needle) ||
-      (a.teamName?.toLowerCase() ?? '').includes(needle)
-    );
-  });
-}, [q, athletes]);
-
-Κάνε νέο build τώρα — αυτό το type error θα φύγει. Αν δεις άλλο μήνυμα, στείλ’ το εδώ.
-
