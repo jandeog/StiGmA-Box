@@ -1,52 +1,91 @@
 // app/layout.tsx
-import "./globals.css";
-import Link from "next/link";
-import Image from "next/image";
-import type { Metadata } from "next";
-import AuthActions from "../components/AuthActions";
-import RoleBadge from "../components/RoleBadge";
+import type { Metadata } from 'next';
+import './globals.css';
+import Link from 'next/link';
+import Image from 'next/image';
+import { cookies } from 'next/headers';
 
 export const metadata: Metadata = {
-  title: "WOD Box",
-  description: "Local demo for schedule, WOD, scores & display",
+  title: 'ΣtiGmA Box',
+  description: 'Functional fitness — WOD, schedule, scoring',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+function NavLink({ href, label }: { href: string; label: string }) {
+  // NOTE: keep it server-safe (no hooks). We use pathname via CSS data-attr when needed.
   return (
-    <html lang="el">
-      <body className="min-h-screen bg-zinc-950 text-zinc-100">
-        <header className="flex flex-wrap items-center justify-between  gap-x-2 gap-y-4 px-4 py-2">
-<nav className="max-w-4xl mx-auto flex items-center gap-2 px-3 py-2 text-base md:text-sm text-zinc-200">
-            <Link href="/" className="flex items-center">
-<Image
-src="/images/Stigma-Logo-white-650x705.png"
-   alt="Stigma Logo"
-  width={36}
-     height={36}
-className="h-8 w-auto md:h-10"
-   priority
- />
-            </Link>
+    <Link
+      href={href}
+      className="px-3 py-2 rounded-lg text-sm font-medium text-zinc-200/90 hover:text-white hover:bg-zinc-800/70 transition-colors"
+    >
+      {label}
+    </Link>
+  );
+}
 
-            <Link href="/athletes" className="px-2 py-1 rounded hover:bg-zinc-800">Athlete</Link>
-            <Link href="/schedule" className="px-2 py-1 rounded hover:bg-zinc-800">Schedule</Link>
-            <Link href="/wod" className="px-2 py-1 rounded hover:bg-zinc-800">WOD</Link>
-            <Link href="/score" className="px-2 py-1 rounded hover:bg-zinc-800">Scores</Link>
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Example of reading a cookie server-side if needed later
+  const theme = cookies().get('theme')?.value ?? 'dark';
 
-            <div className="ml-auto flex items-center gap-2">
-              <RoleBadge />
-              <Link
-                href="/display"
-                className="px-3 py-1 rounded border border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
-              >
-                TV Display
+  return (
+    <html lang="en" className="h-full">
+      <body className="min-h-full bg-zinc-950 text-zinc-100 antialiased">
+        {/* Header */}
+        <header className="sticky top-0 z-50 w-full border-b border-zinc-800/70 bg-zinc-950/75 backdrop-blur">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between gap-3 py-3">
+              {/* Left: Logo */}
+              <Link href="/" className="flex items-center gap-2 shrink-0 group">
+                {/*
+                  Put your logo file under /public/logo.svg or /public/logo.png
+                  If your SVG is black, either make it use currentColor or keep className="invert" below
+                */}
+                <Image
+                  src="/logo.svg"
+                  alt="ΣtiGmA Box"
+                  width={124}
+                  height={28}
+                  priority
+                  className="h-7 w-auto select-none [image-rendering:crisp-edges]"
+                />
+                <span className="sr-only">Home</span>
               </Link>
-              <AuthActions />
+
+              {/* Center: Tabs */}
+              <nav className="hidden md:flex items-center gap-1">
+                <NavLink href="/athletes" label="Athlete" />
+                <NavLink href="/schedule" label="Schedule" />
+                <NavLink href="/wod" label="WOD" />
+                <NavLink href="/score" label="Scores" />
+              </nav>
+
+              {/* Right: Actions */}
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/display"
+                  className="px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800/80 text-sm font-medium"
+                >
+                  TV Display
+                </Link>
+              </div>
             </div>
-          </nav>
+
+            {/* Secondary row for small screens: tabs full width */}
+            <nav className="md:hidden grid grid-cols-2 gap-2 pb-3">
+              <Link href="/athletes" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Athlete</Link>
+              <Link href="/schedule" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Schedule</Link>
+              <Link href="/wod" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">WOD</Link>
+              <Link href="/score" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Scores</Link>
+            </nav>
+          </div>
         </header>
 
-        <main className="max-w-4xl mx-auto p-4">{children}</main>
+        <main className="mx-auto max-w-6xl px-0 sm:px-6 lg:px-8 py-4">
+          {children}
+        </main>
+
+        <footer className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 text-xs text-zinc-500">
+          © {new Date().getFullYear()} ΣtiGmA Box
+        </footer>
       </body>
     </html>
   );
