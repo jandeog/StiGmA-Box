@@ -2,11 +2,18 @@
 
 // app/athletes/page.tsx
 
-import Link from 'next/link'; import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 
-// -------------------------------------------------- // Types // --------------------------------------------------
+// --------------------------------------------------
+// Types
+// --------------------------------------------------
 
-type Session = { role: 'coach' | 'athlete'; athleteId?: string; email?: string; };
+type Session = {
+  role: 'coach' | 'athlete';
+  athleteId?: string;
+  email?: string;
+};
 
 const KEY_AUTH = 'auth:user';
 
@@ -30,146 +37,215 @@ interface Athlete {
   emergencyPhone?: string;
   createdAt: string;
   updatedAt: string;
-}
+};
 
 const KEY_ATHLETES = 'athletes';
 
-// -------------------------------------------------- // Component // --------------------------------------------------
+// --------------------------------------------------
+// Component
+// --------------------------------------------------
 
-export default function AthletesPage() { const [athletes, setAthletes] = useState<Athlete[]>([]); const [q, setQ] = useState(''); const [session, setSession] = useState<Session | null>(null);
+export default function AthletesPage() {
+  const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [q, setQ] = useState('');
+  const [session, setSession] = useState<Session | null>(null);
 
-useEffect(() => { const raw = typeof window !== 'undefined' ? localStorage.getItem(KEY_ATHLETES) : null; setAthletes(raw ? (JSON.parse(raw) as Athlete[]) : []);
+  useEffect(() => {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(KEY_ATHLETES) : null;
+    setAthletes(raw ? (JSON.parse(raw) as Athlete[]) : []);
 
-const s = typeof window !== 'undefined' ? localStorage.getItem(KEY_AUTH) : null;
-setSession(s ? (JSON.parse(s) as Session) : null);
+    const s = typeof window !== 'undefined' ? localStorage.getItem(KEY_AUTH) : null;
+    setSession(s ? (JSON.parse(s) as Session) : null);
+  }, []);
 
-}, []);
+  const isCoach = session?.role === 'coach';
+  const myAthleteId = session?.athleteId;
 
-const isCoach = session?.role === 'coach'; const myAthleteId = session?.athleteId;
+  // simple search by name / nickname / team
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return athletes;
+    return athletes.filter((a) => {
+      const full = `${a.firstName} ${a.lastName}`.toLowerCase();
+      return (
+        full.includes(needle) ||
+        (a.nickname?.toLowerCase() ?? '').includes(needle) ||
+        (a.teamName?.toLowerCase() ?? '').includes(needle)
+      );
+    });
+  }, [q, athletes]);
 
-// simple search by name / nickname / team const filtered = useMemo(() => { const needle = q.trim().toLowerCase(); if (!needle) return athletes; return athletes.filter((a) => { const full = ${a.firstName} ${a.lastName}.toLowerCase(); return ( full.includes(needle) || (a.nickname?.toLowerCase() ?? '').includes(needle) || (a.teamName?.toLowerCase() ?? '').includes(needle) ); }); }, [q, athletes]);
+  // simple search by name / nickname / team
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return athletes;
+    return athletes.filter((a) => {
+      const full = `${a.firstName} ${a.lastName}`.toLowerCase();
+      return (
+        full.includes(needle) ||
+        (a.nickname?.toLowerCase() ?? '').includes(needle) ||
+        (a.teamName?.toLowerCase() ?? '').includes(needle)
+      );
+    });
+  }, [q, athletes]);
 
-return ( <div className="space-y-4"> {/* Row 1: Title + total on the right */} <div className="flex items-end justify-between gap-3"> <h1 className="text-3xl font-extrabold tracking-tight leading-tight select-none"> <span className="inline-block border-b-2 border-zinc-700 pb-1">Athletes</span> </h1> <div className="text-sm text-zinc-400"> Total: {athletes.length} {athletes.length === 1 ? 'athlete' : 'athletes'} </div> </div>
+  return (
+    <div className="space-y-4">
+      {/* Row 1: Title + total on the right */}
+      <div className="flex items-end justify-between gap-3">
+        <h1 className="text-3xl font-extrabold tracking-tight leading-tight select-none">
+          <span className="inline-block border-b-2 border-zinc-700 pb-1">Athletes</span>
+        </h1>
+        <div className="text-sm text-zinc-400">
+          Total: {athletes.length} {athletes.length === 1 ? 'athlete' : 'athletes'}
+        </div>
+      </div>
 
-{/* Row 2: Controls (search, actions) */}
-  <div className="flex flex-wrap items-center gap-2">
-    <input
-      value={q}
-      onChange={(e) => setQ(e.target.value)}
-      placeholder="Search by name / nickname / team"
-      className="w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
-    />
+      {/* Row 2: Controls (search, actions) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search by name / nickname / team"
+          className="w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
+        />
 
-    {isCoach && (
-      <>
-        <button
-          onClick={() => {
-            const exportPrefixes = ['athletes', 'schedule:', 'wod:', 'scores:'];
-            const dump: Record<string, string> = {};
-            for (let i = 0; i < localStorage.length; i++) {
-              const k = localStorage.key(i);
-              if (!k) continue;
-              if (exportPrefixes.some((p) => k.startsWith(p))) {
-                const v = localStorage.getItem(k);
-                if (v !== null) dump[k] = v;
-              }
-            }
-            const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'wodbox-backup.json';
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+        {isCoach && (
+          <>
+            <button
+              onClick={() => {
+                const exportPrefixes = ['athletes', 'schedule:', 'wod:', 'scores:'];
+                const dump: Record<string, string> = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                  const k = localStorage.key(i);
+                  if (!k) continue;
+                  if (exportPrefixes.some((p) => k.startsWith(p))) {
+                    const v = localStorage.getItem(k);
+                    if (v !== null) dump[k] = v;
+                  }
+                }
+                const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'wodbox-backup.json';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+            >
+              Export
+            </button>
+
+            <button
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'application/json';
+                input.onchange = async () => {
+                  const file = input.files?.[0];
+                  if (!file) return;
+                  try {
+                    const text = await file.text();
+                    const dump = JSON.parse(text) as Record<string, string>;
+                    Object.entries(dump).forEach(([k, v]) => localStorage.setItem(k, v));
+                    window.dispatchEvent(new Event('athletes:changed'));
+                    window.dispatchEvent(new Event('auth:changed'));
+                    alert('Import successful!');
+                  } catch (_e) {
+                    alert('Invalid JSON');
+                  }
+                };
+                input.click();
+              }}
+              className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+            >
+              Import
+            </button>
+          </>
+        )}
+
+        <Link
+          href="/athletes/add"
+          className="ml-auto px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm"
         >
-          Export
-        </button>
+          + Add athlete
+        </Link>
+      </div>
 
-        <button
-          onClick={() => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'application/json';
-            input.onchange = async () => {
-              const file = input.files?.[0];
-              if (!file) return;
-              try {
-                const text = await file.text();
-                const dump = JSON.parse(text) as Record<string, string>;
-                Object.entries(dump).forEach(([k, v]) => localStorage.setItem(k, v));
-                window.dispatchEvent(new Event('athletes:changed'));
-                window.dispatchEvent(new Event('auth:changed'));
-                alert('Import successful!');
-              } catch (_e) {
-                alert('Invalid JSON');
-              }
-            };
-            input.click();
-          }}
-          className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
-        >
-          Import
-        </button>
-      </>
-    )}
+      {/* List */}
+      {filtered.length === 0 ? (
+        <div className="rounded-md border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
+          No athletes found.
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {filtered.map((a) => {
+            const canEditThis = isCoach || (session?.role === 'athlete' && myAthleteId === a.id);
+            const itemContent = (
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-x-2">
+                  <span className="font-medium">{a.firstName} {a.lastName}</span>
+                  {a.nickname ? <span className="text-zinc-400">({a.nickname})</span> : null}
+                  {a.teamName ? <span className="text-zinc-400">[{a.teamName}]</span> : null}
+                  {a.isCoach ? (
+                    <span className="ml-1 rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Coach</span>
+                  ) : null}
+                </div>
 
-    <Link
-      href="/athletes/add"
-      className="ml-auto px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm"
-    >
-      + Add athlete
-    </Link>
-  </div>
+                {isCoach ? (
+                  <div className="text-sm text-zinc-400">
+                    {a.email} • {a.phone}
+                  </div>
+                ) : null}
 
-  {/* List */}
-  {filtered.length === 0 ? (
-    <div className="rounded-md border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
-      No athletes found.
-    </div>
-  ) : (
-    <ul className="space-y-2">
-      {filtered.map((a) => {
-        const canEditThis = isCoach || (session?.role === 'athlete' && myAthleteId === a.id);
-        const itemContent = (
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-x-2">
-              <span className="font-medium">{a.firstName} {a.lastName}</span>
-              {a.nickname ? <span className="text-zinc-400">({a.nickname})</span> : null}
-              {a.teamName ? <span className="text-zinc-400">[{a.teamName}]</span> : null}
-              {a.isCoach ? (
-                <span className="ml-1 rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Coach</span>
-              ) : null}
-            </div>
-
-            {isCoach ? (
-              <div className="text-sm text-zinc-400">
-                {a.email} • {a.phone}
+                {isCoach ? <div className="text-xs text-zinc-500">{a.dob}</div> : null}
               </div>
-            ) : null}
+            );
 
-            {isCoach ? <div className="text-xs text-zinc-500">{a.dob}</div> : null}
-          </div>
-        );
+            return (
+              <li key={a.id} className="rounded border border-zinc-800 p-3">
+                {canEditThis ? (
+                  <Link href={`/athletes/add?id=${a.id}`}>{itemContent}</Link>
+                ) : (
+                  itemContent
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
-        return (
-          <li key={a.id} className="rounded border border-zinc-800 p-3">
-            {canEditThis ? (
-              <Link href={`/athletes/add?id=${a.id}`}>{itemContent}</Link>
-            ) : (
-              itemContent
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  )}
+      <p className="text-xs text-zinc-500">
+        Use “+ Add athlete” to add a new entry. Records are stored locally for the demo.
+      </p>
+    </div>
+  );
+}
 
-  <p className="text-xs text-zinc-500">
-    Use “+ Add athlete” to add a new entry. Records are stored locally for the demo.
-  </p>
-</div>
 
-); }
+Ωραία, αυτό είναι απλό: το build λέει ότι λείπει η δήλωση της μεταβλητής filtered που χρησιμοποιείς στο JSX.
+
+Διόρθωσα τον καμβά και ξανάβαλα το memoized φίλτρο ακριβώς κάτω από τα:
+
+const isCoach = session?.role === 'coach';
+const myAthleteId = session?.athleteId;
+
+Το snippet που πρόσθεσα είναι αυτό:
+
+// simple search by name / nickname / team
+const filtered = useMemo(() => {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return athletes;
+  return athletes.filter((a) => {
+    const full = `${a.firstName} ${a.lastName}`.toLowerCase();
+    return (
+      full.includes(needle) ||
+      (a.nickname?.toLowerCase() ?? '').includes(needle) ||
+      (a.teamName?.toLowerCase() ?? '').includes(needle)
+    );
+  });
+}, [q, athletes]);
+
+Κάνε νέο build τώρα — αυτό το type error θα φύγει. Αν δεις άλλο μήνυμα, στείλ’ το εδώ.
 
