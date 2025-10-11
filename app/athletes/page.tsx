@@ -2,28 +2,32 @@
 
 import Link from 'next/link'; import { useEffect, useMemo, useState } from 'react';
 
+// -------------------------------------------------- // Types // --------------------------------------------------
+
 type Session = { role: 'coach' | 'athlete'; athleteId?: string; email?: string; };
 
 const KEY_AUTH = 'auth:user';
 
-type Athlete = { id: string; firstName: string; lastName: string; nickname?: string; teamName?: string; dob: string; email: string; phone: string; isCoach?: boolean; // gender?: 'male' | 'female' | 'other' | 'prefer_not_say'; heightCm?: number; weightKg?: number; yearsOfExperience?: number; credits?: number; notes?: string; emergencyName?: string; emergencyPhone?: string; createdAt: string; updatedAt: string; };
+interface Athlete { id: string; firstName: string; lastName: string; nickname?: string; teamName?: string; dob: string; email: string; phone: string; isCoach?: boolean; // gender?: 'male' | 'female' | 'other' | 'prefer_not_say' heightCm?: number; weightKg?: number; yearsOfExperience?: number; credits?: number; notes?: string; emergencyName?: string; emergencyPhone?: string; createdAt: string; updatedAt: string; }
 
-const keyAthletes = 'athletes';
+const KEY_ATHLETES = 'athletes';
+
+// -------------------------------------------------- // Component // --------------------------------------------------
 
 export default function AthletesPage() { const [athletes, setAthletes] = useState<Athlete[]>([]); const [q, setQ] = useState(''); const [session, setSession] = useState<Session | null>(null);
 
-useEffect(() => { const raw = localStorage.getItem(keyAthletes); setAthletes(raw ? (JSON.parse(raw) as Athlete[]) : []);
+useEffect(() => { const raw = typeof window !== 'undefined' ? localStorage.getItem(KEY_ATHLETES) : null; setAthletes(raw ? (JSON.parse(raw) as Athlete[]) : []);
 
-const s = localStorage.getItem(KEY_AUTH);
+const s = typeof window !== 'undefined' ? localStorage.getItem(KEY_AUTH) : null;
 setSession(s ? (JSON.parse(s) as Session) : null);
 
 }, []);
 
 const isCoach = session?.role === 'coach'; const myAthleteId = session?.athleteId;
 
-// simple search by name / nickname / team const filtered = useMemo(() => { const needle = q.trim().toLowerCase(); if (!needle) return athletes; return athletes.filter((a) => { const full = ${a.firstName} ${a.lastName}.toLowerCase(); return ( full.includes(needle) || (a.nickname?.toLowerCase() || '').includes(needle) || (a.teamName?.toLowerCase() || '').includes(needle) ); }); }, [q, athletes]);
+// simple search by name / nickname / team const filtered = useMemo(() => { const needle = q.trim().toLowerCase(); if (!needle) return athletes; return athletes.filter((a) => { const full = ${a.firstName} ${a.lastName}.toLowerCase(); return ( full.includes(needle) || (a.nickname?.toLowerCase() ?? '').includes(needle) || (a.teamName?.toLowerCase() ?? '').includes(needle) ); }); }, [q, athletes]);
 
-return ( <div className="space-y-4"> {/* Row 1: Title + total on the right */} <div className="flex items-end justify-between gap-3"> <h1 className="text-3xl font-bold tracking-tight">Athletes</h1> <div className="text-sm text-zinc-400"> Total: {athletes.length} {athletes.length === 1 ? 'athlete' : 'athletes'} </div> </div>
+return ( <div className="space-y-4"> {/* Row 1: Title + total on the right */} <div className="flex items-end justify-between gap-3"> <h1 className="text-3xl font-extrabold tracking-tight leading-tight select-none"> <span className="inline-block border-b-2 border-zinc-700 pb-1">Athletes</span> </h1> <div className="text-sm text-zinc-400"> Total: {athletes.length} {athletes.length === 1 ? 'athlete' : 'athletes'} </div> </div>
 
 {/* Row 2: Controls (search, actions) */}
   <div className="flex flex-wrap items-center gap-2">
@@ -36,7 +40,6 @@ return ( <div className="space-y-4"> {/* Row 1: Title + total on the right */} <
 
     {isCoach && (
       <>
-        {/* Export */}
         <button
           onClick={() => {
             const exportPrefixes = ['athletes', 'schedule:', 'wod:', 'scores:'];
@@ -62,7 +65,6 @@ return ( <div className="space-y-4"> {/* Row 1: Title + total on the right */} <
           Export
         </button>
 
-        {/* Import */}
         <button
           onClick={() => {
             const input = document.createElement('input');
@@ -78,7 +80,7 @@ return ( <div className="space-y-4"> {/* Row 1: Title + total on the right */} <
                 window.dispatchEvent(new Event('athletes:changed'));
                 window.dispatchEvent(new Event('auth:changed'));
                 alert('Import successful!');
-              } catch (e) {
+              } catch (_e) {
                 alert('Invalid JSON');
               }
             };
@@ -119,14 +121,12 @@ return ( <div className="space-y-4"> {/* Row 1: Title + total on the right */} <
               ) : null}
             </div>
 
-            {/* coach βλέπει email+phone, αλλιώς όχι */}
             {isCoach ? (
               <div className="text-sm text-zinc-400">
                 {a.email} • {a.phone}
               </div>
             ) : null}
 
-            {/* Προαιρετικά κάτι δεξιά, π.χ. DOB για coach μόνο */}
             {isCoach ? <div className="text-xs text-zinc-500">{a.dob}</div> : null}
           </div>
         );
