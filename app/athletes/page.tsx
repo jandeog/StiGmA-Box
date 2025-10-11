@@ -8,7 +8,27 @@ type Session = { role: 'coach' | 'athlete'; athleteId?: string; email?: string; 
 
 const KEY_AUTH = 'auth:user';
 
-interface Athlete { id: string; firstName: string; lastName: string; nickname?: string; teamName?: string; dob: string; email: string; phone: string; isCoach?: boolean; // gender?: 'male' | 'female' | 'other' | 'prefer_not_say' heightCm?: number; weightKg?: number; yearsOfExperience?: number; credits?: number; notes?: string; emergencyName?: string; emergencyPhone?: string; createdAt: string; updatedAt: string; }
+interface Athlete {
+  id: string;
+  firstName: string;
+  lastName: string;
+  nickname?: string;
+  teamName?: string;
+  dob: string;
+  email: string;
+  phone: string;
+  isCoach?: boolean;
+  // gender?: 'male' | 'female' | 'other' | 'prefer_not_say'
+  heightCm?: number;
+  weightKg?: number;
+  yearsOfExperience?: number;
+  credits?: number;
+  notes?: string;
+  emergencyName?: string;
+  emergencyPhone?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 const KEY_ATHLETES = 'athletes';
 
