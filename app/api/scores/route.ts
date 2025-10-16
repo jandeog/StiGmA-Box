@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 
 export async function GET() {
-  const supa = supabaseServer();
-  // RLS: coach/admin -> όλα, athlete -> μόνο δικά του
+  const supa = await supabaseServer(); // <-- await
   const { data, error } = await supa
     .from('scores')
     .select('id, score, unit, notes, created_at, wod_id, athlete_id')
@@ -14,7 +13,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const supa = supabaseServer(); // RLS: μόνο coach/admin
+  const supa = await supabaseServer(); // <-- await
   const body = await req.json();
   const { data, error } = await supa.from('scores').insert(body).select('*').single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
