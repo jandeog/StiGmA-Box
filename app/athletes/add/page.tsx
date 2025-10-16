@@ -41,6 +41,10 @@ const KEY_ATHLETES = 'athletes';
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const phoneRe = /^[\d+\-\s()]{6,20}$/;
 
+const field =
+  "w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm field-muted " +
+  "focus:ring-2 focus:ring-zinc-700/50 focus:outline-none shadow-sm";
+
 function AddAthletePage() {
   const router = useRouter();
   const search = useSearchParams();
@@ -349,7 +353,7 @@ function AddAthletePage() {
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               disabled={lockIdentityFields}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. Giannis"
             />
             {errors.firstName && <div className="text-xs text-red-400 mt-1">{errors.firstName}</div>}
@@ -362,7 +366,7 @@ function AddAthletePage() {
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
               disabled={lockIdentityFields}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. Antetokounmpo"
             />
             {errors.lastName && <div className="text-xs text-red-400 mt-1">{errors.lastName}</div>}
@@ -376,7 +380,7 @@ function AddAthletePage() {
             <input
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. Red"
             />
           </div>
@@ -385,7 +389,7 @@ function AddAthletePage() {
             <input
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. Air"
             />
           </div>
@@ -401,7 +405,7 @@ function AddAthletePage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={lockIdentityFields}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="name@example.com"
             />
             {errors.email && <div className="text-xs text-red-400 mt-1">{errors.email}</div>}
@@ -414,8 +418,8 @@ function AddAthletePage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               disabled={lockIdentityFields}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-              placeholder="+30 69..."
+              className={field}
+              placeholder="69..."
             />
             {errors.phone && <div className="text-xs text-red-400 mt-1">{errors.phone}</div>}
           </div>
@@ -431,7 +435,7 @@ function AddAthletePage() {
               type="date"
               value={dob}
               onChange={(e) => setDob(e.target.value)}
-              className="datepicker-white-icon w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className="`datepicker-white-icon ${field}`"
             />
             {errors.dob && <div className="text-xs text-red-400 mt-1">{errors.dob}</div>}
           </div>
@@ -440,7 +444,7 @@ function AddAthletePage() {
             <select
               value={gender}
               onChange={(e) => setGender(e.target.value as Gender | '')}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
             >
               <option value="">—</option>
               <option value="male">Male</option>
@@ -459,7 +463,7 @@ function AddAthletePage() {
               inputMode="numeric"
               value={heightCm}
               onChange={(e) => setHeightCm(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. 182"
             />
           </div>
@@ -469,7 +473,7 @@ function AddAthletePage() {
               inputMode="numeric"
               value={weightKg}
               onChange={(e) => setWeightKg(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. 85"
             />
           </div>
@@ -483,7 +487,7 @@ function AddAthletePage() {
               inputMode="numeric"
               value={years}
               onChange={(e) => setYears(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. 3"
             />
             {errors.years && <div className="text-xs text-red-400 mt-1">{errors.years}</div>}
@@ -494,7 +498,7 @@ function AddAthletePage() {
               inputMode="numeric"
               value={credits}
               onChange={(e) => setCredits(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
               placeholder="e.g. 10"
             />
             {errors.credits && <div className="text-xs text-red-400 mt-1">{errors.credits}</div>}
@@ -510,7 +514,7 @@ function AddAthletePage() {
             rows={4}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+            className={field}
             placeholder="Optional info for the coach"
           />
         </div>
@@ -522,7 +526,7 @@ function AddAthletePage() {
             <input
               value={emName}
               onChange={(e) => setEmName(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
             />
           </div>
           <div>
@@ -530,7 +534,7 @@ function AddAthletePage() {
             <input
               value={emPhone}
               onChange={(e) => setEmPhone(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
             />
           </div>
         </div>

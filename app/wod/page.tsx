@@ -57,6 +57,10 @@ export default function WodPage() {
   const [savedMsg, setSavedMsg] = useState('');
   const [locked, setLocked] = useState(false);
 
+  const field =
+  "w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm field-muted " +
+  "focus:ring-2 focus:ring-zinc-700/50 focus:outline-none shadow-sm";
+
   // Load from localStorage when the date changes; reset to defaults if not found
   useEffect(() => {
     const key = `wod:${date}`;
@@ -128,7 +132,7 @@ export default function WodPage() {
                   }))
                 }
                 placeholder="e.g. Back Squat"
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                className={field}
               />
             </div>
 
@@ -144,7 +148,7 @@ export default function WodPage() {
                   }))
                 }
                 placeholder="e.g. 5x5 @kg or EMOM 10’"
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                className={field}
               />
             </div>
           </div>
@@ -162,7 +166,7 @@ export default function WodPage() {
                 }))
               }
               placeholder="Sets, reps, tempo, rest, cues…"
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
             />
           </div>
 
@@ -198,7 +202,7 @@ export default function WodPage() {
                 placeholder="e.g. Fran / EMOM 12’ / 5 Rounds …"
                 value={wod.title}
                 onChange={(e) => setWod((s) => ({ ...s, title: e.target.value }))}
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                className={field}
               />
             </div>
 
@@ -208,7 +212,7 @@ export default function WodPage() {
                 disabled={locked}
                 value={wod.scoring}
                 onChange={(e) => setWod((s) => ({ ...s, scoring: e.target.value as ScoringType }))}
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                className={field}
               >
                 <option value="for_time">For Time</option>
                 <option value="amrap">AMRAP</option>
@@ -225,7 +229,7 @@ export default function WodPage() {
               placeholder={`e.g.\n21-15-9 Thrusters (42.5/30) & Pull-ups\nTime cap: 8:00`}
               value={wod.description}
               onChange={(e) => setWod((s) => ({ ...s, description: e.target.value }))}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
             />
           </div>
 
@@ -237,7 +241,7 @@ export default function WodPage() {
               placeholder="e.g. 12:00"
               value={wod.timeCap}
               onChange={(e) => setWod((s) => ({ ...s, timeCap: e.target.value }))}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              className={field}
             />
             <div className="mt-3 inline-flex items-center gap-2">
               <input

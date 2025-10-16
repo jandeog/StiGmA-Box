@@ -89,12 +89,13 @@ export default function AthletesPage() {
 
       {/* Row 2: Controls (search, actions) */}
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name / nickname / team"
-          className="w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
-        />
+      <input
+  value={q}
+  onChange={(e) => setQ(e.target.value)}
+  placeholder="Search by name / nickname / team"
+  className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900/80 px-4 py-2 text-sm field-muted
+             focus:ring-2 focus:ring-zinc-700/50 focus:outline-none shadow-sm"
+/>
 
         {isCoach && (
           <>
