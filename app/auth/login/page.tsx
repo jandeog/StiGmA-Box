@@ -1,58 +1,60 @@
-'use client';
-
-import { useState } from 'react';
-import { supabaseBrowser } from '@/lib/supabase/client';
+'use client'
+import { useState } from 'react'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [sent, setSent] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setErr(null);
-    setMsg(null);
-    try {
-      const supa = supabaseBrowser();
-      const origin = window.location.origin;
-      const { error } = await supa.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${origin}/auth/callback?next=/auth/me`,
-        },
-      });
-      if (error) setErr(error.message);
-      else setMsg('Check your email for the magic link ✅');
-    } catch (e: any) {
-      setErr(e?.message || String(e));
-    } finally {
-      setLoading(false);
+  const sendOtp = async () => {
+    setMsg(null)
+    const res = await fetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+    if (!res.ok) {
+      const { error } = await res.json()
+      setMsg(error || 'Failed to send OTP')
+      return
     }
+    setSent(true)
+    setMsg('Κωδικός στάλθηκε στο email')
+  }
+
+  const verify = async () => {
+    setMsg(null)
+    const res = await fetch('/api/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      setMsg(json.error || 'Invalid code')
+      return
+    }
+    setMsg('Επιτυχής σύνδεση')
+    // Μετά το Set-Cookie, κάνε refresh για να δει ο server το session
+    location.assign('/auth/me')
   }
 
   return (
-    <div className="mx-auto max-w-sm p-6">
-      <h1 className="text-xl font-semibold mb-4">Login</h1>
-      <form onSubmit={onSubmit} className="space-y-3">
-        <input
-          type="email"
-          required
-          placeholder="you@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-lg px-3 py-2 bg-zinc-900 border border-zinc-700"
-        />
-        <button
-          disabled={loading}
-          className="w-full rounded-lg px-3 py-2 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
-        >
-          {loading ? 'Sending…' : 'Send magic link'}
-        </button>
-      </form>
-      {msg && <p className="text-green-400 mt-3">{msg}</p>}
-      {err && <p className="text-red-400 mt-3">{err}</p>}
+    <div style={{ padding: 24 }}>
+      <h2>Login</h2>
+
+      <input value={email} onChange={e => setEmail(e.target.value)}
+             placeholder="Email" className="border px-2 py-1 rounded mr-2" />
+      <button onClick={sendOtp} className="border px-3 py-1 rounded">Send code</button>
+
+      {sent && (
+        <div style={{ marginTop: 12 }}>
+          <input value={code} onChange={e => setCode(e.target.value)}
+                 placeholder="6-digit code" className="border px-2 py-1 rounded mr-2" />
+          <button onClick={verify} className="border px-3 py-1 rounded">Verify</button>
+        </div>
+      )}
+
+      {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
     </div>
-  );
+  )
 }
