@@ -6,51 +6,78 @@ export default function LoginPage() {
   const [code, setCode] = useState('')
   const [sent, setSent] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
   const sendOtp = async () => {
     setMsg(null)
-    const res = await fetch('/api/auth/send-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    })
-    if (!res.ok) {
-      const { error } = await res.json()
-      setMsg(error || 'Failed to send OTP')
-      return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Failed to send OTP')
+      setSent(true)
+      setMsg('Κωδικός στάλθηκε στο email')
+    } catch (err:any) {
+      setMsg(err.message)
+    } finally {
+      setLoading(false)
     }
-    setSent(true)
-    setMsg('Κωδικός στάλθηκε στο email')
   }
 
   const verify = async () => {
     setMsg(null)
-    const res = await fetch('/api/auth/verify-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email, code }),
-    })
-    const json = await res.json()
-    if (!res.ok) {
-      setMsg(json.error || 'Invalid code')
-      return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Invalid code')
+      setMsg('Επιτυχής σύνδεση')
+      // Μετά το Set-Cookie, πήγαινε στο /auth/me (server θα δει το cookie)
+      location.assign('/auth/me')
+    } catch (err:any) {
+      setMsg(err.message)
+    } finally {
+      setLoading(false)
     }
-    setMsg('Επιτυχής σύνδεση')
-    // Μετά το Set-Cookie, κάνε refresh για να δει ο server το session
-    location.assign('/auth/me')
   }
 
   return (
     <div style={{ padding: 24 }}>
       <h2>Login</h2>
 
-      <input value={email} onChange={e => setEmail(e.target.value)}
-             placeholder="Email" className="border px-2 py-1 rounded mr-2" />
-      <button onClick={sendOtp} className="border px-3 py-1 rounded">Send code</button>
+      <input
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        placeholder="Email"
+        className="border px-2 py-1 rounded mr-2 w-[480px] max-w-full"
+        type="email"
+        autoComplete="email"
+      />
+      <button onClick={sendOtp} disabled={loading || !email} className="border px-3 py-1 rounded">
+        {loading ? '...' : 'Send code'}
+      </button>
 
       {sent && (
         <div style={{ marginTop: 12 }}>
-          <input value={code} onChange={e => setCode(e.target.value)}
-                 placeholder="6-digit code" className="border px-2 py-1 rounded mr-2" />
-          <button onClick={verify} className="border px-3 py-1 rounded">Verify</button>
+          <input
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            placeholder="6-digit code"
+            className="border px-2 py-1 rounded mr-2"
+            inputMode="numeric"
+            maxLength={6}
+          />
+          <button onClick={verify} disabled={loading || code.length !== 6} className="border px-3 py-1 rounded">
+            {loading ? '...' : 'Verify'}
+          </button>
         </div>
       )}
 

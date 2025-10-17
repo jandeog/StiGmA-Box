@@ -9,13 +9,11 @@ export async function POST(req: Request) {
   const { data, error } = await supabase.auth.verifyOtp({
     email,
     token: code,
-    type: 'email', // email OTP
+    type: 'email',
   })
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 })
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  // Με το createRouteHandlerClient({ cookies }) τα Set-Cookie μπαίνουν αυτόματα.
+  // Τα Set-Cookie headers μπαίνουν αυτόματα από τους helpers
   return NextResponse.json({ ok: true, user: data.user })
 }
