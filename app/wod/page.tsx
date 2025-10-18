@@ -140,6 +140,18 @@ if (!user) {
   console.log('[AUTH USER] NULL', uerr ?? null);
   return;
 }
+// ακόμα μέσα στη handleSubmit, αμέσως μετά το getUser()
+const { data: sess, error: serr } = await supabase.auth.getSession();
+console.log('[AUTH SESSION EXISTS]', !!sess.session, serr ?? null);
+
+const token = sess.session?.access_token;
+if (token) {
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  console.log('[JWT ROLE]', payload.role); // περιμένουμε "authenticated"
+} else {
+  console.log('[JWT ROLE] NO TOKEN');
+}
+
 console.log('[AUTH USER]', user.id);
 
     const atMidnight = toAthensMidnightISO(date);
