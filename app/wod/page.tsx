@@ -133,6 +133,14 @@ export default function WodPage() {
       setSavedMsg('⚠️ Πρόσθεσε τίτλο για το Main WOD');
       return;
     }
+// μέσα στη handleSubmit, πριν το upsert:
+const { data: { user }, error: uerr } = await supabase.auth.getUser();
+if (!user) {
+  setSavedMsg('⚠️ Πρέπει να είσαι συνδεδεμένος για να κάνεις Save.');
+  console.log('[AUTH USER] NULL', uerr ?? null);
+  return;
+}
+console.log('[AUTH USER]', user.id);
 
     const atMidnight = toAthensMidnightISO(date);
 
