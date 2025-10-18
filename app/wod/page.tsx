@@ -3,7 +3,9 @@
 
 import { useEffect, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
-import { supabase } from '@/lib/supabaseClient';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+
+
 
 type ScoringType = 'for_time' | 'amrap' | 'emom';
 
@@ -58,6 +60,7 @@ const defaultWOD = (): WOD => ({
 
 export default function WodPage() {
   // Ημερομηνία ανεξάρτητη από το περιεχόμενο
+  const supabase = createClientComponentClient(); // <-- νέο
   const [date, setDate] = useState(todayStr());
 
   // Περιεχόμενο WOD για την επιλεγμένη ημερομηνία
