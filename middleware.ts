@@ -1,30 +1,31 @@
-// middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 
-const USER = process.env.BASIC_USER || '';
-const PASS = process.env.BASIC_PASS || '';
+const PROTECTED = [
+  '/schedule/edit',
+  '/score',
+  '/athletes/add',
+  '/auth/me',           // άστο αν θες να είναι μόνο για logged-in
+]
 
-export function middleware(req: NextRequest) {
-  // Debug header: για να δούμε ότι τρέχει
-  const res = NextResponse.next();
-  res.headers.set('x-middleware', 'on');
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient({ req, res })
 
-  if (!USER || !PASS) {
-    return res; // δεν μπλοκάρουμε αν λείπουν env
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (PROTECTED.some(p => req.nextUrl.pathname.startsWith(p)) && !user) {
+    const url = req.nextUrl.clone()
+    url.pathname = '/auth/login'
+    url.searchParams.set('redirect', req.nextUrl.pathname)
+    return NextResponse.redirect(url)
   }
-
-  const auth = req.headers.get('authorization');
-  if (auth?.startsWith('Basic ')) {
-    const [u, p] = Buffer.from(auth.split(' ')[1], 'base64').toString().split(':');
-    if (u === USER && p === PASS) return res;
-  }
-  return new NextResponse('Unauthorized', {
-    status: 401,
-    headers: { 'WWW-Authenticate': 'Basic realm="WOD Box"' },
-  });
+  return res
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|images/).*)'],
-};
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}
