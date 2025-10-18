@@ -156,8 +156,7 @@ export default function WodPage() {
 
     if (error) {
       console.error('[WOD save error]', error);
-      setSavedMsg('❌ Κάτι πήγε στραβά στο save');
-      return;
+ setSavedMsg(`❌ Save failed: ${error.message}${error.details ? ' — ' + error.details : ''}`);      return;
     }
 
     setSavedMsg('✅ Αποθηκεύτηκε στη βάση για αυτή την ημερομηνία');
