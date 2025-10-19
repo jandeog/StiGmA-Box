@@ -52,6 +52,7 @@ const defaultWOD = (): WOD => ({
   recordMainScore: true,
 });
 
+
 // Για τα suggestions του Main WOD
 type MainSuggestion = {
   title: string;
@@ -78,11 +79,16 @@ export default function WodPage() {
   const [mainSugs, setMainSugs] = useState<MainSuggestion[]>([]);
   const [mainOpen, setMainOpen] = useState(false);
   const mainInputRef = useRef<HTMLInputElement | null>(null);
+  const suppressMainOpenRef = useRef(false);
 
   // Autocomplete state (Strength)
   const [strSugs, setStrSugs] = useState<StrengthSuggestion[]>([]);
   const [strOpen, setStrOpen] = useState(false);
   const strInputRef = useRef<HTMLInputElement | null>(null);
+  const suppressStrOpenRef = useRef(false);
+
+  const mainActive = mainOpen && wod.title.trim().length > 0;
+const strActive  = strOpen  && wod.strength.title.trim().length > 0;
 
   // Κοινή κλάση για inputs
   const fieldBase =
@@ -247,6 +253,14 @@ export default function WodPage() {
       if (!alive) return;
       setMainSugs(sugs);
       setMainOpen(sugs.length > 0);
+
+      if (suppressMainOpenRef.current) {            // ← νέο
+  setMainSugs([]);                            // κλείσε & καθάρισε
+  setMainOpen(false);
+  suppressMainOpenRef.current = false;
+  return;
+}
+
     })();
     return () => {
       alive = false;
@@ -258,6 +272,7 @@ const hasMainMatch = useMemo(() => {
 }, [wod.title, mainSugs]);
 
   const applyMainSuggestion = (s: MainSuggestion) => {
+    suppressMainOpenRef.current=true;
     setWod((prev) => ({
       ...prev,
       title: s.title,
@@ -320,6 +335,13 @@ const hasMainMatch = useMemo(() => {
       if (!alive) return;
       setStrSugs(sugs);
       setStrOpen(sugs.length > 0);
+      if (suppressStrOpenRef.current) {             // ← νέο
+  setStrSugs([]);
+  setStrOpen(false);
+  suppressStrOpenRef.current = false;
+  return;
+}
+
     })();
     return () => {
       alive = false;
@@ -331,6 +353,7 @@ const hasStrMatch = useMemo(() => {
 }, [wod.strength.title, strSugs]);
 
   const applyStrengthSuggestion = (s: StrengthSuggestion) => {
+    suppressStrOpenRef.current=true;
     setWod((prev) => ({
       ...prev,
       strength: {
@@ -400,7 +423,7 @@ const hasStrMatch = useMemo(() => {
                 placeholder="e.g. Back Squat"
                 className={
                   fieldBase +
-                  (hasStrMatch
+                  (strActive
   ? ' border-emerald-500/60 bg-emerald-800/20'
   : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
@@ -497,7 +520,7 @@ const hasStrMatch = useMemo(() => {
                 onKeyDown={onMainKeyDown}
                 className={
                   fieldBase +
-                  (hasMainMatch
+                  (mainActive
   ? ' border-emerald-500/60 bg-emerald-800/20'
   : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
