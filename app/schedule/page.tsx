@@ -1,54 +1,38 @@
-// app/schedule/page.tsx
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 
-// ---- Types ----
-
-type DbSchedule = {
-  id: string;
-  event_date: string; // YYYY-MM-DD
-  start_time: string; // HH:MM:SS
-  end_time: string | null;
-  title: string;
+type ScheduleDayRow = {
+  event_date: string;
   coach_id: string | null;
-  capacity_main: number | null;
-  capacity_wait: number | null;
+  // Τα slot1..slot12 υπάρχουν στο row — τα προσπελάζουμε δυναμικά
+  [key: string]: unknown;
 };
 
-type DbBooking = {
-  id: string;
-  schedule_id: string;
-  athlete_id: string;
-  is_waitlist: boolean;
+type Profile = { id: string; full_name: string | null };
+
+type SlotVM = {
+  i: number;
+  time: string;
+  title: string;
+  capM: number;
+  capW: number;
+  mainIds: string[];
+  waitIds: string[];
 };
 
-type Profile = {
-  id: string;
-  full_name: string | null;
-};
-
-// ---- Helpers ----
-
-function formatHM(t: string | null | undefined) {
-  if (!t) return '';
-  return t.slice(0, 5);
-}
-
-function toDateAt(dateISO: string, hhmm: string) {
-  const [y, m, d] = dateISO.split('-').map(Number);
-  const [H, M] = hhmm.split(':').map(Number);
-  return new Date(y, (m - 1), d, H, M);
-}
+const MAX_SLOTS = 12;
+const CAP_MAIN_DEFAULT = 14;
+const CAP_WAIT_DEFAULT = 2;
 
 function isoToday(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 function addDays(iso: string, days: number) {
@@ -61,216 +45,173 @@ function addDays(iso: string, days: number) {
   return `${y2}-${m2}-${d2}`;
 }
 
-// ---- Component ----
+function formatHM(t?: string | null) {
+  if (!t) return '';
+  return String(t).slice(0, 5);
+}
+
+function toDateAt(dateISO: string, hhmm: string) {
+  const [y, m, d] = dateISO.split('-').map(Number);
+  const [H, M] = hhmm.split(':').map(Number);
+  return new Date(y, (m - 1), d, H, M);
+}
 
 export default function SchedulePage() {
   const supabase = useMemo(() => createClientComponentClient(), []);
-
   const [date, setDate] = useState<string>(isoToday());
-  const [rows, setRows] = useState<DbSchedule[]>([]);
-  const [bookings, setBookings] = useState<Record<string, DbBooking[]>>({});
-  const [namesByAthlete, setNamesByAthlete] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
+  const [row, setRow] = useState<ScheduleDayRow | null>(null);
+  const [namesById, setNamesById] = useState<Record<string, string>>({});
   const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState<'coach' | 'athlete' | null>(null);
-
-  const CAP_MAIN_DEFAULT = 14; // per your request
-  const CAP_WAIT_DEFAULT = 2;
-
-  // load auth
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const { data } = await supabase.auth.getUser();
-        if (!mounted) return;
-        const u = data.user || null;
-        setUserId(u?.id ?? null);
-        // try user_metadata.role, else localStorage fallback
-        const r = (u?.user_metadata as any)?.role as 'coach' | 'athlete' | undefined;
-        if (r) setRole(r);
-        else {
-          try {
-            const raw = localStorage.getItem('auth:user');
-            const parsed = raw ? JSON.parse(raw) : null;
-            const rr = parsed?.role as 'coach' | 'athlete' | undefined;
-            setRole(rr ?? null);
-          } catch {}
-        }
-      } catch {}
-    })();
-    return () => { mounted = false; };
-  }, [supabase]);
+  const [loading, setLoading] = useState(false);
 
   const isCoach = role === 'coach';
 
-  // load schedule + bookings for selected date
+  // auth
   useEffect(() => {
-    let mounted = true;
     (async () => {
-      setLoading(true);
-
-      const { data: sched, error } = await supabase
-        .from('schedule')
-        .select('id,event_date,start_time,end_time,title,coach_id,capacity_main,capacity_wait')
-        .eq('event_date', date)
-        .order('start_time', { ascending: true });
-
-      if (error) {
-        console.error(error);
-        setLoading(false);
-        return;
+      const { data } = await supabase.auth.getUser();
+      const u = data?.user || null;
+      setUserId(u?.id ?? null);
+      const r = (u?.user_metadata as any)?.role as 'coach' | 'athlete' | undefined;
+      if (r) setRole(r);
+      else {
+        // fallback (αν το κρατάς στο localStorage)
+        try {
+          const raw = localStorage.getItem('auth:user');
+          const parsed = raw ? JSON.parse(raw) : null;
+          const rr = parsed?.role as 'coach' | 'athlete' | undefined;
+          setRole(rr ?? null);
+        } catch {}
       }
-      if (!mounted) return;
-      setRows(sched || []);
-
-      const ids = (sched || []).map((r) => r.id);
-      if (ids.length === 0) {
-        setBookings({});
-        setNamesByAthlete({});
-        setLoading(false);
-        return;
-      }
-
-      const { data: bks, error: bErr } = await supabase
-        .from('schedule_booking')
-        .select('id,schedule_id,athlete_id,is_waitlist')
-        .in('schedule_id', ids);
-
-      if (bErr) {
-        console.error(bErr);
-        setLoading(false);
-        return;
-      }
-
-      const athleteIds = Array.from(new Set((bks || []).map((b) => b.athlete_id)));
-      let nameMap: Record<string, string> = {};
-      if (athleteIds.length > 0) {
-        // Adjust table/columns to your profiles table
-        const { data: ns } = await supabase
-          .from('profiles') // <-- change if different
-          .select('id, full_name')
-          .in('id', athleteIds);
-        (ns as Profile[] | null)?.forEach((p) => (nameMap[p.id] = p.full_name || '—'));
-      }
-
-      const bySched: Record<string, DbBooking[]> = {};
-      (bks || []).forEach((b) => {
-        bySched[b.schedule_id] ??= [];
-        bySched[b.schedule_id].push(b);
-      });
-
-      if (!mounted) return;
-      setBookings(bySched);
-      setNamesByAthlete(nameMap);
-      setLoading(false);
     })();
+  }, [supabase]);
 
-    return () => {
-      mounted = false;
-    };
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setRow(null);
+    setNamesById({});
+
+    const { data, error } = await supabase
+      .from('schedule_day')
+      .select('*')
+      .eq('event_date', date)
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+      setLoading(false);
+      return;
+    }
+
+    const day = (data as ScheduleDayRow) ?? null;
+    setRow(day);
+
+    // μάζεψε όλα τα ids των συμμετεχόντων από όλα τα slots
+    const ids = new Set<string>();
+    if (day) {
+      for (let i = 1; i <= MAX_SLOTS; i++) {
+        const mainArr = (day[`slot${i}_part_main`] as string[] | null) || [];
+        const waitArr = (day[`slot${i}_part_wait`] as string[] | null) || [];
+        mainArr.forEach((id: string) => ids.add(id));
+        waitArr.forEach((id: string) => ids.add(id));
+      }
+    }
+
+    if (ids.size > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles') // προσαρμόσ’ το αν λέγεται αλλιώς
+        .select('id, full_name')
+        .in('id', Array.from(ids));
+
+      const map: Record<string, string> = {};
+      (profiles as Profile[] | null)?.forEach((p) => (map[p.id] = p.full_name || '—'));
+      setNamesById(map);
+    }
+
+    setLoading(false);
   }, [date, supabase]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // φτιάξε τα slots (όπως στο παλιό UI)
+  const slots = useMemo<SlotVM[]>(() => {
+    if (!row) return [];
+    const arr: SlotVM[] = [];
+    for (let i = 1; i <= MAX_SLOTS; i++) {
+      const t = row[`slot${i}_time`] as string | null | undefined;
+      const ttl = row[`slot${i}_title`] as string | null | undefined;
+      // κενό slot → skip
+      if (!t && !ttl) continue;
+
+      const capM = (row[`slot${i}_cap_main`] as number | null) ?? CAP_MAIN_DEFAULT;
+      const capW = (row[`slot${i}_cap_wait`] as number | null) ?? CAP_WAIT_DEFAULT;
+      const mainIds = (row[`slot${i}_part_main`] as string[] | null) || [];
+      const waitIds = (row[`slot${i}_part_wait`] as string[] | null) || [];
+
+      arr.push({
+        i,
+        time: formatHM(t ?? ''),
+        title: (ttl ?? 'Class'),
+        capM,
+        capW,
+        mainIds,
+        waitIds,
+      });
+    }
+    return arr;
+  }, [row]);
 
   const now = new Date();
   const isToday = date === isoToday();
 
-  const myBookingScheduleId: string | null = useMemo(() => {
-    if (!userId) return null;
-    for (const r of rows) {
-      const arr = bookings[r.id] || [];
-      if (arr.some((b) => b.athlete_id === userId)) return r.id;
-    }
-    return null;
-  }, [rows, bookings, userId]);
-
-  const countsFor = useCallback(
-    (scheduleId: string) => {
-      const arr = bookings[scheduleId] || [];
-      return {
-        main: arr.filter((b) => !b.is_waitlist).length,
-        wait: arr.filter((b) => b.is_waitlist).length,
-      };
-    },
-    [bookings]
-  );
-
-  const availabilityFor = useCallback(
-    (row: DbSchedule) => {
-      const { main, wait } = countsFor(row.id);
-      const capMain = row.capacity_main ?? CAP_MAIN_DEFAULT;
-      const capWait = row.capacity_wait ?? CAP_WAIT_DEFAULT;
-      const mainLeft = Math.max(capMain - main, 0);
-      const waitLeft = Math.max(capWait - wait, 0);
-      const hasAvailability = main < capMain || (main >= capMain && wait < capWait);
-      const isFullyBooked = main >= capMain && wait >= capWait;
-      return { main, wait, mainLeft, waitLeft, hasAvailability, isFullyBooked, capMain, capWait };
-    },
-    [countsFor]
-  );
-
-  function bookingRule(row: DbSchedule): { ok: boolean; reason?: string } {
+  function canBook(i: number, startHHMM: string) {
     if (!userId) return { ok: false, reason: 'Please login first.' };
-
-    const start = toDateAt(row.event_date, formatHM(row.start_time));
+    const start = toDateAt(date, startHHMM);
     if (isToday && now >= start) return { ok: false, reason: 'This class has already started or finished.' };
-
     if (isToday) {
-      const diffMs = start.getTime() - now.getTime();
-      if (diffMs < 30 * 60 * 1000) return { ok: false, reason: 'Bookings close 30 minutes before start.' };
+      const diff = start.getTime() - now.getTime();
+      if (diff < 30 * 60 * 1000) return { ok: false, reason: 'Bookings close 30 minutes before start.' };
     }
 
-    if (myBookingScheduleId && myBookingScheduleId !== row.id)
-      return { ok: false, reason: 'You already booked another slot this day. Cancel it to change.' };
-
-    const { hasAvailability } = availabilityFor(row);
-    if (!hasAvailability) return { ok: false, reason: 'Full (including waitlist).' };
+    // one-per-day rule
+    if (row) {
+      for (let k = 1; k <= MAX_SLOTS; k++) {
+        const inMain = ((row[`slot${k}_part_main`] as string[] | null) || []).includes(userId);
+        const inWait = ((row[`slot${k}_part_wait`] as string[] | null) || []).includes(userId);
+        if ((inMain || inWait) && k !== i) {
+          return { ok: false, reason: 'You already booked another slot this day. Cancel it to change.' };
+        }
+      }
+    }
 
     return { ok: true };
   }
 
-  async function bookSlot(row: DbSchedule) {
-    if (!userId) return alert('Please login first.');
-    const rule = bookingRule(row);
+  async function book(i: number) {
+    const slot = slots.find((s) => s.i === i);
+    if (!slot) return;
+    const rule = canBook(i, slot.time);
     if (!rule.ok) return alert(rule.reason);
-
-    const { mainLeft, waitLeft } = availabilityFor(row);
-    const is_waitlist = mainLeft <= 0 && waitLeft > 0;
-
-    const { error } = await supabase.from('schedule_booking').insert({
-      schedule_id: row.id,
-      athlete_id: userId,
-      is_waitlist,
-    });
-
-    if (error) {
-      console.error(error);
-      return alert('Error while booking.');
-    }
-
-    // local optimistic update
-    setBookings((prev) => {
-      const arr = prev[row.id] ? [...prev[row.id]] : [];
-      arr.push({ id: crypto.randomUUID(), schedule_id: row.id, athlete_id: userId, is_waitlist });
-      return { ...prev, [row.id]: arr };
-    });
+    const { data, error } = await supabase.rpc('book_slot', { p_date: date, p_slot: i });
+    if (error) return alert('Error booking');
+    if (String(data || '').startsWith('OK')) reload();
+    else alert(String(data));
   }
 
-  async function cancelSlot(row: DbSchedule) {
-    if (!userId) return;
-    const { error } = await supabase
-      .from('schedule_booking')
-      .delete()
-      .match({ schedule_id: row.id, athlete_id: userId });
+  async function cancel(i: number) {
+    const { error } = await supabase.rpc('cancel_slot', { p_date: date, p_slot: i });
+    if (error) return alert('Error cancelling');
+    reload();
+  }
 
-    if (error) {
-      console.error(error);
-      return alert('Error while cancelling.');
-    }
-
-    setBookings((prev) => {
-      const arr = (prev[row.id] || []).filter((b) => b.athlete_id !== userId);
-      return { ...prev, [row.id]: arr };
-    });
+  function amIMember(i: number) {
+    if (!row || !userId) return false;
+    const inMain = ((row[`slot${i}_part_main`] as string[] | null) || []).includes(userId);
+    const inWait = ((row[`slot${i}_part_wait`] as string[] | null) || []).includes(userId);
+    return inMain || inWait;
   }
 
   return (
@@ -302,75 +243,84 @@ export default function SchedulePage() {
               href="/schedule/edit"
               className="ml-2 px-3 py-1.5 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
             >
-              Edit day(s)
+              Edit hours
             </Link>
           )}
         </div>
       </header>
 
-      {loading && (
-        <div className="text-sm text-zinc-400">Loading…</div>
-      )}
-
-      {!loading && rows.length === 0 && (
+      {loading && <div className="text-sm text-zinc-400">Loading…</div>}
+      {!loading && (!row || slots.length === 0) && (
         <div className="text-sm text-zinc-400">No classes for this day.</div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {rows.map((row) => {
-          const { main, wait, mainLeft, waitLeft, isFullyBooked, capMain, capWait } = availabilityFor(row);
-          const arr = bookings[row.id] || [];
-          const mine = !!arr.find((b) => b.athlete_id === userId);
+        {slots.map((s) => {
+          const mainCount = s.mainIds.length;
+          const waitCount = s.waitIds.length;
+          const mainLeft = Math.max(s.capM - mainCount, 0);
+          const waitLeft = Math.max(s.capW - waitCount, 0);
+          const isFull = mainCount >= s.capM && waitCount >= s.capW;
+          const mine = amIMember(s.i);
 
-          const mainNames = arr.filter((b) => !b.is_waitlist).map((b) => namesByAthlete[b.athlete_id] || '—');
-          const waitNames = arr.filter((b) => b.is_waitlist).map((b) => namesByAthlete[b.athlete_id] || '—');
-          const compactNames = mainNames.slice(0, 3).join(', ') + (mainNames.length > 3 ? ` +${mainNames.length - 3}` : '');
+          const mainNames = s.mainIds.map((id: string) => namesById[id] || '—');
+          const waitNames = s.waitIds.map((id: string) => namesById[id] || '—');
+          const compact =
+            mainNames.slice(0, 3).join(', ') +
+            (mainNames.length > 3 ? ` +${mainNames.length - 3}` : '');
 
           return (
-            <div key={row.id} className="relative rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+            <div key={s.i} className="relative rounded-xl border border-zinc-800 bg-zinc-950 p-3">
               <div className="text-lg font-medium tracking-tight">
-                {formatHM(row.start_time)}
+                {s.time}
               </div>
-              <div className="text-sm text-zinc-400 mb-2">{row.title || 'Class'}</div>
+              <div className="text-sm text-zinc-400 mb-2">{s.title}</div>
 
               <div className="flex items-center gap-2 text-xs">
-                <span className={"px-2 py-0.5 rounded-full border " + (mainLeft > 0 ? 'border-emerald-700 text-emerald-300' : 'border-zinc-700 text-zinc-400')}>
-                  Main {main}/{capMain}
+                <span
+                  className={
+                    'px-2 py-0.5 rounded-full border ' +
+                    (mainLeft > 0 ? 'border-emerald-700 text-emerald-300' : 'border-zinc-700 text-zinc-400')
+                  }
+                >
+                  Main {mainCount}/{s.capM}
                 </span>
-                <span className={"px-2 py-0.5 rounded-full border " + (waitLeft > 0 ? 'border-amber-700 text-amber-300' : 'border-zinc-700 text-zinc-400')}>
-                  WL {wait}/{capWait}
+                <span
+                  className={
+                    'px-2 py-0.5 rounded-full border ' +
+                    (waitLeft > 0 ? 'border-amber-700 text-amber-300' : 'border-zinc-700 text-zinc-400')
+                  }
+                >
+                  WL {waitCount}/{s.capW}
                 </span>
-                {compactNames && (
+                {compact && (
                   <span
                     className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300"
                     title={`Booked: ${mainNames.join(', ')}${waitNames.length ? ` • WL: ${waitNames.join(', ')}` : ''}`}
                   >
-                    {compactNames}
+                    {compact}
                   </span>
                 )}
               </div>
 
-              <div className="mt-3 flex items-center justify-between">
-                <div className="text-xs text-zinc-500">{row.coach_id ? 'Coach assigned' : '—'}</div>
-                <div className="flex items-center gap-2">
-                  {mine ? (
-                    <button
-                      className="px-3 py-1.5 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
-                      onClick={() => cancelSlot(row)}
-                    >
-                      Cancel
-                    </button>
-                  ) : (
-                    <button
-                      className="px-3 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
-                      disabled={isFullyBooked}
-                      title={isFullyBooked ? 'Full (including waitlist).' : 'Book this class'}
-                      onClick={() => bookSlot(row)}
-                    >
-                      {isFullyBooked ? 'Full' : 'Book'}
-                    </button>
-                  )}
-                </div>
+              <div className="mt-3 flex items-center justify-end gap-2">
+                {mine ? (
+                  <button
+                    className="px-3 py-1.5 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
+                    onClick={() => cancel(s.i)}
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    className="px-3 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+                    disabled={isFull}
+                    title={isFull ? 'Full (including waitlist).' : 'Book this class'}
+                    onClick={() => book(s.i)}
+                  >
+                    {isFull ? 'Full' : 'Book'}
+                  </button>
+                )}
               </div>
             </div>
           );
