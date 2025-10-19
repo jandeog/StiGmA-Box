@@ -94,18 +94,37 @@ function AuthLandingInner() {
     [email, otp, busy]
   );
 
-  // ----- actions -----
-  const goPasswordStep = (e?: React.FormEvent) => {
-    e?.preventDefault();
+  // ----- flows -----
+  // Server-side lookup: does email exist?
+  const onEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setMsg(null);
-    setStep('password');
+    setBusy(true);
+    try {
+      const res = await fetch('/api/auth/email-exists', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Lookup failed');
+
+      if (json.exists) {
+        setStep('password');
+      } else {
+        // Νέος χρήστης: ξεκινάμε OTP (signup)
+        await startOtpFlow();
+      }
+    } catch (err: any) {
+      setMsg(err?.message || 'Something went wrong.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Create account / Send OTP (signup-or-login via code)
   const startOtpFlow = async () => {
-    if (!supabase) return;
-    setBusy(true);
-    setMsg(null);
+    if (!supabase) return false;
 
     // Σημαδεύουμε ότι πρόκειται για νέα εγγραφή
     const url = new URL(window.location.href);
@@ -118,18 +137,17 @@ function AuthLandingInner() {
       email: email.trim(),
       options: {
         shouldCreateUser: true,
-        emailRedirectTo, // αν πατήσει verify via link
+        emailRedirectTo, // fallback αν πατήσει verify link
       },
     });
 
     if (error) {
       setMsg(error.message || 'Could not send verification code.');
-      setBusy(false);
-      return;
+      return false;
     }
     setMsg('Στείλαμε 6-ψήφιο κωδικό στο email σου. Πληκτρολόγησέ τον παρακάτω.');
     setStep('otp');
-    setBusy(false);
+    return true;
   };
 
   // Try password sign-in
@@ -151,8 +169,25 @@ function AuthLandingInner() {
     }
 
     setMsg(
-      'Invalid email or password. Αν δεν έχεις λογαριασμό, επίλεξε “Create account / Send code”.'
+      'Invalid email or password. Αν δεν έχεις λογαριασμό ή ξέχασες το password, χρησιμοποίησε τις επιλογές από κάτω.'
     );
+    setBusy(false);
+  };
+
+  // Forgot password → send reset email
+  const onForgotPassword = async () => {
+    if (!supabase) return;
+    setBusy(true);
+    setMsg(null);
+    const redirectTo = `${getSiteUrl()}/auth/reset`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo,
+    });
+    if (error) {
+      setMsg(error.message || 'Could not send reset email.');
+    } else {
+      setMsg('Σου στείλαμε email για αλλαγή password. Άνοιξέ το και ακολούθησε το link.');
+    }
     setBusy(false);
   };
 
@@ -212,16 +247,10 @@ function AuthLandingInner() {
             priority
             className="w-32 sm:w-40 md:w-44 h-auto mx-auto"
           />
-          <h1 className="mt-3 text-xl font-semibold">Welcome</h1>
-          <p className="text-sm text-zinc-400">
-            {step === 'email' && 'Συνέχισε με το email σου'}
-            {step === 'password' && 'Βάλε το password σου για να συνδεθείς'}
-            {step === 'otp' && 'Πληκτρολόγησε τον 6-ψήφιο κωδικό που λάβαμε στο email σου'}
-          </p>
         </div>
 
         {step === 'email' && (
-          <form onSubmit={goPasswordStep} className="space-y-3">
+          <form onSubmit={onEmailSubmit} className="space-y-3">
             <div>
               <label className="block text-sm mb-1 text-zinc-300">Email</label>
               <input
@@ -250,7 +279,7 @@ function AuthLandingInner() {
               <button
                 type="button"
                 onClick={startOtpFlow}
-                disabled={!canEmail}
+                disabled={!canEmail || busy}
                 className="text-sm underline underline-offset-4 text-emerald-300 hover:text-emerald-200 disabled:opacity-50"
               >
                 Create account / Send code
@@ -302,14 +331,24 @@ function AuthLandingInner() {
               >
                 Back
               </button>
-              <button
-                type="button"
-                onClick={startOtpFlow}
-                className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
-                disabled={!canEmail}
-              >
-                Create account / Send code
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={onForgotPassword}
+                  className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
+                  disabled={busy}
+                >
+                  Forgot password
+                </button>
+                <button
+                  type="button"
+                  onClick={startOtpFlow}
+                  className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
+                  disabled={busy}
+                >
+                  Create account / Send code
+                </button>
+              </div>
             </div>
           </form>
         )}
