@@ -121,9 +121,22 @@ const routePostAuth = async () => {
     () => email.trim().length > 3 && /^\d{6}$/.test(otp) && !busy,
     [email, otp, busy]
   );
- const goContinue = async () => {
-   await routePostAuth();
- };
+const goContinue = async () => {
+  // Προσπαθεί πρώτα με τον “έξυπνο” έλεγχο profile
+  try {
+    await routePostAuth();
+    // Αν για κάποιο λόγο ο client router δεν προχωρήσει,
+    // χρησιμοποίησε hard navigation — το /schedule/layout.tsx θα κάνει guard -> /athletes/add.
+    setTimeout(() => {
+      if (location.pathname === '/') {
+        window.location.assign('/schedule');
+      }
+    }, 150);
+  } catch {
+    window.location.assign('/schedule');
+  }
+};
+
 
 const signOutAndReset = async () => {
   await supabase.auth.signOut(); // καθάρισε πλήρως το session
@@ -159,29 +172,7 @@ const signOutAndReset = async () => {
       setBusy(false);
     }
   };
-{sessionChecked && signedInEmail && (
-  <div className="space-y-3">
-    <div className="text-sm text-zinc-300">
-      Είσαι ήδη συνδεδεμένος ως <span className="font-medium">{signedInEmail}</span>.
-    </div>
-    <div className="flex gap-2">
-      <button
-        type="button"
-        onClick={goContinue}
-        className="px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm"
-      >
-        Continue to Schedule
-      </button>
-      <button
-        type="button"
-        onClick={signOutAndReset}
-        className="px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-      >
-        Sign out & use another email
-      </button>
-    </div>
-  </div>
-)}
+
 
   // Create account / Send OTP (signup-or-login via code)
   const startOtpFlow = async () => {
@@ -314,13 +305,17 @@ const signOutAndReset = async () => {
             Είσαι ήδη συνδεδεμένος ως <span className="font-medium">{signedInEmail}</span>.
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={goContinue}
-              className="px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm"
-            >
-              Continue to Schedule
-            </button>
+           <a
+  href="/schedule"
+  onClick={(e) => {
+    e.preventDefault(); // δοκίμασε πρώτα το έξυπνο route
+    void goContinue();
+  }}
+  className="px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm inline-block"
+>
+  Continue to Schedule
+</a>
+
             <button
               type="button"
               onClick={signOutAndReset}
