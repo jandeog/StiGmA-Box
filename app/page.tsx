@@ -13,6 +13,13 @@ const supabase =
       )
     : (null as any);
 
+const getSiteUrl = () => {
+  const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '');
+  if (fromEnv) return fromEnv;
+  if (typeof window !== 'undefined') return window.location.origin;
+  return 'http://localhost:3000';
+};
+
 // ---------- Page wrapper with Suspense ----------
 export default function Page() {
   return (
@@ -35,15 +42,23 @@ function LoadingShell() {
   );
 }
 
-// ---------- Inner client that uses useSearchParams ----------
+type Step = 'email' | 'password' | 'otp';
+
 function AuthLandingInner() {
   const router = useRouter();
   const sp = useSearchParams();
 
+  const [step, setStep] = useState<Step>('email');
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // OTP state
+  const [otp, setOtp] = useState('');
+  const [resendMsg, setResendMsg] = useState<string | null>(null);
 
   // Αν υπάρχει ήδη session, κάνε reroute
   useEffect(() => {
@@ -53,12 +68,14 @@ function AuthLandingInner() {
       const { data } = await supabase.auth.getSession();
       const hasSession = !!data.session;
 
+      if (!mounted) return;
+
       if (hasSession && sp.get('new') === '1') {
-        if (mounted) router.replace('/athletes/add');
+        router.replace('/athletes/add');
         return;
       }
       if (hasSession) {
-        if (mounted) router.replace('/schedule');
+        router.replace('/schedule');
       }
     })();
     return () => {
@@ -66,56 +83,123 @@ function AuthLandingInner() {
     };
   }, [router, sp]);
 
-  const canSubmit = useMemo(
+  // ----- guards -----
+  const canEmail = useMemo(() => /\S+@\S+\.\S+/.test(email) && !busy, [email, busy]);
+  const canPassword = useMemo(
     () => email.trim().length > 3 && password.trim().length >= 6 && !busy,
     [email, password, busy]
   );
+  const canVerify = useMemo(
+    () => email.trim().length > 3 && /^\d{6}$/.test(otp) && !busy,
+    [email, otp, busy]
+  );
 
-  const onSubmit = async (e: React.FormEvent) => {
+  // ----- actions -----
+  const goPasswordStep = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setMsg(null);
+    setStep('password');
+  };
+
+  // Create account / Send OTP (signup-or-login via code)
+  const startOtpFlow = async () => {
+    if (!supabase) return;
+    setBusy(true);
+    setMsg(null);
+
+    // Σημαδεύουμε ότι πρόκειται για νέα εγγραφή
+    const url = new URL(window.location.href);
+    url.searchParams.set('new', '1');
+    window.history.replaceState(null, '', url.toString());
+
+    const emailRedirectTo = `${getSiteUrl()}/?new=1`;
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo, // αν πατήσει verify via link
+      },
+    });
+
+    if (error) {
+      setMsg(error.message || 'Could not send verification code.');
+      setBusy(false);
+      return;
+    }
+    setMsg('Στείλαμε 6-ψήφιο κωδικό στο email σου. Πληκτρολόγησέ τον παρακάτω.');
+    setStep('otp');
+    setBusy(false);
+  };
+
+  // Try password sign-in
+  const onPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supabase) return;
     setBusy(true);
     setMsg(null);
 
-    const em = email.trim();
-    const pw = password;
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
-    // 1) Προσπάθεια sign-in
-    const { data: signInData, error: signInError } =
-      await supabase.auth.signInWithPassword({ email: em, password: pw });
-
-    if (!signInError && signInData.session) {
+    if (!error && data.session) {
       router.replace('/schedule');
       setBusy(false);
       return;
     }
 
-    // 2) Αν αποτύχει, προχώρα σε sign-up με verification email
-    const redirectTo = `${window.location.origin}/?new=1`;
-
-    const { error: signUpError } = await supabase.auth.signUp({
-      email: em,
-      password: pw,
-      options: {
-        emailRedirectTo: redirectTo,
-      },
-    });
-
-    if (signUpError) {
-      setMsg(
-        signUpError.message ||
-          'Could not sign up. If you already have an account, check your password or reset it.'
-      );
-      setBusy(false);
-      return;
-    }
-
     setMsg(
-      'Check your email to confirm your account. After confirming, you will be redirected to complete your athlete profile.'
+      'Invalid email or password. Αν δεν έχεις λογαριασμό, επίλεξε “Create account / Send code”.'
     );
     setBusy(false);
   };
 
+  const onVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabase) return;
+    setBusy(true);
+    setMsg(null);
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: otp.trim(),
+      type: 'email', // 6-digit email OTP
+    });
+
+    if (error || !data.session) {
+      setMsg(error?.message || 'Λάθος ή ληγμένος κωδικός.');
+      setBusy(false);
+      return;
+    }
+
+    if (sp.get('new') === '1') {
+      router.replace('/athletes/add');
+    } else {
+      router.replace('/schedule');
+    }
+    setBusy(false);
+  };
+
+  const onResend = async () => {
+    if (!email || !supabase) return;
+    setResendMsg(null);
+    setBusy(true);
+    const emailRedirectTo = `${getSiteUrl()}/?new=1`;
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { shouldCreateUser: true, emailRedirectTo },
+    });
+    if (error) {
+      setResendMsg(error.message || 'Could not resend code.');
+    } else {
+      setResendMsg('Στείλαμε ξανά τον κωδικό στο email σου.');
+    }
+    setBusy(false);
+  };
+
+  // ----- UI -----
   return (
     <section className="min-h-[85vh] flex items-center justify-center px-4">
       <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
@@ -129,53 +213,175 @@ function AuthLandingInner() {
             className="w-32 sm:w-40 md:w-44 h-auto mx-auto"
           />
           <h1 className="mt-3 text-xl font-semibold">Welcome</h1>
-          <p className="text-sm text-zinc-400">Sign in or sign up with email & password</p>
+          <p className="text-sm text-zinc-400">
+            {step === 'email' && 'Συνέχισε με το email σου'}
+            {step === 'password' && 'Βάλε το password σου για να συνδεθείς'}
+            {step === 'otp' && 'Πληκτρολόγησε τον 6-ψήφιο κωδικό που λάβαμε στο email σου'}
+          </p>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-3">
-          <div>
-            <label className="block text-sm mb-1 text-zinc-300">Email</label>
-            <input
-              type="email"
-              value={email}
-              autoComplete="email"
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-              placeholder="you@example.com"
-              autoFocus
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-1 text-zinc-300">Password</label>
-            <input
-              type="password"
-              value={password}
-              autoComplete="current-password"
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-              placeholder="••••••••"
-              required
-              minLength={6}
-            />
-          </div>
+        {step === 'email' && (
+          <form onSubmit={goPasswordStep} className="space-y-3">
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">Email</label>
+              <input
+                type="email"
+                value={email}
+                autoComplete="email"
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                placeholder="you@example.com"
+                autoFocus
+                required
+              />
+            </div>
 
-          {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
+            {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
 
-          <button
-            className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
-            type="submit"
-            disabled={!canSubmit}
-          >
-            {busy ? 'Working…' : 'Sign in / Sign up'}
-          </button>
+            <button
+              className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
+              type="submit"
+              disabled={!canEmail}
+            >
+              Continue
+            </button>
 
-          <div className="text-xs text-zinc-500 mt-2 leading-relaxed">
-            If you don’t have an account, we’ll create one and email you a confirmation link. After
-            confirming, you’ll be taken to <span className="font-mono">/athletes/add</span> to
-            complete your profile. Otherwise, you’ll go to <span className="font-mono">/schedule</span>.
-          </div>
-        </form>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={startOtpFlow}
+                disabled={!canEmail}
+                className="text-sm underline underline-offset-4 text-emerald-300 hover:text-emerald-200 disabled:opacity-50"
+              >
+                Create account / Send code
+              </button>
+            </div>
+          </form>
+        )}
+
+        {step === 'password' && (
+          <form onSubmit={onPasswordSubmit} className="space-y-3">
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">Email</label>
+              <input
+                type="email"
+                value={email}
+                readOnly
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">Password</label>
+              <input
+                type="password"
+                value={password}
+                autoComplete="current-password"
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                placeholder="••••••••"
+                required
+                minLength={6}
+              />
+            </div>
+
+            {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
+
+            <button
+              className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
+              type="submit"
+              disabled={!canPassword}
+            >
+              Sign in
+            </button>
+
+            <div className="flex items-center justify-between pt-2">
+              <button
+                type="button"
+                onClick={() => setStep('email')}
+                className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={startOtpFlow}
+                className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
+                disabled={!canEmail}
+              >
+                Create account / Send code
+              </button>
+            </div>
+          </form>
+        )}
+
+        {step === 'otp' && (
+          <form onSubmit={onVerifyOtp} className="space-y-3">
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">Email</label>
+              <input
+                type="email"
+                value={email}
+                readOnly
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">6-digit code</label>
+              <input
+                inputMode="numeric"
+                pattern="\d{6}"
+                maxLength={6}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData('text') || '';
+                  const clean = text.replace(/\D/g, '').slice(0, 6);
+                  if (clean) {
+                    e.preventDefault();
+                    setOtp(clean);
+                  }
+                }}
+                className="tracking-widest text-center text-lg w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                placeholder="••••••"
+                required
+              />
+            </div>
+
+            {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
+            {resendMsg && <div className="text-sm mt-1 text-zinc-300">{resendMsg}</div>}
+
+            <button
+              className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
+              type="submit"
+              disabled={!canVerify}
+            >
+              Verify code
+            </button>
+
+            <div className="flex items-center justify-between pt-2">
+              <button
+                type="button"
+                onClick={() => setStep('email')}
+                className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={onResend}
+                className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
+                disabled={busy}
+              >
+                Resend code
+              </button>
+            </div>
+
+            <div className="text-xs text-zinc-500 mt-2 leading-relaxed">
+              Μετά την επιβεβαίωση θα πας στο{' '}
+              <span className="font-mono">{sp.get('new') === '1' ? '/athletes/add' : '/schedule'}</span>.
+            </div>
+          </form>
+        )}
       </div>
     </section>
   );
