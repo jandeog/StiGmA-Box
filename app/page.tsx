@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { createClient } from '@supabase/supabase-js';
@@ -13,7 +13,30 @@ const supabase =
       )
     : (null as any);
 
-export default function AuthLandingPage() {
+// ---------- Page wrapper with Suspense ----------
+export default function Page() {
+  return (
+    <Suspense fallback={<LoadingShell />}>
+      <AuthLandingInner />
+    </Suspense>
+  );
+}
+
+function LoadingShell() {
+  return (
+    <section className="min-h-[85vh] flex items-center justify-center px-4">
+      <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
+        <div className="flex flex-col items-center mb-2">
+          <div className="w-24 h-24 rounded-full border border-zinc-700 animate-pulse" />
+          <p className="mt-4 text-sm text-zinc-400">Loading…</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------- Inner client that uses useSearchParams ----------
+function AuthLandingInner() {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -22,27 +45,22 @@ export default function AuthLandingPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // 1) Αν υπάρχει session, αποφασίζουμε πού πάμε
+  // Αν υπάρχει ήδη session, κάνε reroute
   useEffect(() => {
     let mounted = true;
-
     (async () => {
       if (!supabase) return;
       const { data } = await supabase.auth.getSession();
       const hasSession = !!data.session;
 
-      // Αν έχουμε session κι έχουμε επιστρέψει από signup (new=1) => πάμε /athletes/add
       if (hasSession && sp.get('new') === '1') {
         if (mounted) router.replace('/athletes/add');
         return;
       }
-
-      // Αλλιώς, απλώς logged in => /schedule
       if (hasSession) {
         if (mounted) router.replace('/schedule');
       }
     })();
-
     return () => {
       mounted = false;
     };
@@ -62,22 +80,20 @@ export default function AuthLandingPage() {
     const em = email.trim();
     const pw = password;
 
-    // 2) Πρώτα δοκιμάζουμε sign-in
+    // 1) Προσπάθεια sign-in
     const { data: signInData, error: signInError } =
       await supabase.auth.signInWithPassword({ email: em, password: pw });
 
     if (!signInError && signInData.session) {
-      // Επιτυχία -> /schedule
       router.replace('/schedule');
       setBusy(false);
       return;
     }
 
-    // 3) Αν αποτύχει το sign-in, ξεκινάμε sign-up (με confirm email)
-    //    Redirect πίσω στο /?new=1 ώστε μετά την επιβεβαίωση να πάει /athletes/add
+    // 2) Αν αποτύχει, προχώρα σε sign-up με verification email
     const redirectTo = `${window.location.origin}/?new=1`;
 
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError } = await supabase.auth.signUp({
       email: em,
       password: pw,
       options: {
@@ -86,7 +102,6 @@ export default function AuthLandingPage() {
     });
 
     if (signUpError) {
-      // Γνωστά cases: user already registered, weak password, κλπ.
       setMsg(
         signUpError.message ||
           'Could not sign up. If you already have an account, check your password or reset it.'
@@ -95,8 +110,6 @@ export default function AuthLandingPage() {
       return;
     }
 
-    // 4) Αν δεν έχει error, το Supabase έστειλε verification email.
-    //    Δείχνουμε οδηγία — όταν επιβεβαιώσει, ο χρήστης θα επιστρέψει στο /?new=1
     setMsg(
       'Check your email to confirm your account. After confirming, you will be redirected to complete your athlete profile.'
     );
@@ -160,8 +173,7 @@ export default function AuthLandingPage() {
           <div className="text-xs text-zinc-500 mt-2 leading-relaxed">
             If you don’t have an account, we’ll create one and email you a confirmation link. After
             confirming, you’ll be taken to <span className="font-mono">/athletes/add</span> to
-            complete your profile. Otherwise, we’ll take you straight to{' '}
-            <span className="font-mono">/schedule</span>.
+            complete your profile. Otherwise, you’ll go to <span className="font-mono">/schedule</span>.
           </div>
         </form>
       </div>
