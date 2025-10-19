@@ -211,7 +211,7 @@ export default function WodPage() {
       .from('Wod')
       .select('title, description, scoring, timeCap')
       .not('title', 'is', null)
-      .ilike('title', `${qTrim}%`) // prefix match
+      .ilike('title', `%${qTrim}%`) // prefix match
       .order('title', { ascending: true })
       .limit(20); // φέρνουμε λίγα και θα τα dedupe-άρουμε client-side
 
@@ -253,10 +253,9 @@ export default function WodPage() {
     };
   }, [mainQuery]); // eslint-disable-line
 
-  const hasMainPrefixMatch = useMemo(() => {
-    const q = wod.title.trim().toLowerCase();
-    return q.length > 0 && mainSugs.some((s) => s.title.toLowerCase().startsWith(q));
-  }, [wod.title, mainSugs]);
+const hasMainMatch = useMemo(() => {
+  return wod.title.trim().length > 0 && mainSugs.length > 0;
+}, [wod.title, mainSugs]);
 
   const applyMainSuggestion = (s: MainSuggestion) => {
     setWod((prev) => ({
@@ -285,7 +284,7 @@ export default function WodPage() {
       .from('Wod')
       .select('strengthTitle, strengthDescription, strengthScoreHint')
       .not('strengthTitle', 'is', null)
-      .ilike('strengthTitle', `${qTrim}%`) // prefix match
+      .ilike('strengthTitle', `%${qTrim}%`) // prefix match
       .order('strengthTitle', { ascending: true })
       .limit(50); // θα κάνουμε dedupe client-side
 
@@ -327,10 +326,9 @@ export default function WodPage() {
     };
   }, [strQuery]); // eslint-disable-line
 
-  const hasStrPrefixMatch = useMemo(() => {
-    const q = wod.strength.title.trim().toLowerCase();
-    return q.length > 0 && strSugs.some((s) => (s.strengthTitle ?? '').toLowerCase().startsWith(q));
-  }, [wod.strength.title, strSugs]);
+const hasStrMatch = useMemo(() => {
+  return wod.strength.title.trim().length > 0 && strSugs.length > 0;
+}, [wod.strength.title, strSugs]);
 
   const applyStrengthSuggestion = (s: StrengthSuggestion) => {
     setWod((prev) => ({
@@ -402,9 +400,9 @@ export default function WodPage() {
                 placeholder="e.g. Back Squat"
                 className={
                   fieldBase +
-                  (hasStrPrefixMatch
-                    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
-                    : ' focus:ring-2 focus:ring-zinc-700/50')
+                  (hasMainMatch
+    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
+    : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setStrOpen(strSugs.length > 0)}
                 onBlur={() => setTimeout(() => setStrOpen(false), 120)}
@@ -499,9 +497,9 @@ export default function WodPage() {
                 onKeyDown={onMainKeyDown}
                 className={
                   fieldBase +
-                  (hasMainPrefixMatch
-                    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
-                    : ' focus:ring-2 focus:ring-zinc-700/50')
+                  (hasStrMatch
+    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
+    : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setMainOpen(mainSugs.length > 0)}
                 onBlur={() => setTimeout(() => setMainOpen(false), 120)}
