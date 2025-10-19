@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 
@@ -12,34 +12,42 @@ const supabase =
       )
     : (null as any);
 
-export default function AuthCallback() {
+// (προαιρετικό, αλλά καλό για ασφάλεια απέναντι σε SSG)
+export const dynamic = 'force-dynamic';
+
+export default function AuthConfirmPage() {
+  return (
+    <Suspense fallback={<div className="min-h-[70vh] grid place-items-center text-sm text-zinc-400">Loading…</div>}>
+      <AuthConfirmInner />
+    </Suspense>
+  );
+}
+
+function AuthConfirmInner() {
   const router = useRouter();
   const sp = useSearchParams();
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      // περιμένουμε να ολοκληρωθεί το session μετά το click στο email
       const { data } = await supabase.auth.getSession();
       const hasSession = !!data.session;
 
       if (!mounted) return;
 
       if (!hasSession) {
-        // αν για κάποιο λόγο δεν υπάρχει session, στείλε στην αρχική
+        // Αν για κάποιο λόγο δεν ολοκληρώθηκε το session από το email link
         router.replace('/');
         return;
       }
 
-      // new=1 => νέος χρήστης -> συμπλήρωση προφίλ
       if (sp.get('new') === '1') {
         router.replace('/athletes/add');
-        return;
+      } else {
+        router.replace('/schedule');
       }
-
-      // αλλιώς κανονικά στο schedule
-      router.replace('/schedule');
     })();
+
     return () => {
       mounted = false;
     };
