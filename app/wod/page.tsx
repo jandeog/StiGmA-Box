@@ -401,8 +401,8 @@ const hasStrMatch = useMemo(() => {
                 className={
                   fieldBase +
                   (hasStrMatch
-    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
-    : ' focus:ring-2 focus:ring-zinc-700/50')
+  ? ' border-emerald-500/60 bg-emerald-800/20'
+  : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setStrOpen(strSugs.length > 0)}
                 onBlur={() => setTimeout(() => setStrOpen(false), 120)}
@@ -498,8 +498,8 @@ const hasStrMatch = useMemo(() => {
                 className={
                   fieldBase +
                   (hasMainMatch
-    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
-    : ' focus:ring-2 focus:ring-zinc-700/50')
+  ? ' border-emerald-500/60 bg-emerald-800/20'
+  : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setMainOpen(mainSugs.length > 0)}
                 onBlur={() => setTimeout(() => setMainOpen(false), 120)}
