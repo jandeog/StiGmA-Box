@@ -1,200 +1,112 @@
 // app/schedule/edit/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 
-type Level = 'novice' | 'advanced' | 'all';
+export default function ScheduleEditPage() {
+  const supabase = useMemo(() => createClientComponentClient(), []);
 
-export type SlotDef = {
-  time: string;           // "07:00"
-  mainCap: number;        // e.g. 12
-  waitCap: number;        // e.g. 2
-  level: Level;           // novice | advanced | all
-  label?: string;         // free text e.g. "competitive"
-};
-
-const keyScheduleTemplate = 'schedule_template';
-
-// Default weekday template
-const DEFAULT_TEMPLATE: SlotDef[] = [
-  { time: '07:00', mainCap: 12, waitCap: 2, level: 'all' },
-  { time: '08:30', mainCap: 12, waitCap: 2, level: 'all' },
-  { time: '09:30', mainCap: 12, waitCap: 2, level: 'all' },
-  { time: '10:30', mainCap: 12, waitCap: 2, level: 'all' },
-  { time: '18:00', mainCap: 12, waitCap: 2, level: 'advanced', label: 'competitive' },
-  { time: '19:00', mainCap: 12, waitCap: 2, level: 'all' },
-  { time: '20:00', mainCap: 12, waitCap: 2, level: 'all' },
-  { time: '21:00', mainCap: 12, waitCap: 2, level: 'all' },
-];
-
-export default function EditSchedulePage() {
-  const [slots, setSlots] = useState<SlotDef[]>([]);
-  const [msg, setMsg] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [coachId, setCoachId] = useState('');
+  const [role, setRole] = useState<'coach' | 'athlete' | null>(null);
+  const [msg, setMsg] = useState<string>('');
 
   useEffect(() => {
-    const raw = localStorage.getItem(keyScheduleTemplate);
-    setSlots(raw ? (JSON.parse(raw) as SlotDef[]) : DEFAULT_TEMPLATE);
-  }, []);
-
-  const sortedSlots = useMemo(() => {
-    // sort by time "HH:MM"
-    const toMinutes = (t: string) => {
-      const [h, m] = t.split(':').map(n => parseInt(n, 10));
-      return h * 60 + m;
-    };
-    return [...slots].sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
-  }, [slots]);
-
-  const save = () => {
-    // validation: unique times, valid caps
-    const seen = new Set<string>();
-    for (const s of slots) {
-      if (!/^\d{2}:\d{2}$/.test(s.time)) {
-        setMsg(`⚠️ Invalid time format: ${s.time} (use HH:MM)`);
-        setTimeout(() => setMsg(''), 1800);
-        return;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const u = data.user || null;
+      let r: 'coach' | 'athlete' | null = (u?.user_metadata as any)?.role ?? null;
+      if (!r) {
+        try {
+          const raw = localStorage.getItem('auth:user');
+          const parsed = raw ? JSON.parse(raw) : null;
+          r = parsed?.role ?? null;
+        } catch {}
       }
-      if (seen.has(s.time)) {
-        setMsg(`⚠️ Duplicate time: ${s.time}`);
-        setTimeout(() => setMsg(''), 1800);
-        return;
-      }
-      seen.add(s.time);
-      if (!(s.mainCap >= 0 && s.waitCap >= 0)) {
-        setMsg('⚠️ Capacities must be ≥ 0');
-        setTimeout(() => setMsg(''), 1800);
-        return;
-      }
-    }
-    localStorage.setItem(keyScheduleTemplate, JSON.stringify(sortedSlots));
-    setMsg('✅ Saved schedule');
-    setTimeout(() => setMsg(''), 1600);
-  };
+      setRole(r);
+    })();
+  }, [supabase]);
 
-  const addSlot = () => {
-    setSlots(s => [
-      ...s,
-      { time: '12:00', mainCap: 12, waitCap: 2, level: 'all' },
-    ]);
-  };
-
-  const removeSlot = (time: string) => {
-    setSlots(s => s.filter(x => x.time !== time));
-  };
-
-  const updateSlot = (time: string, patch: Partial<SlotDef>) => {
-    setSlots(s => s.map(x => (x.time === time ? { ...x, ...patch } : x)));
-  };
+  if (role !== 'coach') {
+    return (
+      <section className="max-w-3xl mx-auto p-4">
+        <h1 className="text-2xl font-semibold mb-3">Change Schedule</h1>
+        <div className="p-3 border border-red-700 bg-red-900/20 rounded text-sm text-red-300">
+          Only coaches can edit the schedule.
+        </div>
+        <div className="mt-4">
+          <Link href="/schedule" className="text-sm underline text-zinc-300">Back to schedule</Link>
+        </div>
+      </section>
+    );
+  }
 
   return (
-    <section className="max-w-3xl">
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="text-2xl font-bold">Change Schedule</h1>
-        <div className="ml-auto flex items-center gap-2">
-          <Link
-            href="/schedule"
-            className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-          >
-            Back to Schedule
-          </Link>
+    <section className="max-w-3xl mx-auto p-4">
+      <header className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-semibold">Change Schedule</h1>
+        <Link href="/schedule" className="text-sm underline text-zinc-300">Back</Link>
+      </header>
+
+      <div className="flex flex-col gap-3 p-4 rounded-xl border border-zinc-800 bg-zinc-950">
+        <div className="text-sm text-zinc-300 font-medium">Apply default timetable to a date range</div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+          />
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+          />
+          <input
+            placeholder="Coach UUID (optional)"
+            value={coachId}
+            onChange={(e) => setCoachId(e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+          />
           <button
-            onClick={save}
-            className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+            className="px-3 py-2 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
+            onClick={async () => {
+              if (!fromDate || !toDate) {
+                setMsg('⚠️ Select from/to dates');
+                setTimeout(() => setMsg(''), 1800);
+                return;
+              }
+              const { error } = await supabase.rpc('seed_schedule', {
+                from_date: fromDate,
+                to_date: toDate,
+                coach: coachId || null,
+              });
+              if (error) {
+                console.error(error);
+                setMsg('❌ Failed to apply');
+                setTimeout(() => setMsg(''), 2000);
+              } else {
+                setMsg('✅ Applied to DB');
+                setTimeout(() => setMsg(''), 1600);
+              }
+            }}
           >
-            Save
+            Apply to DB
           </button>
         </div>
-      </div>
 
-      <p className="text-sm text-zinc-400 mb-3">
-        Weekday template (Mon–Fri). Edit times, capacities, level or add a custom label.
-      </p>
+        <div className="text-xs text-zinc-500">
+          The RPC seeds Mon–Fri default, Sat special, Sun off. Default capacities: Main 14, WL 2.
+        </div>
 
-      <div className="space-y-2">
-        {sortedSlots.map((s) => (
-          <div key={s.time} className="border border-zinc-800 bg-zinc-900 rounded p-3">
-            <div className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-center">
-              {/* Time */}
-              <div className="sm:col-span-1">
-                <label className="block text-xs text-zinc-400 mb-1">Time</label>
-                <input
-                  value={s.time}
-                  onChange={(e) => updateSlot(s.time, { time: e.target.value })}
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-                  placeholder="HH:MM"
-                />
-              </div>
-
-              {/* Main Cap */}
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Main cap</label>
-                <input
-                  inputMode="numeric"
-                  value={String(s.mainCap)}
-                  onChange={(e) => updateSlot(s.time, { mainCap: Number(e.target.value || 0) })}
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-                />
-              </div>
-
-              {/* Waitlist Cap */}
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Waitlist</label>
-                <input
-                  inputMode="numeric"
-                  value={String(s.waitCap)}
-                  onChange={(e) => updateSlot(s.time, { waitCap: Number(e.target.value || 0) })}
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-                />
-              </div>
-
-              {/* Level */}
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Level</label>
-                <select
-                  value={s.level}
-                  onChange={(e) => updateSlot(s.time, { level: e.target.value as Level })}
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-                >
-                  <option value="all">All Levels</option>
-                  <option value="novice">Novice</option>
-                  <option value="advanced">Advanced</option>
-                </select>
-              </div>
-
-              {/* Label */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs text-zinc-400 mb-1">Label (optional)</label>
-                <input
-                  value={s.label || ''}
-                  onChange={(e) => updateSlot(s.time, { label: e.target.value || undefined })}
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-                  placeholder="e.g. competitive, weightlifting..."
-                />
-              </div>
-
-              {/* Actions */}
-              <div className="sm:col-span-6 flex items-center gap-2 justify-end">
-                <button
-                  onClick={() => removeSlot(s.time)}
-                  className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          onClick={addSlot}
-          className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-        >
-          + Add slot
-        </button>
-        {msg && <div className="text-sm text-zinc-300">{msg}</div>}
+        {msg && (
+          <div className="text-sm text-zinc-300">{msg}</div>
+        )}
       </div>
     </section>
   );

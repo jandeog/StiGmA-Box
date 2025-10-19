@@ -1,913 +1,381 @@
 // app/schedule/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import DateStepper from '@/components/DateStepper';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import Link from 'next/link';
 
-/* ========================= Types ========================= */
+// ---- Types ----
 
-type SlotConfig = {
+type DbSchedule = {
   id: string;
-  time: string;           // "HH:MM"
-  capacityMain: number;   // διαθέσιμες θέσεις
-  capacityWait: number;   // θέσεις αναμονής (WL)
-  label?: string;         // "competitive" | "novice" | "advanced" | custom
+  event_date: string; // YYYY-MM-DD
+  start_time: string; // HH:MM:SS
+  end_time: string | null;
+  title: string;
+  coach_id: string | null;
+  capacity_main: number | null;
+  capacity_wait: number | null;
 };
 
-type DayConfig = {
-  slots: SlotConfig[];
+type DbBooking = {
+  id: string;
+  schedule_id: string;
+  athlete_id: string;
+  is_waitlist: boolean;
 };
 
-type ScheduleConfig = {
-  // 0=Sunday ... 6=Saturday
-  byDow: Record<number, DayConfig>;
+type Profile = {
+  id: string;
+  full_name: string | null;
 };
 
-// Per-date overrides: YYYY-MM-DD -> slots for that exact date
-type ScheduleOverrides = Record<string, SlotConfig[]>;
+// ---- Helpers ----
 
-type DayBookings = Record<string, { main: string[]; wait: string[] }>;
+function formatHM(t: string | null | undefined) {
+  if (!t) return '';
+  return t.slice(0, 5);
+}
 
-type Session = { role: 'coach' | 'athlete'; athleteId?: string };
+function toDateAt(dateISO: string, hhmm: string) {
+  const [y, m, d] = dateISO.split('-').map(Number);
+  const [H, M] = hhmm.split(':').map(Number);
+  return new Date(y, (m - 1), d, H, M);
+}
 
-/* ===================== Helpers ===================== */
+function isoToday(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
-const WEEKDAYS_FULL = [
-  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
-];
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const dateToLocalISO = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const todayISO = () => dateToLocalISO(new Date());
-const addDaysISO = (iso: string, days: number) => {
-  const [y, m, dd] = iso.split('-').map(Number);
-  const dt = new Date(y, m - 1, dd);
+function addDays(iso: string, days: number) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
   dt.setDate(dt.getDate() + days);
-  return dateToLocalISO(dt);
-};
-const tomorrowISO = () => addDaysISO(todayISO(), 1);
-
-const keyConfig = 'schedule:config';
-const keyOverrides = 'schedule:overrides';
-const keyBookings = (date: string) => `bookings:${date}`;
-
-const isPresetLabel = (label: string) =>
-  ['competitive', 'novice', 'advanced', ''].includes(label);
-
-const selectValueFromLabel = (label?: string) => {
-  if (!label) return '';
-  return isPresetLabel(label) ? label : 'custom';
-};
-
-const cloneSlot = (s: SlotConfig): SlotConfig => ({ ...s, id: crypto.randomUUID() });
-
-const parseHM = (time: string) => {
-  const [h, m] = time.split(':').map((x) => parseInt(x, 10));
-  return { h: h || 0, m: m || 0 };
-};
-
-const toDateAt = (isoDate: string, time: string) => {
-  const { h, m } = parseHM(time);
-  const d = new Date(isoDate + 'T00:00:00');
-  d.setHours(h, m, 0, 0);
-  return d;
-};
-
-/* ===================== Defaults ===================== */
-
-const defaultWeekdaySlots = (): SlotConfig[] => [
-  { id: crypto.randomUUID(), time: '07:00', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '08:30', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '09:30', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '10:30', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '17:00', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '18:00', capacityMain: 12, capacityWait: 2, label: 'competitive' },
-  { id: crypto.randomUUID(), time: '19:00', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '20:00', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '21:00', capacityMain: 12, capacityWait: 2 },
-];
-
-const defaultSaturdaySlots = (): SlotConfig[] => [
-  { id: crypto.randomUUID(), time: '10:00', capacityMain: 12, capacityWait: 2 },
-  { id: crypto.randomUUID(), time: '18:00', capacityMain: 12, capacityWait: 2 },
-];
-
-const defaultConfig = (): ScheduleConfig => ({
-  byDow: {
-    0: { slots: [] }, // Sunday
-    1: { slots: defaultWeekdaySlots() },                     // Monday
-    2: { slots: defaultWeekdaySlots().map(cloneSlot) },     // Tuesday
-    3: { slots: defaultWeekdaySlots().map(cloneSlot) },     // Wednesday
-    4: { slots: defaultWeekdaySlots().map(cloneSlot) },     // Thursday
-    5: { slots: defaultWeekdaySlots().map(cloneSlot) },     // Friday
-    6: { slots: defaultSaturdaySlots() },                   // Saturday
-  },
-});
-
-function ensureSlotExists(slots: SlotConfig[], time: string): SlotConfig[] {
-  return slots.some(s => s.time === time)
-    ? slots
-    : [...slots, { id: crypto.randomUUID(), time, capacityMain: 12, capacityWait: 2, label: '' }];
+  const y2 = dt.getFullYear();
+  const m2 = String(dt.getMonth() + 1).padStart(2, '0');
+  const d2 = String(dt.getDate()).padStart(2, '0');
+  return `${y2}-${m2}-${d2}`;
 }
 
-function migrateConfig(c: ScheduleConfig): ScheduleConfig {
-  const next: ScheduleConfig = { byDow: { ...c.byDow } };
-  // Ensure 17:00 exists on Mon–Fri (1..5)
-  for (const d of [1, 2, 3, 4, 5]) {
-    const day = next.byDow[d] ?? { slots: [] };
-    next.byDow[d] = { slots: ensureSlotExists(day.slots, '17:00') };
-  }
-  return next;
-}
-
-/* ===================== Page ===================== */
+// ---- Component ----
 
 export default function SchedulePage() {
-  const [date, setDate] = useState<string>(todayISO());
-  const dow = useMemo(() => new Date(date + 'T00:00:00').getDay(), [date]);
-  const weekdayName = WEEKDAYS_FULL[dow];
+  const supabase = useMemo(() => createClientComponentClient(), []);
 
-  // session (για athleteId)
-  const [session, setSession] = useState<Session | null>(null);
+  const [date, setDate] = useState<string>(isoToday());
+  const [rows, setRows] = useState<DbSchedule[]>([]);
+  const [bookings, setBookings] = useState<Record<string, DbBooking[]>>({});
+  const [namesByAthlete, setNamesByAthlete] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [role, setRole] = useState<'coach' | 'athlete' | null>(null);
+
+  const CAP_MAIN_DEFAULT = 14; // per your request
+  const CAP_WAIT_DEFAULT = 2;
+
+  // load auth
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('auth:user');
-      setSession(raw ? (JSON.parse(raw) as Session) : null);
-    } catch {}
-  }, []);
-  const myAthleteId = session?.athleteId || null;
-
-  // base templates (per-dow) & overrides
-  const [config, setConfig] = useState<ScheduleConfig>(defaultConfig());
-  const [overrides, setOverrides] = useState<ScheduleOverrides>({});
-
-  // day bookings (per selected date)
-  const [dayData, setDayData] = useState<DayBookings>({});
-
-  // editor state
-  const [editing, setEditing] = useState<boolean>(false);
-  const [draftSlots, setDraftSlots] = useState<SlotConfig[]>([]);
-  const [applyScope, setApplyScope] = useState<'date' | 'weekday' | 'weekdays'>('weekday');
-
-  // load config/overrides on mount
-  useEffect(() => {
-    const rawC = localStorage.getItem(keyConfig);
-    if (rawC) {
+    let mounted = true;
+    (async () => {
       try {
-        const parsed = JSON.parse(rawC) as ScheduleConfig;
-        const migrated = migrateConfig(parsed);
-        setConfig(migrated);
-        if (JSON.stringify(migrated) !== rawC) {
-          localStorage.setItem(keyConfig, JSON.stringify(migrated));
+        const { data } = await supabase.auth.getUser();
+        if (!mounted) return;
+        const u = data.user || null;
+        setUserId(u?.id ?? null);
+        // try user_metadata.role, else localStorage fallback
+        const r = (u?.user_metadata as any)?.role as 'coach' | 'athlete' | undefined;
+        if (r) setRole(r);
+        else {
+          try {
+            const raw = localStorage.getItem('auth:user');
+            const parsed = raw ? JSON.parse(raw) : null;
+            const rr = parsed?.role as 'coach' | 'athlete' | undefined;
+            setRole(rr ?? null);
+          } catch {}
         }
       } catch {}
-    }
-    const rawO = localStorage.getItem(keyOverrides);
-    if (rawO) {
-      try {
-        setOverrides(JSON.parse(rawO) as ScheduleOverrides);
-      } catch {}
-    }
-  }, []);
+    })();
+    return () => { mounted = false; };
+  }, [supabase]);
 
-  // load bookings for selected date
+  const isCoach = role === 'coach';
+
+  // load schedule + bookings for selected date
   useEffect(() => {
-    const raw = localStorage.getItem(keyBookings(date));
-    setDayData(raw ? (JSON.parse(raw) as DayBookings) : {});
-  }, [date]);
+    let mounted = true;
+    (async () => {
+      setLoading(true);
 
-  // visible slots: override wins
-  const visibleSlots: SlotConfig[] = useMemo(() => {
-    const ov = overrides[date];
-    if (ov) return ov.slice().sort((a, b) => a.time.localeCompare(b.time));
-    const base = config.byDow[dow]?.slots ?? [];
-    return base.slice().sort((a, b) => a.time.localeCompare(b.time));
-  }, [overrides, date, config, dow]);
+      const { data: sched, error } = await supabase
+        .from('schedule')
+        .select('id,event_date,start_time,end_time,title,coach_id,capacity_main,capacity_wait')
+        .eq('event_date', date)
+        .order('start_time', { ascending: true });
 
-  // when starting editor, prefill
-  useEffect(() => {
-    if (!editing) return;
-    const ov = overrides[date];
-    if (ov) {
-      setDraftSlots(ov.map((s) => ({ ...s })));
-      setApplyScope('date');
-    } else {
-      const base = config.byDow[dow]?.slots ?? [];
-      setDraftSlots(base.map((s) => ({ ...s })));
-      setApplyScope('weekday');
-    }
-  }, [editing, date, dow, config, overrides]);
+      if (error) {
+        console.error(error);
+        setLoading(false);
+        return;
+      }
+      if (!mounted) return;
+      setRows(sched || []);
 
-  /* ---------------- Booking helpers ---------------- */
+      const ids = (sched || []).map((r) => r.id);
+      if (ids.length === 0) {
+        setBookings({});
+        setNamesByAthlete({});
+        setLoading(false);
+        return;
+      }
 
-  const countsFor = useCallback((time: string) => {
-    const rec = dayData[time];
-    return { main: rec?.main?.length || 0, wait: rec?.wait?.length || 0 };
-  }, [dayData]);
+      const { data: bks, error: bErr } = await supabase
+        .from('schedule_booking')
+        .select('id,schedule_id,athlete_id,is_waitlist')
+        .in('schedule_id', ids);
 
-  const availabilityFor = useCallback((time: string, capMain: number, capWait: number) => {
-    const { main, wait } = countsFor(time);
-    const mainLeft = Math.max(capMain - main, 0);
-    const waitLeft = Math.max(capWait - wait, 0);
-    const hasAvailability = main < capMain || (main >= capMain && wait < capWait);
-    const isFullyBooked = main >= capMain && wait >= capWait;
-    return { main, wait, mainLeft, waitLeft, hasAvailability, isFullyBooked };
-  }, [countsFor]);
+      if (bErr) {
+        console.error(bErr);
+        setLoading(false);
+        return;
+      }
 
-  // rules: only today or tomorrow
+      const athleteIds = Array.from(new Set((bks || []).map((b) => b.athlete_id)));
+      let nameMap: Record<string, string> = {};
+      if (athleteIds.length > 0) {
+        // Adjust table/columns to your profiles table
+        const { data: ns } = await supabase
+          .from('profiles') // <-- change if different
+          .select('id, full_name')
+          .in('id', athleteIds);
+        (ns as Profile[] | null)?.forEach((p) => (nameMap[p.id] = p.full_name || '—'));
+      }
+
+      const bySched: Record<string, DbBooking[]> = {};
+      (bks || []).forEach((b) => {
+        bySched[b.schedule_id] ??= [];
+        bySched[b.schedule_id].push(b);
+      });
+
+      if (!mounted) return;
+      setBookings(bySched);
+      setNamesByAthlete(nameMap);
+      setLoading(false);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [date, supabase]);
+
   const now = new Date();
-  const isToday = date === todayISO();
-  const isTomorrow = date === tomorrowISO();
-  const dateAllowed = isToday || isTomorrow;
+  const isToday = date === isoToday();
 
-  // one booking per selected day
-  const myBookingTime: string | null = useMemo(() => {
-    if (!myAthleteId) return null;
-    for (const [t, rec] of Object.entries(dayData)) {
-      if (rec.main?.includes(myAthleteId) || rec.wait?.includes(myAthleteId)) return t;
+  const myBookingScheduleId: string | null = useMemo(() => {
+    if (!userId) return null;
+    for (const r of rows) {
+      const arr = bookings[r.id] || [];
+      if (arr.some((b) => b.athlete_id === userId)) return r.id;
     }
     return null;
-  }, [dayData, myAthleteId]);
+  }, [rows, bookings, userId]);
 
-  const canBookThisSlot = (slot: SlotConfig) => {
-    if (!myAthleteId) return { ok: false, reason: 'Please login first.' };
-    if (!dateAllowed) return { ok: false, reason: 'Booking is allowed only for today or tomorrow.' };
+  const countsFor = useCallback(
+    (scheduleId: string) => {
+      const arr = bookings[scheduleId] || [];
+      return {
+        main: arr.filter((b) => !b.is_waitlist).length,
+        wait: arr.filter((b) => b.is_waitlist).length,
+      };
+    },
+    [bookings]
+  );
 
-    const start = toDateAt(date, slot.time);
+  const availabilityFor = useCallback(
+    (row: DbSchedule) => {
+      const { main, wait } = countsFor(row.id);
+      const capMain = row.capacity_main ?? CAP_MAIN_DEFAULT;
+      const capWait = row.capacity_wait ?? CAP_WAIT_DEFAULT;
+      const mainLeft = Math.max(capMain - main, 0);
+      const waitLeft = Math.max(capWait - wait, 0);
+      const hasAvailability = main < capMain || (main >= capMain && wait < capWait);
+      const isFullyBooked = main >= capMain && wait >= capWait;
+      return { main, wait, mainLeft, waitLeft, hasAvailability, isFullyBooked, capMain, capWait };
+    },
+    [countsFor]
+  );
 
-    // Unavailable for past or in-progress slots
+  function bookingRule(row: DbSchedule): { ok: boolean; reason?: string } {
+    if (!userId) return { ok: false, reason: 'Please login first.' };
+
+    const start = toDateAt(row.event_date, formatHM(row.start_time));
     if (isToday && now >= start) return { ok: false, reason: 'This class has already started or finished.' };
 
-    // Cut-off: must be >= 30 minutes before start
     if (isToday) {
       const diffMs = start.getTime() - now.getTime();
-      if (diffMs < 30 * 60 * 1000) {
-        return { ok: false, reason: 'Bookings close 30 minutes before start.' };
-      }
+      if (diffMs < 30 * 60 * 1000) return { ok: false, reason: 'Bookings close 30 minutes before start.' };
     }
 
-    // Single booking per day
-    if (myBookingTime && myBookingTime !== slot.time) {
-      return { ok: false, reason: `You already booked ${myBookingTime}. Cancel it to change.` };
-    }
+    if (myBookingScheduleId && myBookingScheduleId !== row.id)
+      return { ok: false, reason: 'You already booked another slot this day. Cancel it to change.' };
 
-    const { hasAvailability } = availabilityFor(slot.time, slot.capacityMain, slot.capacityWait);
+    const { hasAvailability } = availabilityFor(row);
     if (!hasAvailability) return { ok: false, reason: 'Full (including waitlist).' };
 
     return { ok: true };
-  };
+  }
 
-  const saveBookings = (next: DayBookings) => {
-    setDayData(next);
-    localStorage.setItem(keyBookings(date), JSON.stringify(next));
-  };
-
-  const bookSlot = (slot: SlotConfig) => {
-    if (!myAthleteId) return alert('Please login first.');
-    const rule = canBookThisSlot(slot);
+  async function bookSlot(row: DbSchedule) {
+    if (!userId) return alert('Please login first.');
+    const rule = bookingRule(row);
     if (!rule.ok) return alert(rule.reason);
 
-    if (!confirm(`Confirm booking for ${date} at ${slot.time}?`)) return;
+    const { mainLeft, waitLeft } = availabilityFor(row);
+    const is_waitlist = mainLeft <= 0 && waitLeft > 0;
 
-    const current = structuredClone(dayData) as DayBookings;
-    const rec = current[slot.time] || { main: [], wait: [] };
-
-    const { mainLeft, waitLeft } = availabilityFor(slot.time, slot.capacityMain, slot.capacityWait);
-
-    // Avoid duplicates
-    if (rec.main.includes(myAthleteId) || rec.wait.includes(myAthleteId)) {
-      return alert('Already booked.');
-    }
-
-    if (mainLeft > 0) rec.main.push(myAthleteId);
-    else if (waitLeft > 0) rec.wait.push(myAthleteId);
-    else return alert('No availability.');
-
-    current[slot.time] = rec;
-    saveBookings(current);
-  };
-
-  const cancelSlot = (slot: SlotConfig) => {
-    if (!myAthleteId) return;
-    if (!confirm(`Cancel your booking for ${date} at ${slot.time}?`)) return;
-
-    const current = structuredClone(dayData) as DayBookings;
-    const rec = current[slot.time];
-    if (!rec) return;
-
-    const beforeMain = rec.main.length;
-    rec.main = rec.main.filter((id) => id !== myAthleteId);
-    const removedFromMain = beforeMain !== rec.main.length;
-
-    if (!removedFromMain) {
-      rec.wait = rec.wait.filter((id) => id !== myAthleteId);
-    }
-
-    current[slot.time] = rec;
-    saveBookings(current);
-  };
-
-  const onToggleEditor = () => setEditing((v) => !v);
-
-  /* ---------------- Editor helpers ---------------- */
-
-  const setDraftValue = (id: string, patch: Partial<SlotConfig>) => {
-    setDraftSlots((arr) => arr.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  };
-
-  const addDraftSlot = () => {
-    setDraftSlots((arr) => [
-      ...arr,
-      {
-        id: crypto.randomUUID(),
-        time: '12:00',
-        capacityMain: 12,
-        capacityWait: 2,
-        label: '',
-      },
-    ]);
-  };
-
-  const removeDraftSlot = (id: string) =>
-    setDraftSlots((arr) => arr.filter((s) => s.id !== id));
-
-  const moveUp = (index: number) =>
-    setDraftSlots((arr) => {
-      if (index <= 0) return arr;
-      const copy = [...arr];
-      [copy[index - 1], copy[index]] = [copy[index], copy[index - 1]];
-      return copy;
+    const { error } = await supabase.from('schedule_booking').insert({
+      schedule_id: row.id,
+      athlete_id: userId,
+      is_waitlist,
     });
 
-  const moveDown = (index: number) =>
-    setDraftSlots((arr) => {
-      if (index >= arr.length - 1) return arr;
-      const copy = [...arr];
-      [copy[index + 1], copy[index]] = [copy[index], copy[index + 1]];
-      return copy;
-    });
-
-  const saveDraft = () => {
-    const norm = [...draftSlots].sort((a, b) => a.time.localeCompare(b.time));
-
-    if (applyScope === 'weekday') {
-      const next: ScheduleConfig = {
-        byDow: {
-          ...config.byDow,
-          [dow]: { slots: norm },
-        },
-      };
-      setConfig(next);
-      localStorage.setItem(keyConfig, JSON.stringify(next));
-
-      // Καθαρισμός override της ίδιας ημερομηνίας αν υπάρχει
-      if (overrides[date]) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { [date]: _omit, ...rest } = overrides;
-        setOverrides(rest);
-        localStorage.setItem(keyOverrides, JSON.stringify(rest));
-      }
-    } else if (applyScope === 'weekdays') {
-      const next: ScheduleConfig = { byDow: { ...config.byDow } };
-      for (const d of [1, 2, 3, 4, 5]) {
-        next.byDow[d] = { slots: norm.map(s => ({ ...s })) };
-      }
-      setConfig(next);
-      localStorage.setItem(keyConfig, JSON.stringify(next));
-
-      if (overrides[date] && dow >= 1 && dow <= 5) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { [date]: _omit, ...rest } = overrides;
-        setOverrides(rest);
-        localStorage.setItem(keyOverrides, JSON.stringify(rest));
-      }
-    } else {
-      const nextOv: ScheduleOverrides = { ...overrides, [date]: norm };
-      setOverrides(nextOv);
-      localStorage.setItem(keyOverrides, JSON.stringify(nextOv));
+    if (error) {
+      console.error(error);
+      return alert('Error while booking.');
     }
 
-    setEditing(false);
-  };
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const clearDateOverride = () => {
-    if (!overrides[date]) return;
-    const { [date]: _omit, ...rest } = overrides;
-    setOverrides(rest);
-    localStorage.setItem(keyOverrides, JSON.stringify(rest));
-  };
+    // local optimistic update
+    setBookings((prev) => {
+      const arr = prev[row.id] ? [...prev[row.id]] : [];
+      arr.push({ id: crypto.randomUUID(), schedule_id: row.id, athlete_id: userId, is_waitlist });
+      return { ...prev, [row.id]: arr };
+    });
+  }
 
-  /* ---------------- Render ---------------- */
+  async function cancelSlot(row: DbSchedule) {
+    if (!userId) return;
+    const { error } = await supabase
+      .from('schedule_booking')
+      .delete()
+      .match({ schedule_id: row.id, athlete_id: userId });
 
-  // Μήνυμα κορυφής για περιορισμό ημέρας
-  const dayMessage = !dateAllowed
-    ? 'Bookings are only allowed for today or tomorrow.'
-    : '';
+    if (error) {
+      console.error(error);
+      return alert('Error while cancelling.');
+    }
+
+    setBookings((prev) => {
+      const arr = (prev[row.id] || []).filter((b) => b.athlete_id !== userId);
+      return { ...prev, [row.id]: arr };
+    });
+  }
 
   return (
-    <section className="relative max-w-4xl h-auto min-h-0">
-      {/* Header */}
-      <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
-        <h1 className="text-2xl font-bold">Schedule</h1>
-
-        <div className="ml-auto flex items-center gap-2">
+    <section className="max-w-5xl mx-auto p-4">
+      <header className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-semibold">Schedule</h1>
+        <div className="flex items-center gap-2">
           <button
-            onClick={onToggleEditor}
-            className={`px-3 py-2 rounded border border-zinc-700 text-sm ${
-              editing ? 'bg-zinc-800' : 'hover:bg-zinc-800'
-            }`}
+            className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+            onClick={() => setDate(addDays(date, -1))}
           >
-            {editing ? 'Close editor' : 'Change schedule'}
+            ◀ Prev
           </button>
-          {/* Απλό date input */}
-<DateStepper
-   value={date}
-  onChange={setDate}
-   className="text-sm"
- />
-        </div>
-      </div>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
+          />
+          <button
+            className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+            onClick={() => setDate(addDays(date, +1))}
+          >
+            Next ▶
+          </button>
 
-      {/* Info line */}
-      <div className="text-sm text-zinc-400 mb-2">
-        {WEEKDAYS_FULL[dow]} • {date}{' '}
-        {overrides[date] ? (
-          <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-amber-700 text-amber-300">
-            Override
-          </span>
-        ) : null}
-        {!dateAllowed && (
-          <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300">
-            Booking allowed only for today & tomorrow
-          </span>
-        )}
-      </div>
-
-      {/* Day message */}
-      {dayMessage ? (
-        <div className="p-3 mb-3 rounded border border-red-700 bg-red-900/20 text-sm text-red-300">
-          {dayMessage}
-        </div>
-      ) : null}
-
-      {/* Editor or Grid */}
-      {editing ? (
-        <Editor
-          date={date}
-          dow={dow}
-          weekdayName={weekdayName}
-          overrides={overrides}
-          clearDateOverride={clearDateOverride}
-          draftSlots={draftSlots}
-          setDraftSlots={setDraftSlots}
-          setDraftValue={setDraftValue}
-          moveUp={moveUp}
-          moveDown={moveDown}
-          removeDraftSlot={removeDraftSlot}
-          addDraftSlot={addDraftSlot}
-          applyScope={applyScope}
-          setApplyScope={setApplyScope}
-          saveDraft={saveDraft}
-        />
-      ) : (
-        <>
-          {visibleSlots.length === 0 ? (
-            <div className="p-3 border border-zinc-800 bg-zinc-900 rounded text-sm">
-              {weekdayName === 'Sunday'
-                ? 'Rest day. No classes scheduled. (You can add a date override if needed.)'
-                : `No slots configured for ${weekdayName}. Click “Change schedule” to add slots.`}
-            </div>
-          ) : (
-            <SlotsGrid
-              slots={visibleSlots}
-              date={date}
-              dateAllowed={dateAllowed}
-              myAthleteId={myAthleteId}
-              myBookingTime={myBookingTime}
-              countsFor={countsFor}
-              availabilityFor={availabilityFor}
-              canBookThisSlot={canBookThisSlot}
-              bookSlot={bookSlot}
-              cancelSlot={cancelSlot}
-            />
+          {isCoach && (
+            <Link
+              href="/schedule/edit"
+              className="ml-2 px-3 py-1.5 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
+            >
+              Edit day(s)
+            </Link>
           )}
-        </>
+        </div>
+      </header>
+
+      {loading && (
+        <div className="text-sm text-zinc-400">Loading…</div>
       )}
-    </section>
-  );
-}
 
-/* ===================== Editor Subcomponent ===================== */
+      {!loading && rows.length === 0 && (
+        <div className="text-sm text-zinc-400">No classes for this day.</div>
+      )}
 
-function Editor(props: {
-  date: string;
-  dow: number;
-  weekdayName: string;
-  overrides: ScheduleOverrides;
-  clearDateOverride: () => void;
-  draftSlots: SlotConfig[];
-  setDraftSlots: React.Dispatch<React.SetStateAction<SlotConfig[]>>;
-  setDraftValue: (id: string, patch: Partial<SlotConfig>) => void;
-  moveUp: (i: number) => void;
-  moveDown: (i: number) => void;
-  removeDraftSlot: (id: string) => void;
-  addDraftSlot: () => void;
-  applyScope: 'date' | 'weekday' | 'weekdays';
-  setApplyScope: (v: 'date' | 'weekday' | 'weekdays') => void;
-  saveDraft: () => void;
-}) {
-  const {
-    date, weekdayName, overrides, clearDateOverride,
-    draftSlots, setDraftValue, moveUp, moveDown, removeDraftSlot, addDraftSlot,
-    applyScope, setApplyScope, saveDraft,
-  } = props;
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {rows.map((row) => {
+          const { main, wait, mainLeft, waitLeft, isFullyBooked, capMain, capWait } = availabilityFor(row);
+          const arr = bookings[row.id] || [];
+          const mine = !!arr.find((b) => b.athlete_id === userId);
 
-  return (
-    <div className="border border-zinc-800 bg-zinc-900 rounded p-4">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
-        <div className="font-semibold">
-          Editing schedule for: {weekdayName} ({date})
-        </div>
-        <div className="text-xs text-zinc-400">
-          Sunday is rest day by default; you can add slots only via date override.
-        </div>
-      </div>
-
-      {/* Save scope */}
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="text-sm text-zinc-300">Apply change to:</div>
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="radio"
-            name="scope"
-            value="weekday"
-            checked={applyScope === 'weekday'}
-            onChange={() => setApplyScope('weekday')}
-          />
-          Every <span className="font-medium">{weekdayName}</span>
-        </label>
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="radio"
-            name="scope"
-            value="weekdays"
-            checked={applyScope === 'weekdays'}
-            onChange={() => setApplyScope('weekdays')}
-          />
-          Every weekday (Mon–Fri)
-        </label>
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="radio"
-            name="scope"
-            value="date"
-            checked={applyScope === 'date'}
-            onChange={() => setApplyScope('date')}
-          />
-          This date only (<span className="font-mono">{date}</span>)
-        </label>
-
-        {overrides[date] ? (
-          <button
-            type="button"
-            onClick={clearDateOverride}
-            className="sm:ml-auto px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
-            title="Remove override for this date"
-          >
-            Remove this date’s override
-          </button>
-        ) : null}
-      </div>
-
-      {/* Table of slots */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-zinc-300">
-            <tr className="border-b border-zinc-800">
-              <th className="py-2 text-left w-28">Time</th>
-              <th className="py-2 text-left w-28">Capacity</th>
-              <th className="py-2 text-left w-32">Waitlist</th>
-              <th className="py-2 text-left">Label</th>
-              <th className="py-2 text-right w-32">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {draftSlots.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="py-4 text-center text-zinc-500">
-                  No slots. Add one below.
-                </td>
-              </tr>
-            ) : (
-              draftSlots.map((s, idx) => (
-                <tr key={s.id} className="border-b border-zinc-800">
-                  <td className="py-2 pr-2">
-                    <input
-                      value={s.time}
-                      onChange={(e) => setDraftValue(s.id, { time: e.target.value })}
-                      className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                      placeholder="HH:MM"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      inputMode="numeric"
-                      value={String(s.capacityMain)}
-                      onChange={(e) =>
-                        setDraftValue(s.id, {
-                          capacityMain: Math.max(0, parseInt(e.target.value || '0', 10)),
-                        })
-                      }
-                      className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                      placeholder="12"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      inputMode="numeric"
-                      value={String(s.capacityWait)}
-                      onChange={(e) =>
-                        setDraftValue(s.id, {
-                          capacityWait: Math.max(0, parseInt(e.target.value || '0', 10)),
-                        })
-                      }
-                      className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                      placeholder="2"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={selectValueFromLabel(s.label)}
-                        onChange={(e) => {
-                          const sel = e.target.value;
-                          if (sel === 'custom') {
-                            setDraftValue(s.id, { label: 'custom' });
-                          } else if (sel === '') {
-                            setDraftValue(s.id, { label: '' });
-                          } else {
-                            setDraftValue(s.id, { label: sel }); // competitive / novice / advanced
-                          }
-                        }}
-                        className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                      >
-                        <option value="">—</option>
-                        <option value="competitive">Competitive</option>
-                        <option value="novice">Novice</option>
-                        <option value="advanced">Advanced</option>
-                        <option value="custom">Custom…</option>
-                      </select>
-                      {!isPresetLabel(s.label || '') && (
-                        <input
-                          value={s.label || ''}
-                          onChange={(e) => setDraftValue(s.id, { label: e.target.value })}
-                          className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-                          placeholder="Custom label"
-                        />
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2 text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => moveUp(idx)}
-                        className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
-                        title="Move up"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveDown(idx)}
-                        className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
-                        title="Move down"
-                      >
-                        ↓
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeDraftSlot(s.id)}
-                        className="px-2 py-1 rounded border border-red-800 text-red-300 hover:bg-red-900/30"
-                        title="Remove"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={addDraftSlot}
-          className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-        >
-          + Add slot
-        </button>
-
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => (document.activeElement as HTMLElement)?.blur()}
-            className="px-3 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={saveDraft}
-            className="px-3 py-2 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
-            title="Save schedule"
-          >
-            Save
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-2 text-xs text-zinc-500">
-        Sunday is a rest day by default. You can still add slots for a specific Sunday by selecting
-        <span className="mx-1 font-medium">“This date only”</span> and saving.
-      </div>
-    </div>
-  );
-}
-
-/* ===================== Slots Grid (View) ===================== */
-
-function SlotsGrid({
-  slots,
-  date,
-  dateAllowed,
-  myAthleteId,
-  myBookingTime,
-  countsFor,
-  availabilityFor,
-  canBookThisSlot,
-  bookSlot,
-  cancelSlot,
-}: {
-  slots: SlotConfig[];
-  date: string;
-  dateAllowed: boolean;
-  myAthleteId: string | null;
-  myBookingTime: string | null;
-  countsFor: (time: string) => { main: number; wait: number };
-  availabilityFor: (time: string, capMain: number, capWait: number) => {
-    main: number;
-    wait: number;
-    mainLeft: number;
-    waitLeft: number;
-    hasAvailability: boolean;
-    isFullyBooked: boolean;
-  };
-  canBookThisSlot: (slot: SlotConfig) => { ok: boolean; reason?: string };
-  bookSlot: (slot: SlotConfig) => void;
-  cancelSlot: (slot: SlotConfig) => void;
-}) {
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
-
-  // Αν ένα επιλεγμένο slot πάψει να είναι διαθέσιμο, αποεπιλογή με effect
-  useEffect(() => {
-    if (!selectedTime) return;
-    const sel = slots.find(s => s.time === selectedTime);
-    if (!sel) return;
-
-    const now = new Date();
-    const isToday = date === todayISO();
-    const start = toDateAt(date, sel.time);
-    const diffMs = start.getTime() - now.getTime();
-    const isPastOrStarted = isToday && now >= start;
-    const cutoffPassed = isToday && diffMs < 30 * 60 * 1000;
-
-    const { hasAvailability } = availabilityFor(sel.time, sel.capacityMain, sel.capacityWait);
-    const alreadyMine = myBookingTime === sel.time;
-
-    const disabledUI =
-      !dateAllowed ||
-      isPastOrStarted ||
-      (!alreadyMine && cutoffPassed) ||
-      (!alreadyMine && !hasAvailability);
-
-    if (disabledUI) setSelectedTime(null);
-  }, [selectedTime, slots, date, dateAllowed, myBookingTime, availabilityFor]);
-
-  const now = new Date();
-  const isToday = date === todayISO();
-
-  return (
-    <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {slots.map((slot) => {
-          const { id, time, label, capacityMain, capacityWait } = slot;
-          const { main, wait, mainLeft, waitLeft, hasAvailability, isFullyBooked } =
-            availabilityFor(time, capacityMain, capacityWait);
-
-          const start = toDateAt(date, time);
-          const diffMs = start.getTime() - now.getTime();
-          const isPastOrStarted = isToday && now >= start;
-          const cutoffPassed = isToday && diffMs < 30 * 60 * 1000;
-          const alreadyMine = myBookingTime === time;
-
-          const rule = canBookThisSlot(slot);
-          const disabledUI =
-            !dateAllowed ||
-            isPastOrStarted ||
-            (!alreadyMine && cutoffPassed) ||
-            (!alreadyMine && !hasAvailability);
-
-          const isSelected = selectedTime === time;
-
-          let cardClasses =
-            'relative w-full rounded border p-2 transition text-sm';
-          if (isSelected) {
-            // απαλά πράσινο περίγραμμα + γκριζοπράσινο background
-            cardClasses += ' border-emerald-600 bg-emerald-900/10';
-          } else {
-            cardClasses += ' border-zinc-800 bg-zinc-900 hover:border-zinc-700';
-          }
-          cardClasses += disabledUI ? ' opacity-60 cursor-not-allowed' : ' cursor-pointer';
-
-          const handleClick = () => {
-            if (!disabledUI) setSelectedTime(time);
-          };
-
-          // Εμφάνιση μικρού κουμπιού μόνο όταν είναι επιλεγμένο
-          const canShowAction = isSelected;
-
-          // Compact info line
-          let infoEl: React.ReactNode;
-          if (!dateAllowed) {
-            infoEl = <span className="text-zinc-400">Bookable only for today & tomorrow</span>;
-          } else if (isPastOrStarted) {
-            infoEl = <span className="text-red-400">Unavailable (past/started)</span>;
-          } else if (!alreadyMine && cutoffPassed) {
-            infoEl = <span className="text-red-400">Bookings close 30’ before start</span>;
-          } else if (!alreadyMine && isFullyBooked) {
-            infoEl = <span className="text-red-400">Full incl. waitlist</span>;
-          } else if (alreadyMine) {
-            infoEl = <span className="text-emerald-400">You are booked here</span>;
-          } else if (mainLeft > 0) {
-            infoEl = <span className="text-emerald-400">Spots left: {mainLeft}</span>;
-          } else {
-            infoEl = <span className="text-yellow-400">Waitlist left: {waitLeft}</span>;
-          }
+          const mainNames = arr.filter((b) => !b.is_waitlist).map((b) => namesByAthlete[b.athlete_id] || '—');
+          const waitNames = arr.filter((b) => b.is_waitlist).map((b) => namesByAthlete[b.athlete_id] || '—');
+          const compactNames = mainNames.slice(0, 3).join(', ') + (mainNames.length > 3 ? ` +${mainNames.length - 3}` : '');
 
           return (
-            <div key={id} onClick={handleClick} className={cardClasses}>
-              <div className="flex items-center gap-2">
-                <div className="text-[13px] font-semibold leading-none">{time}</div>
-                {label ? (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 capitalize">
-                    {label}
+            <div key={row.id} className="relative rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+              <div className="text-lg font-medium tracking-tight">
+                {formatHM(row.start_time)}
+              </div>
+              <div className="text-sm text-zinc-400 mb-2">{row.title || 'Class'}</div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className={"px-2 py-0.5 rounded-full border " + (mainLeft > 0 ? 'border-emerald-700 text-emerald-300' : 'border-zinc-700 text-zinc-400')}>
+                  Main {main}/{capMain}
+                </span>
+                <span className={"px-2 py-0.5 rounded-full border " + (waitLeft > 0 ? 'border-amber-700 text-amber-300' : 'border-zinc-700 text-zinc-400')}>
+                  WL {wait}/{capWait}
+                </span>
+                {compactNames && (
+                  <span
+                    className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300"
+                    title={`Booked: ${mainNames.join(', ')}${waitNames.length ? ` • WL: ${waitNames.join(', ')}` : ''}`}
+                  >
+                    {compactNames}
                   </span>
-                ) : null}
-
-                {/* μικρό κουμπί κάτω-δεξιά */}
-                {canShowAction && (
-                  <div className="absolute right-2 bottom-2">
-                    {alreadyMine ? (
-                      <button
-                        className="px-2 py-1 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-[11px] leading-none"
-                        onClick={(e) => { e.stopPropagation(); cancelSlot(slot); }}
-                      >
-                        Cancel
-                      </button>
-                    ) : (
-                      <button
-                        className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-[11px] leading-none"
-                        disabled={disabledUI || !rule.ok}
-                        title={rule.ok ? 'Book this class' : rule.reason}
-                        onClick={(e) => { e.stopPropagation(); bookSlot(slot); }}
-                      >
-                        BOOK NOW
-                      </button>
-                    )}
-                  </div>
                 )}
-
-                <div className="ml-auto text-[11px] text-zinc-400">
-                  {main}/{capacityMain} • WL {wait}/{capacityWait}
-                </div>
               </div>
 
-              <div className="mt-1 text-[12px] min-h-[1rem]">
-                {infoEl}
+              <div className="mt-3 flex items-center justify-between">
+                <div className="text-xs text-zinc-500">{row.coach_id ? 'Coach assigned' : '—'}</div>
+                <div className="flex items-center gap-2">
+                  {mine ? (
+                    <button
+                      className="px-3 py-1.5 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
+                      onClick={() => cancelSlot(row)}
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button
+                      className="px-3 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
+                      disabled={isFullyBooked}
+                      title={isFullyBooked ? 'Full (including waitlist).' : 'Book this class'}
+                      onClick={() => bookSlot(row)}
+                    >
+                      {isFullyBooked ? 'Full' : 'Book'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
-
-      <div className="mt-3 text-xs text-zinc-500">
-        Tap a slot to reveal the bottom-right action. Bookings close <b>30’</b> before start. One booking per day.
-      </div>
-    </>
+    </section>
   );
 }

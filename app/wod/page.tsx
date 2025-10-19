@@ -87,8 +87,9 @@ export default function WodPage() {
   const strInputRef = useRef<HTMLInputElement | null>(null);
   const suppressStrOpenRef = useRef(false);
 
-  const mainActive = mainOpen && wod.title.trim().length > 0;
-const strActive  = strOpen  && wod.strength.title.trim().length > 0;
+  // ΠΡΙΝ (αν είχες κάτι τύπου mainActive = mainOpen && ...)
+const mainActive = wod.title.trim().length > 0 && mainSugs.length > 0;
+const strActive  = wod.strength.title.trim().length > 0 && strSugs.length > 0;
 
   // Κοινή κλάση για inputs
   const fieldBase =
@@ -424,8 +425,8 @@ const hasStrMatch = useMemo(() => {
                 className={
                   fieldBase +
                   (strActive
-  ? ' border-emerald-500/60 bg-emerald-800/20'
-  : ' focus:ring-2 focus:ring-zinc-700/50')
+    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
+    : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setStrOpen(strSugs.length > 0)}
                 onBlur={() => setTimeout(() => setStrOpen(false), 120)}
@@ -521,8 +522,8 @@ const hasStrMatch = useMemo(() => {
                 className={
                   fieldBase +
                   (mainActive
-  ? ' border-emerald-500/60 bg-emerald-800/20'
-  : ' focus:ring-2 focus:ring-zinc-700/50')
+    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
+    : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setMainOpen(mainSugs.length > 0)}
                 onBlur={() => setTimeout(() => setMainOpen(false), 120)}
