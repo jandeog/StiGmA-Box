@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import type { ReactElement } from 'react';
 
 type ScoringType = 'for_time' | 'amrap' | 'emom';
 
@@ -38,7 +39,7 @@ const fmtDDMMYYYY = (iso: string) => {
   return `${d}-${m}-${y}`;
 };
 
-// 00:00:00 Europe/Athens → ISO (αρκεί πρακτικά)
+// 00:00:00 Europe/Athens → ISO (πρακτικά επαρκές)
 const toAthensMidnightISO = (yyyy_mm_dd: string) =>
   new Date(`${yyyy_mm_dd}T00:00:00+03:00`).toISOString();
 
@@ -51,12 +52,19 @@ const defaultWOD = (): WOD => ({
   recordMainScore: true,
 });
 
-// ===== Autocomplete types =====
-type BenchmarkRow = {
+// Για τα suggestions του Main WOD
+type MainSuggestion = {
   title: string;
   description: string | null;
   scoring: ScoringType | null;
   timeCap: string | null;
+};
+
+// Για τα suggestions του Strength/Skills
+type StrengthSuggestion = {
+  strengthTitle: string | null;
+  strengthDescription: string | null;
+  strengthScoreHint: string | null;
 };
 
 export default function WodPage() {
@@ -67,12 +75,12 @@ export default function WodPage() {
   const [locked, setLocked] = useState(false);
 
   // Autocomplete state (Main)
-  const [mainSugs, setMainSugs] = useState<BenchmarkRow[]>([]);
+  const [mainSugs, setMainSugs] = useState<MainSuggestion[]>([]);
   const [mainOpen, setMainOpen] = useState(false);
   const mainInputRef = useRef<HTMLInputElement | null>(null);
 
   // Autocomplete state (Strength)
-  const [strSugs, setStrSugs] = useState<BenchmarkRow[]>([]);
+  const [strSugs, setStrSugs] = useState<StrengthSuggestion[]>([]);
   const [strOpen, setStrOpen] = useState(false);
   const strInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -185,26 +193,8 @@ export default function WodPage() {
   };
 
   // ============ AUTOCOMPLETE LOGIC ============
-  // Reusable fetch for suggestions (prefix, top-3), μόνο για isBenchmark=true
-  const fetchSuggestions = async (q: string) => {
-    const qTrim = q.trim();
-    if (qTrim.length < 1) return [];
-    const { data, error } = await supabase
-      .from('Wod')
-      .select('title, description, scoring, timeCap')
-      .eq('isBenchmark', true)
-      .ilike('title', `${qTrim}%`)
-      .order('title', { ascending: true })
-      .limit(3);
-    if (error) {
-      console.warn('[autocomplete error]', error);
-      return [];
-    }
-    return (data ?? []) as BenchmarkRow[];
-  };
-
   // Debounce helper
-  const useDebounced = (value: string, delay = 200) => {
+  const useDebounced = (value: string, delay = 180) => {
     const [debounced, setDebounced] = useState(value);
     useEffect(() => {
       const id = setTimeout(() => setDebounced(value), delay);
@@ -213,7 +203,37 @@ export default function WodPage() {
     return debounced;
   };
 
-  // Main WOD suggestions
+  // --- MAIN WOD suggestions (ψάχνει σε ΟΛΑ τα WODs, όχι μόνο benchmarks)
+  const fetchMainSuggestions = async (q: string) => {
+    const qTrim = q.trim();
+    if (!qTrim) return [];
+    const { data, error } = await supabase
+      .from('Wod')
+      .select('title, description, scoring, timeCap')
+      .not('title', 'is', null)
+      .ilike('title', `${qTrim}%`) // prefix match
+      .order('title', { ascending: true })
+      .limit(20); // φέρνουμε λίγα και θα τα dedupe-άρουμε client-side
+
+    if (error) {
+      console.warn('[autocomplete main error]', error);
+      return [];
+    }
+
+    // dedupe by lower(title)
+    const seen = new Set<string>();
+    const unique: MainSuggestion[] = [];
+    for (const r of data ?? []) {
+      const key = r.title.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(r as MainSuggestion);
+      }
+      if (unique.length >= 3) break;
+    }
+    return unique;
+  };
+
   const mainQuery = useDebounced(wod.title, 180);
   useEffect(() => {
     let alive = true;
@@ -223,7 +243,7 @@ export default function WodPage() {
         setMainOpen(false);
         return;
       }
-      const sugs = await fetchSuggestions(mainQuery);
+      const sugs = await fetchMainSuggestions(mainQuery);
       if (!alive) return;
       setMainSugs(sugs);
       setMainOpen(sugs.length > 0);
@@ -231,15 +251,14 @@ export default function WodPage() {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainQuery]);
+  }, [mainQuery]); // eslint-disable-line
 
   const hasMainPrefixMatch = useMemo(() => {
     const q = wod.title.trim().toLowerCase();
     return q.length > 0 && mainSugs.some((s) => s.title.toLowerCase().startsWith(q));
   }, [wod.title, mainSugs]);
 
-  const applyMainSuggestion = (s: BenchmarkRow) => {
+  const applyMainSuggestion = (s: MainSuggestion) => {
     setWod((prev) => ({
       ...prev,
       title: s.title,
@@ -248,7 +267,6 @@ export default function WodPage() {
       scoring: (s.scoring ?? prev.scoring) as ScoringType,
     }));
     setMainOpen(false);
-    // focus next field for flow
     mainInputRef.current?.blur();
   };
 
@@ -259,7 +277,37 @@ export default function WodPage() {
     }
   };
 
-  // Strength suggestions (χρησιμοποιούμε τα ίδια benchmarks ως templates, αν θες)
+  // --- STRENGTH/SKILLS suggestions (ψάχνει σε ΟΛΑ τα αποθηκευμένα strengthTitle)
+  const fetchStrengthSuggestions = async (q: string) => {
+    const qTrim = q.trim();
+    if (!qTrim) return [];
+    const { data, error } = await supabase
+      .from('Wod')
+      .select('strengthTitle, strengthDescription, strengthScoreHint')
+      .not('strengthTitle', 'is', null)
+      .ilike('strengthTitle', `${qTrim}%`) // prefix match
+      .order('strengthTitle', { ascending: true })
+      .limit(50); // θα κάνουμε dedupe client-side
+
+    if (error) {
+      console.warn('[autocomplete strength error]', error);
+      return [];
+    }
+
+    // dedupe by lower(strengthTitle)
+    const seen = new Set<string>();
+    const unique: StrengthSuggestion[] = [];
+    for (const r of (data ?? []) as StrengthSuggestion[]) {
+      const t = r.strengthTitle ?? '';
+      const key = t.toLowerCase();
+      if (!t || seen.has(key)) continue;
+      seen.add(key);
+      unique.push(r);
+      if (unique.length >= 3) break;
+    }
+    return unique;
+  };
+
   const strQuery = useDebounced(wod.strength.title, 180);
   useEffect(() => {
     let alive = true;
@@ -269,7 +317,7 @@ export default function WodPage() {
         setStrOpen(false);
         return;
       }
-      const sugs = await fetchSuggestions(strQuery);
+      const sugs = await fetchStrengthSuggestions(strQuery);
       if (!alive) return;
       setStrSugs(sugs);
       setStrOpen(sugs.length > 0);
@@ -277,22 +325,21 @@ export default function WodPage() {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strQuery]);
+  }, [strQuery]); // eslint-disable-line
 
   const hasStrPrefixMatch = useMemo(() => {
     const q = wod.strength.title.trim().toLowerCase();
-    return q.length > 0 && strSugs.some((s) => s.title.toLowerCase().startsWith(q));
+    return q.length > 0 && strSugs.some((s) => (s.strengthTitle ?? '').toLowerCase().startsWith(q));
   }, [wod.strength.title, strSugs]);
 
-  const applyStrengthSuggestion = (s: BenchmarkRow) => {
+  const applyStrengthSuggestion = (s: StrengthSuggestion) => {
     setWod((prev) => ({
       ...prev,
       strength: {
         ...prev.strength,
-        title: s.title,
-        // χρησιμοποιούμε την περιγραφή ως template για strength (προαιρετικό)
-        description: s.description ?? prev.strength.description,
+        title: s.strengthTitle ?? prev.strength.title,
+        description: s.strengthDescription ?? prev.strength.description,
+        scoreHint: s.strengthScoreHint ?? prev.strength.scoreHint,
       },
     }));
     setStrOpen(false);
@@ -307,35 +354,19 @@ export default function WodPage() {
   };
 
   // Common dropdown UI
-  const Dropdown = ({
+  const Dropdown = <T extends {}>({
     open,
     items,
-    onPick,
+    render,
   }: {
     open: boolean;
-    items: BenchmarkRow[];
-    onPick: (s: BenchmarkRow) => void;
+    items: T[];
+    render: (item: T) => ReactElement;
   }) => {
     if (!open || items.length === 0) return null;
     return (
       <div className="absolute z-20 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900/95 shadow-lg backdrop-blur">
-        <ul className="max-h-56 overflow-auto text-sm">
-          {items.map((it) => (
-            <li
-              key={it.title}
-              className="px-3 py-2 hover:bg-zinc-800 cursor-pointer"
-              onMouseDown={(e) => {
-                e.preventDefault(); // avoid blurring input
-                onPick(it);
-              }}
-            >
-              <div className="font-medium">{it.title}</div>
-              {it.description ? (
-                <div className="text-zinc-400 line-clamp-1">{it.description}</div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        <ul className="max-h-56 overflow-auto text-sm">{items.map(render)}</ul>
       </div>
     );
   };
@@ -378,7 +409,25 @@ export default function WodPage() {
                 onFocus={() => setStrOpen(strSugs.length > 0)}
                 onBlur={() => setTimeout(() => setStrOpen(false), 120)}
               />
-              <Dropdown open={strOpen} items={strSugs} onPick={applyStrengthSuggestion} />
+              <Dropdown
+                open={strOpen}
+                items={strSugs}
+                render={(it) => (
+                  <li
+                    key={it.strengthTitle ?? Math.random().toString(36)}
+                    className="px-3 py-2 hover:bg-zinc-800 cursor-pointer"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyStrengthSuggestion(it);
+                    }}
+                  >
+                    <div className="font-medium">{it.strengthTitle}</div>
+                    {it.strengthDescription ? (
+                      <div className="text-zinc-400 line-clamp-1">{it.strengthDescription}</div>
+                    ) : null}
+                  </li>
+                )}
+              />
             </div>
             <div>
               <label className="block text-sm mb-1 text-zinc-300">Score (hint)</label>
@@ -457,7 +506,25 @@ export default function WodPage() {
                 onFocus={() => setMainOpen(mainSugs.length > 0)}
                 onBlur={() => setTimeout(() => setMainOpen(false), 120)}
               />
-              <Dropdown open={mainOpen} items={mainSugs} onPick={applyMainSuggestion} />
+              <Dropdown
+                open={mainOpen}
+                items={mainSugs}
+                render={(it) => (
+                  <li
+                    key={it.title}
+                    className="px-3 py-2 hover:bg-zinc-800 cursor-pointer"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyMainSuggestion(it);
+                    }}
+                  >
+                    <div className="font-medium">{it.title}</div>
+                    {it.description ? (
+                      <div className="text-zinc-400 line-clamp-1">{it.description}</div>
+                    ) : null}
+                  </li>
+                )}
+              />
             </div>
 
             <div>
