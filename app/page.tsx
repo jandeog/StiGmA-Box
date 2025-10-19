@@ -47,6 +47,9 @@ type Step = 'email' | 'password' | 'otp';
 function AuthLandingInner() {
   const router = useRouter();
   const sp = useSearchParams();
+  const [sessionChecked, setSessionChecked] = useState(false);
+const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+
 
   const [step, setStep] = useState<Step>('email');
 
@@ -61,27 +64,30 @@ function AuthLandingInner() {
   const [resendMsg, setResendMsg] = useState<string | null>(null);
 
   // Αν υπάρχει ήδη session, κάνε reroute
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!supabase) return;
-      const { data } = await supabase.auth.getSession();
-      const hasSession = !!data.session;
+useEffect(() => {
+  let mounted = true;
+  (async () => {
+    if (!supabase) return;
+    const { data: s } = await supabase.auth.getSession();
+    const hasSession = !!s.session;
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      if (hasSession && sp.get('new') === '1') {
-        router.replace('/athletes/add');
-        return;
-      }
-      if (hasSession) {
-        router.replace('/schedule');
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [router, sp]);
+    if (hasSession) {
+      // επιβεβαίωσε ότι το session είναι έγκυρο και φέρε email χρήστη
+      const { data: u } = await supabase.auth.getUser();
+      const email = u?.user?.email ?? null;
+      setSignedInEmail(email);
+    } else {
+      setSignedInEmail(null);
+    }
+    setSessionChecked(true);
+  })();
+  return () => {
+    mounted = false;
+  };
+}, []);
+
 
   // ----- guards -----
   const canEmail = useMemo(() => /\S+@\S+\.\S+/.test(email) && !busy, [email, busy]);
@@ -93,6 +99,14 @@ function AuthLandingInner() {
     () => email.trim().length > 3 && /^\d{6}$/.test(otp) && !busy,
     [email, otp, busy]
   );
+const goContinue = () => router.replace('/schedule');
+
+const signOutAndReset = async () => {
+  await supabase.auth.signOut(); // καθάρισε πλήρως το session
+  setSignedInEmail(null);
+  setStep('email');
+  setMsg(null);
+};
 
   // ----- flows -----
   // Server-side lookup: does email exist?
@@ -121,6 +135,29 @@ function AuthLandingInner() {
       setBusy(false);
     }
   };
+{sessionChecked && signedInEmail && (
+  <div className="space-y-3">
+    <div className="text-sm text-zinc-300">
+      Είσαι ήδη συνδεδεμένος ως <span className="font-medium">{signedInEmail}</span>.
+    </div>
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={goContinue}
+        className="px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm"
+      >
+        Continue to Schedule
+      </button>
+      <button
+        type="button"
+        onClick={signOutAndReset}
+        className="px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+      >
+        Sign out & use another email
+      </button>
+    </div>
+  </div>
+)}
 
   // Create account / Send OTP (signup-or-login via code)
   const startOtpFlow = async () => {
@@ -236,192 +273,222 @@ function AuthLandingInner() {
 
   // ----- UI -----
   return (
-    <section className="min-h-[85vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
-        <div className="flex flex-col items-center mb-6">
-          <Image
-            src="/images/Stigma-Logo-white-650x705.png"
-            alt="Stigma Logo"
-            width={180}
-            height={180}
-            priority
-            className="w-32 sm:w-40 md:w-44 h-auto mx-auto"
-          />
+  <section className="min-h-[85vh] flex items-center justify-center px-4">
+    <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
+      <div className="flex flex-col items-center mb-6">
+        <Image
+          src="/images/Stigma-Logo-white-650x705.png"
+          alt="Stigma Logo"
+          width={180}
+          height={180}
+          priority
+          className="w-32 sm:w-40 md:w-44 h-auto mx-auto"
+        />
+      </div>
+
+      {/* Αν υπάρχει ενεργό session, δείξε επιλογές αντί για φόρμες */}
+      {sessionChecked && signedInEmail ? (
+        <div className="space-y-3">
+          <div className="text-sm text-zinc-300">
+            Είσαι ήδη συνδεδεμένος ως <span className="font-medium">{signedInEmail}</span>.
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={goContinue}
+              className="px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm"
+            >
+              Continue to Schedule
+            </button>
+            <button
+              type="button"
+              onClick={signOutAndReset}
+              className="px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+            >
+              Sign out & use another email
+            </button>
+          </div>
         </div>
+      ) : null}
 
-        {step === 'email' && (
-          <form onSubmit={onEmailSubmit} className="space-y-3">
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">Email</label>
-              <input
-                type="email"
-                value={email}
-                autoComplete="email"
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-                placeholder="you@example.com"
-                autoFocus
-                required
-              />
-            </div>
+      {/* Αν ΔΕΝ υπάρχει session, δείξε τα βήματα */}
+      {sessionChecked && !signedInEmail && (
+        <>
+          {step === 'email' && (
+            <form onSubmit={onEmailSubmit} className="space-y-3">
+              <div>
+                <label className="block text-sm mb-1 text-zinc-300">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  autoComplete="email"
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                  placeholder="you@example.com"
+                  autoFocus
+                  required
+                />
+              </div>
 
-            {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
+              {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
 
-            <button
-              className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
-              type="submit"
-              disabled={!canEmail}
-            >
-              Continue
-            </button>
-
-            <div className="flex items-center justify-center gap-2 pt-2">
               <button
-                type="button"
-                onClick={startOtpFlow}
-                disabled={!canEmail || busy}
-                className="text-sm underline underline-offset-4 text-emerald-300 hover:text-emerald-200 disabled:opacity-50"
+                className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
+                type="submit"
+                disabled={!canEmail}
               >
-                Create account / Send code
+                Continue
               </button>
-            </div>
-          </form>
-        )}
 
-        {step === 'password' && (
-          <form onSubmit={onPasswordSubmit} className="space-y-3">
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">Email</label>
-              <input
-                type="email"
-                value={email}
-                readOnly
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">Password</label>
-              <input
-                type="password"
-                value={password}
-                autoComplete="current-password"
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-                placeholder="••••••••"
-                required
-                minLength={6}
-              />
-            </div>
-
-            {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
-
-            <button
-              className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
-              type="submit"
-              disabled={!canPassword}
-            >
-              Sign in
-            </button>
-
-            <div className="flex items-center justify-between pt-2">
-              <button
-                type="button"
-                onClick={() => setStep('email')}
-                className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
-              >
-                Back
-              </button>
-              <div className="flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={onForgotPassword}
-                  className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
-                  disabled={busy}
-                >
-                  Forgot password
-                </button>
+              <div className="flex items-center justify-center gap-2 pt-2">
                 <button
                   type="button"
                   onClick={startOtpFlow}
-                  className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
-                  disabled={busy}
+                  disabled={!canEmail || busy}
+                  className="text-sm underline underline-offset-4 text-emerald-300 hover:text-emerald-200 disabled:opacity-50"
                 >
                   Create account / Send code
                 </button>
               </div>
-            </div>
-          </form>
-        )}
+            </form>
+          )}
 
-        {step === 'otp' && (
-          <form onSubmit={onVerifyOtp} className="space-y-3">
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">Email</label>
-              <input
-                type="email"
-                value={email}
-                readOnly
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">6-digit code</label>
-              <input
-                inputMode="numeric"
-                pattern="\d{6}"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                onPaste={(e) => {
-                  const text = e.clipboardData.getData('text') || '';
-                  const clean = text.replace(/\D/g, '').slice(0, 6);
-                  if (clean) {
-                    e.preventDefault();
-                    setOtp(clean);
-                  }
-                }}
-                className="tracking-widest text-center text-lg w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-                placeholder="••••••"
-                required
-              />
-            </div>
+          {step === 'password' && (
+            <form onSubmit={onPasswordSubmit} className="space-y-3">
+              <div>
+                <label className="block text-sm mb-1 text-zinc-300">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  readOnly
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
+                />
+              </div>
+              <div>
+                <label className="block text-sm mb-1 text-zinc-300">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  autoComplete="current-password"
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                />
+              </div>
 
-            {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
-            {resendMsg && <div className="text-sm mt-1 text-zinc-300">{resendMsg}</div>}
+              {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
 
-            <button
-              className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
-              type="submit"
-              disabled={!canVerify}
-            >
-              Verify code
-            </button>
-
-            <div className="flex items-center justify-between pt-2">
               <button
-                type="button"
-                onClick={() => setStep('email')}
-                className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
+                className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
+                type="submit"
+                disabled={!canPassword}
               >
-                Back
+                Sign in
               </button>
-              <button
-                type="button"
-                onClick={onResend}
-                className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
-                disabled={busy}
-              >
-                Resend code
-              </button>
-            </div>
 
-            <div className="text-xs text-zinc-500 mt-2 leading-relaxed">
-              Μετά την επιβεβαίωση θα πας στο{' '}
-              <span className="font-mono">{sp.get('new') === '1' ? '/athletes/add' : '/schedule'}</span>.
-            </div>
-          </form>
-        )}
-      </div>
-    </section>
-  );
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStep('email')}
+                  className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
+                >
+                  Back
+                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={onForgotPassword}
+                    className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
+                    disabled={busy}
+                  >
+                    Forgot password
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startOtpFlow}
+                    className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
+                    disabled={busy}
+                  >
+                    Create account / Send code
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {step === 'otp' && (
+            <form onSubmit={onVerifyOtp} className="space-y-3">
+              <div>
+                <label className="block text-sm mb-1 text-zinc-300">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  readOnly
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
+                />
+              </div>
+              <div>
+                <label className="block text-sm mb-1 text-zinc-300">6-digit code</label>
+                <input
+                  inputMode="numeric"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData('text') || '';
+                    const clean = text.replace(/\D/g, '').slice(0, 6);
+                    if (clean) {
+                      e.preventDefault();
+                      setOtp(clean);
+                    }
+                  }}
+                  className="tracking-widest text-center text-lg w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                  placeholder="••••••"
+                  required
+                />
+              </div>
+
+              {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
+              {resendMsg && <div className="text-sm mt-1 text-zinc-300">{resendMsg}</div>}
+
+              <button
+                className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
+                type="submit"
+                disabled={!canVerify}
+              >
+                Verify code
+              </button>
+
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStep('email')}
+                  className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={onResend}
+                  className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
+                  disabled={busy}
+                >
+                  Resend code
+                </button>
+              </div>
+
+              <div className="text-xs text-zinc-500 mt-2 leading-relaxed">
+                Μετά την επιβεβαίωση θα πας στο{' '}
+                <span className="font-mono">{sp.get('new') === '1' ? '/athletes/add' : '/schedule'}</span>.
+              </div>
+            </form>
+          )}
+        </>
+      )}
+    </div>
+  </section>
+);
 }
