@@ -89,33 +89,26 @@ useEffect(() => {
 }, []);
 
 const routePostAuth = async () => {
-  // βεβαιώσου ότι υπάρχει session
   const { data: s } = await supabase.auth.getSession();
   const uid = s.session?.user?.id;
-  if (!uid) {
-    router.replace('/');
-    return;
-  }
-  // ψάξε αν υπάρχει athlete για αυτό το user_id
+  if (!uid) { router.replace('/'); return; }
+
   const { data, error } = await supabase
     .from('athletes')
     .select('id')
     .eq('user_id', uid)
     .maybeSingle();
 
-  // Αν δεν υπάρχει γραμμή ή γύρισε 406/Not Found -> add athlete
   if (error?.code === 'PGRST116' || (!data && !error)) {
-    router.replace('/athletes/add');
+    router.replace('/athletes/add'); // ΔΕΝ υπάρχει προφίλ -> add
     return;
   }
   if (!data && error) {
-    // σε περίπτωση άλλου σφάλματος, στείλε schedule για να μη μπλοκάρει
     console.warn('athletes lookup error', error);
-    router.replace('/schedule');
+    router.replace('/schedule'); // fallback
     return;
   }
-  // Βρέθηκε athlete
-  router.replace('/schedule');
+  router.replace('/schedule'); // υπάρχει -> schedule
 };
 
   // ----- guards -----
