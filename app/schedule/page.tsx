@@ -1,40 +1,39 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 
-type ScheduleDayRow = {
-  event_date: string;
-  coach_id: string | null;
-  // Τα slot1..slot12 υπάρχουν στο row — τα προσπελάζουμε δυναμικά
-  [key: string]: unknown;
+type UserSession = { id: string; name?: string; role?: 'coach' | 'athlete' };
+type Slot = {
+  id: string;
+  time: string;                 // "HH:MM"
+  title?: string;               // e.g. "Class" | "competitive"
+  capacityMain: number;         // default 14
+  capacityWait: number;         // default 2
+  participantsMain: string[];   // array of userIds
+  participantsWait: string[];   // array of userIds
 };
-
-type Profile = { id: string; full_name: string | null };
-
-type SlotVM = {
-  i: number;
-  time: string;
-  title: string;
-  capM: number;
-  capW: number;
-  mainIds: string[];
-  waitIds: string[];
+type DayRecord = {
+  date: string;                 // "YYYY-MM-DD"
+  slots: Slot[];
 };
+type DaysStore = Record<string, DayRecord>;
 
-const MAX_SLOTS = 12;
 const CAP_MAIN_DEFAULT = 14;
 const CAP_WAIT_DEFAULT = 2;
 
+const STORAGE_TEMPLATE = 'schedule:template';
+const STORAGE_DAYS = 'schedule:days';
+const STORAGE_USER = 'auth:user';
+
+// ---------- helpers ----------
 function isoToday(): string {
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
-
 function addDays(iso: string, days: number) {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -44,174 +43,208 @@ function addDays(iso: string, days: number) {
   const d2 = String(dt.getDate()).padStart(2, '0');
   return `${y2}-${m2}-${d2}`;
 }
-
-function formatHM(t?: string | null) {
-  if (!t) return '';
-  return String(t).slice(0, 5);
+function formatHM(time: string) {
+  // expect "HH:MM" (if "HH:MM:SS" arrives, cut it)
+  return time.slice(0, 5);
 }
-
 function toDateAt(dateISO: string, hhmm: string) {
   const [y, m, d] = dateISO.split('-').map(Number);
   const [H, M] = hhmm.split(':').map(Number);
   return new Date(y, (m - 1), d, H, M);
 }
+function uid(): string {
+  // lightweight uuid
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (crypto.getRandomValues(new Uint8Array(1))[0] & 15) >> 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
+// ---------- localStorage helpers ----------
+type TemplateSlot = { time: string; title?: string; capacityMain?: number; capacityWait?: number; enabled?: boolean };
+type WeekTemplate = {
+  weekdays: TemplateSlot[];   // Mon-Fri
+  saturday: TemplateSlot[];
+  sunday: TemplateSlot[];     // usually empty
+};
+
+const DEFAULT_TEMPLATE: WeekTemplate = {
+  weekdays: [
+    { time: '07:00' }, { time: '08:30' }, { time: '09:30' }, { time: '10:30' },
+    { time: '17:00' }, { time: '18:00', title: 'competitive' },
+    { time: '19:00' }, { time: '20:00' }, { time: '21:00' }
+  ],
+  saturday: [{ time: '10:00' }, { time: '18:00' }],
+  sunday: []
+};
+
+function loadTemplate(): WeekTemplate {
+  try {
+    const raw = localStorage.getItem(STORAGE_TEMPLATE);
+    if (!raw) return DEFAULT_TEMPLATE;
+    const parsed = JSON.parse(raw) as WeekTemplate;
+    return parsed;
+  } catch {
+    return DEFAULT_TEMPLATE;
+  }
+}
+
+function ensureDay(days: DaysStore, date: string): DaysStore {
+  if (days[date]) return days;
+  // Build from template by weekday
+  const d = new Date(date + 'T00:00:00');
+  const dow = d.getDay(); // 0=Sun .. 6=Sat
+  const tpl = loadTemplate();
+  const base: TemplateSlot[] =
+    dow === 0 ? tpl.sunday : dow === 6 ? tpl.saturday : tpl.weekdays;
+
+  const slots: Slot[] = base
+    .filter(s => s.enabled !== false)
+    .map(s => ({
+      id: uid(),
+      time: s.time,
+      title: s.title || 'Class',
+      capacityMain: s.capacityMain ?? CAP_MAIN_DEFAULT,
+      capacityWait: s.capacityWait ?? CAP_WAIT_DEFAULT,
+      participantsMain: [],
+      participantsWait: []
+    }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  return {
+    ...days,
+    [date]: { date, slots }
+  };
+}
+
+function loadDays(): DaysStore {
+  try {
+    const raw = localStorage.getItem(STORAGE_DAYS);
+    if (!raw) return {};
+    return JSON.parse(raw) as DaysStore;
+  } catch {
+    return {};
+  }
+}
+
+function saveDays(days: DaysStore) {
+  localStorage.setItem(STORAGE_DAYS, JSON.stringify(days));
+}
+
+function loadUser(): UserSession | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_USER);
+    return raw ? (JSON.parse(raw) as UserSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- component ----------
 export default function SchedulePage() {
-  const supabase = useMemo(() => createClientComponentClient(), []);
   const [date, setDate] = useState<string>(isoToday());
-  const [row, setRow] = useState<ScheduleDayRow | null>(null);
-  const [namesById, setNamesById] = useState<Record<string, string>>({});
-  const [userId, setUserId] = useState<string | null>(null);
-  const [role, setRole] = useState<'coach' | 'athlete' | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [days, setDays] = useState<DaysStore>({});
+  const [user, setUser] = useState<UserSession | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const isCoach = role === 'coach';
+  const row: DayRecord | null = days[date] ?? null;
+  const isCoach = user?.role === 'coach';
 
-  // auth
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      const u = data?.user || null;
-      setUserId(u?.id ?? null);
-      const r = (u?.user_metadata as any)?.role as 'coach' | 'athlete' | undefined;
-      if (r) setRole(r);
-      else {
-        // fallback (αν το κρατάς στο localStorage)
-        try {
-          const raw = localStorage.getItem('auth:user');
-          const parsed = raw ? JSON.parse(raw) : null;
-          const rr = parsed?.role as 'coach' | 'athlete' | undefined;
-          setRole(rr ?? null);
-        } catch {}
-      }
-    })();
-  }, [supabase]);
-
-  const reload = useCallback(async () => {
+  const reload = useCallback(() => {
     setLoading(true);
-    setRow(null);
-    setNamesById({});
-
-    const { data, error } = await supabase
-      .from('schedule_day')
-      .select('*')
-      .eq('event_date', date)
-      .maybeSingle();
-
-    if (error) {
-      console.error(error);
-      setLoading(false);
-      return;
-    }
-
-    const day = (data as ScheduleDayRow) ?? null;
-    setRow(day);
-
-    // μάζεψε όλα τα ids των συμμετεχόντων από όλα τα slots
-    const ids = new Set<string>();
-    if (day) {
-      for (let i = 1; i <= MAX_SLOTS; i++) {
-        const mainArr = (day[`slot${i}_part_main`] as string[] | null) || [];
-        const waitArr = (day[`slot${i}_part_wait`] as string[] | null) || [];
-        mainArr.forEach((id: string) => ids.add(id));
-        waitArr.forEach((id: string) => ids.add(id));
-      }
-    }
-
-    if (ids.size > 0) {
-      const { data: profiles } = await supabase
-        .from('profiles') // προσαρμόσ’ το αν λέγεται αλλιώς
-        .select('id, full_name')
-        .in('id', Array.from(ids));
-
-      const map: Record<string, string> = {};
-      (profiles as Profile[] | null)?.forEach((p) => (map[p.id] = p.full_name || '—'));
-      setNamesById(map);
-    }
-
+    const d0 = loadDays();
+    const d1 = ensureDay(d0, date);
+    setDays(d1);
+    setUser(loadUser());
     setLoading(false);
-  }, [date, supabase]);
+  }, [date]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
-  // φτιάξε τα slots (όπως στο παλιό UI)
-  const slots = useMemo<SlotVM[]>(() => {
-    if (!row) return [];
-    const arr: SlotVM[] = [];
-    for (let i = 1; i <= MAX_SLOTS; i++) {
-      const t = row[`slot${i}_time`] as string | null | undefined;
-      const ttl = row[`slot${i}_title`] as string | null | undefined;
-      // κενό slot → skip
-      if (!t && !ttl) continue;
-
-      const capM = (row[`slot${i}_cap_main`] as number | null) ?? CAP_MAIN_DEFAULT;
-      const capW = (row[`slot${i}_cap_wait`] as number | null) ?? CAP_WAIT_DEFAULT;
-      const mainIds = (row[`slot${i}_part_main`] as string[] | null) || [];
-      const waitIds = (row[`slot${i}_part_wait`] as string[] | null) || [];
-
-      arr.push({
-        i,
-        time: formatHM(t ?? ''),
-        title: (ttl ?? 'Class'),
-        capM,
-        capW,
-        mainIds,
-        waitIds,
-      });
-    }
-    return arr;
-  }, [row]);
+  const slots = useMemo<Slot[]>(() => row?.slots ?? [], [row]);
 
   const now = new Date();
   const isToday = date === isoToday();
 
-  function canBook(i: number, startHHMM: string) {
-    if (!userId) return { ok: false, reason: 'Please login first.' };
-    const start = toDateAt(date, startHHMM);
+  function canBook(slot: Slot): { ok: boolean; reason?: string } {
+    if (!user?.id) return { ok: false, reason: 'Please login first.' };
+
+    const start = toDateAt(date, slot.time);
     if (isToday && now >= start) return { ok: false, reason: 'This class has already started or finished.' };
+
     if (isToday) {
       const diff = start.getTime() - now.getTime();
       if (diff < 30 * 60 * 1000) return { ok: false, reason: 'Bookings close 30 minutes before start.' };
     }
 
-    // one-per-day rule
+    // one booking per day
     if (row) {
-      for (let k = 1; k <= MAX_SLOTS; k++) {
-        const inMain = ((row[`slot${k}_part_main`] as string[] | null) || []).includes(userId);
-        const inWait = ((row[`slot${k}_part_wait`] as string[] | null) || []).includes(userId);
-        if ((inMain || inWait) && k !== i) {
+      for (const s of row.slots) {
+        const inMain = s.participantsMain.includes(user.id);
+        const inWait = s.participantsWait.includes(user.id);
+        if ((inMain || inWait) && s.id !== slot.id) {
           return { ok: false, reason: 'You already booked another slot this day. Cancel it to change.' };
         }
       }
     }
 
+    const mainCount = slot.participantsMain.length;
+    const waitCount = slot.participantsWait.length;
+    const mainLeft = Math.max(slot.capacityMain - mainCount, 0);
+    const waitLeft = Math.max(slot.capacityWait - waitCount, 0);
+    if (mainLeft <= 0 && waitLeft <= 0) return { ok: false, reason: 'Full (including waitlist).' };
+
     return { ok: true };
   }
 
-  async function book(i: number) {
-    const slot = slots.find((s) => s.i === i);
-    if (!slot) return;
-    const rule = canBook(i, slot.time);
-    if (!rule.ok) return alert(rule.reason);
-    const { data, error } = await supabase.rpc('book_slot', { p_date: date, p_slot: i });
-    if (error) return alert('Error booking');
-    if (String(data || '').startsWith('OK')) reload();
-    else alert(String(data));
+  function amIMember(slot: Slot): boolean {
+    if (!user?.id) return false;
+    return slot.participantsMain.includes(user.id) || slot.participantsWait.includes(user.id);
   }
 
-  async function cancel(i: number) {
-    const { error } = await supabase.rpc('cancel_slot', { p_date: date, p_slot: i });
-    if (error) return alert('Error cancelling');
-    reload();
+  function book(slot: Slot) {
+    if (!row || !user?.id) return;
+    const rule = canBook(slot);
+    if (!rule.ok) {
+      alert(rule.reason);
+      return;
+    }
+    const mainCount = slot.participantsMain.length;
+    const isWait = mainCount >= slot.capacityMain;
+
+    const updated: DaysStore = { ...days };
+    const day = updated[date];
+    const nextSlots = day.slots.map(s => {
+      if (s.id !== slot.id) return s;
+      return {
+        ...s,
+        participantsMain: isWait ? s.participantsMain : [...s.participantsMain, user.id],
+        participantsWait: isWait ? [...s.participantsWait, user.id] : s.participantsWait
+      };
+    });
+    updated[date] = { ...day, slots: nextSlots };
+    setDays(updated);
+    saveDays(updated);
   }
 
-  function amIMember(i: number) {
-    if (!row || !userId) return false;
-    const inMain = ((row[`slot${i}_part_main`] as string[] | null) || []).includes(userId);
-    const inWait = ((row[`slot${i}_part_wait`] as string[] | null) || []).includes(userId);
-    return inMain || inWait;
+  function cancel(slot: Slot) {
+    if (!row || !user?.id) return;
+    const updated: DaysStore = { ...days };
+    const day = updated[date];
+    const nextSlots = day.slots.map(s => {
+      if (s.id !== slot.id) return s;
+      return {
+        ...s,
+        participantsMain: s.participantsMain.filter(x => x !== user.id),
+        participantsWait: s.participantsWait.filter(x => x !== user.id)
+      };
+    });
+    updated[date] = { ...day, slots: nextSlots };
+    setDays(updated);
+    saveDays(updated);
   }
 
   return (
@@ -256,25 +289,20 @@ export default function SchedulePage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {slots.map((s) => {
-          const mainCount = s.mainIds.length;
-          const waitCount = s.waitIds.length;
-          const mainLeft = Math.max(s.capM - mainCount, 0);
-          const waitLeft = Math.max(s.capW - waitCount, 0);
-          const isFull = mainCount >= s.capM && waitCount >= s.capW;
-          const mine = amIMember(s.i);
+          const mainCount = s.participantsMain.length;
+          const waitCount = s.participantsWait.length;
+          const mainLeft = Math.max(s.capacityMain - mainCount, 0);
+          const waitLeft = Math.max(s.capacityWait - waitCount, 0);
+          const isFull = mainLeft <= 0 && waitLeft <= 0;
+          const mine = amIMember(s);
 
-          const mainNames = s.mainIds.map((id: string) => namesById[id] || '—');
-          const waitNames = s.waitIds.map((id: string) => namesById[id] || '—');
-          const compact =
-            mainNames.slice(0, 3).join(', ') +
-            (mainNames.length > 3 ? ` +${mainNames.length - 3}` : '');
+          // names: απλή απόδοση — αν υπάρχει user.name, δείχνουμε "You" όταν συμμετέχεις
+          const compact = mine ? 'You' : (mainCount > 0 ? `${mainCount} booked` : '');
 
           return (
-            <div key={s.i} className="relative rounded-xl border border-zinc-800 bg-zinc-950 p-3">
-              <div className="text-lg font-medium tracking-tight">
-                {s.time}
-              </div>
-              <div className="text-sm text-zinc-400 mb-2">{s.title}</div>
+            <div key={s.id} className="relative rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+              <div className="text-lg font-medium tracking-tight">{formatHM(s.time)}</div>
+              <div className="text-sm text-zinc-400 mb-2">{s.title || 'Class'}</div>
 
               <div className="flex items-center gap-2 text-xs">
                 <span
@@ -283,7 +311,7 @@ export default function SchedulePage() {
                     (mainLeft > 0 ? 'border-emerald-700 text-emerald-300' : 'border-zinc-700 text-zinc-400')
                   }
                 >
-                  Main {mainCount}/{s.capM}
+                  Main {mainCount}/{s.capacityMain}
                 </span>
                 <span
                   className={
@@ -291,13 +319,10 @@ export default function SchedulePage() {
                     (waitLeft > 0 ? 'border-amber-700 text-amber-300' : 'border-zinc-700 text-zinc-400')
                   }
                 >
-                  WL {waitCount}/{s.capW}
+                  WL {waitCount}/{s.capacityWait}
                 </span>
                 {compact && (
-                  <span
-                    className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300"
-                    title={`Booked: ${mainNames.join(', ')}${waitNames.length ? ` • WL: ${waitNames.join(', ')}` : ''}`}
-                  >
+                  <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300">
                     {compact}
                   </span>
                 )}
@@ -307,7 +332,7 @@ export default function SchedulePage() {
                 {mine ? (
                   <button
                     className="px-3 py-1.5 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
-                    onClick={() => cancel(s.i)}
+                    onClick={() => cancel(s)}
                   >
                     Cancel
                   </button>
@@ -316,7 +341,7 @@ export default function SchedulePage() {
                     className="px-3 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
                     disabled={isFull}
                     title={isFull ? 'Full (including waitlist).' : 'Book this class'}
-                    onClick={() => book(s.i)}
+                    onClick={() => book(s)}
                   >
                     {isFull ? 'Full' : 'Book'}
                   </button>

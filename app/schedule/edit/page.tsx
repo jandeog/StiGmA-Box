@@ -1,168 +1,193 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 
-type HourRow = {
-  day_of_week: number;    // 0..6
-  slot_index: number;     // 1..12
-  slot_time: string;      // HH:MM:SS
-  slot_title: string;
-  cap_main: number;
-  cap_wait: number;
-  active: boolean;
+type TemplateSlot = {
+  time: string;            // "HH:MM"
+  title?: string;
+  capacityMain?: number;   // default 14
+  capacityWait?: number;   // default 2
+  enabled?: boolean;       // false → ignore
 };
 
-const MAX_SLOTS = 12;
+type WeekTemplate = {
+  weekdays: TemplateSlot[];   // Mon..Fri
+  saturday: TemplateSlot[];
+  sunday: TemplateSlot[];     // optional
+};
+
+type Slot = {
+  id: string;
+  time: string;
+  title?: string;
+  capacityMain: number;
+  capacityWait: number;
+  participantsMain: string[];
+  participantsWait: string[];
+};
+
+type DayRecord = { date: string; slots: Slot[] };
+type DaysStore = Record<string, DayRecord>;
+
+const STORAGE_TEMPLATE = 'schedule:template';
+const STORAGE_DAYS = 'schedule:days';
 const CAP_MAIN_DEFAULT = 14;
 const CAP_WAIT_DEFAULT = 2;
 
+const DEFAULT_TEMPLATE: WeekTemplate = {
+  weekdays: [
+    { time: '07:00' }, { time: '08:30' }, { time: '09:30' }, { time: '10:30' },
+    { time: '17:00' }, { time: '18:00', title: 'competitive' },
+    { time: '19:00' }, { time: '20:00' }, { time: '21:00' }
+  ],
+  saturday: [{ time: '10:00' }, { time: '18:00' }],
+  sunday: []
+};
+
+function loadTemplate(): WeekTemplate {
+  try {
+    const raw = localStorage.getItem(STORAGE_TEMPLATE);
+    if (!raw) return DEFAULT_TEMPLATE;
+    return JSON.parse(raw) as WeekTemplate;
+  } catch {
+    return DEFAULT_TEMPLATE;
+  }
+}
+function saveTemplate(tpl: WeekTemplate) {
+  localStorage.setItem(STORAGE_TEMPLATE, JSON.stringify(tpl));
+}
+function loadDays(): DaysStore {
+  try {
+    const raw = localStorage.getItem(STORAGE_DAYS);
+    return raw ? (JSON.parse(raw) as DaysStore) : {};
+  } catch {
+    return {};
+  }
+}
+function saveDays(days: DaysStore) {
+  localStorage.setItem(STORAGE_DAYS, JSON.stringify(days));
+}
+function uid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (crypto.getRandomValues(new Uint8Array(1))[0] & 15) >> 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 function padHM(v: string) {
-  // accept "07:00" or "7:00" → "07:00"
-  const [h, m] = v.split(':').map((x) => x.trim());
-  return `${String(h).padStart(2, '0')}:${String(m || '00').padStart(2, '0')}`;
+  const [h, m] = v.split(':').map(s => s.trim());
+  return `${String(h || '00').padStart(2, '0')}:${String(m || '00').padStart(2, '0')}`;
+}
+function eachDate(fromISO: string, toISO: string): string[] {
+  const out: string[] = [];
+  const [fy, fm, fd] = fromISO.split('-').map(Number);
+  const [ty, tm, td] = toISO.split('-').map(Number);
+  const cur = new Date(fy, fm - 1, fd);
+  const end = new Date(ty, tm - 1, td);
+  while (cur <= end) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth() + 1).padStart(2, '0');
+    const d = String(cur.getDate()).padStart(2, '0');
+    out.push(`${y}-${m}-${d}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
 }
 
 export default function ScheduleEditPage() {
-  const supabase = useMemo(() => createClientComponentClient(), []);
-  const [role, setRole] = useState<'coach' | 'athlete' | null>(null);
-  const [dow, setDow] = useState<number>(1); // default Monday
-  const [rows, setRows] = useState<Array<HourRow>>([]);
+  const [tpl, setTpl] = useState<WeekTemplate>(DEFAULT_TEMPLATE);
+  const [dow, setDow] = useState<number>(1); // 1=Mon ... 6=Sat, 0=Sun (UI)
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  const [coachId, setCoachId] = useState('');
   const [msg, setMsg] = useState('');
 
-  // auth / guard
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      const u = data?.user || null;
-      let r: 'coach' | 'athlete' | null = (u?.user_metadata as any)?.role ?? null;
-      if (!r) {
-        try {
-          const raw = localStorage.getItem('auth:user');
-          const parsed = raw ? JSON.parse(raw) : null;
-          r = parsed?.role ?? null;
-        } catch {}
-      }
-      setRole(r);
-    })();
-  }, [supabase]);
+    setTpl(loadTemplate());
+  }, []);
 
-  // load class_hours for selected day
-  async function loadDayHours(day: number) {
-    const { data, error } = await supabase
-      .from('class_hours')
-      .select('day_of_week,slot_index,slot_time,slot_title,cap_main,cap_wait,active')
-      .eq('day_of_week', day)
-      .order('slot_index', { ascending: true });
+  const listByDow = useMemo<TemplateSlot[]>(() => {
+    if (dow === 0) return tpl.sunday;
+    if (dow === 6) return tpl.saturday;
+    return tpl.weekdays;
+  }, [tpl, dow]);
 
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    // ensure we have 1..12 slots (fill missing)
-    const byIndex: Record<number, HourRow> = {};
-    (data || []).forEach((r) => {
-      byIndex[r.slot_index] = r as HourRow;
-    });
-
-    const full: HourRow[] = [];
-    for (let i = 1; i <= MAX_SLOTS; i++) {
-      const r = byIndex[i];
-      if (r) {
-        full.push(r);
-      } else {
-        full.push({
-          day_of_week: day,
-          slot_index: i,
-          slot_time: '00:00:00',
-          slot_title: '',
-          cap_main: CAP_MAIN_DEFAULT,
-          cap_wait: CAP_WAIT_DEFAULT,
-          active: false,
-        });
-      }
-    }
-    setRows(full);
+  function setList(upd: TemplateSlot[]) {
+    if (dow === 0) setTpl(prev => ({ ...prev, sunday: upd }));
+    else if (dow === 6) setTpl(prev => ({ ...prev, saturday: upd }));
+    else setTpl(prev => ({ ...prev, weekdays: upd }));
   }
 
-  useEffect(() => {
-    loadDayHours(dow);
-  }, [dow]);
-
-  if (role !== 'coach') {
-    return (
-      <section className="max-w-3xl mx-auto p-4">
-        <h1 className="text-2xl font-semibold mb-3">Change Schedule</h1>
-        <div className="p-3 border border-red-700 bg-red-900/20 rounded text-sm text-red-300">
-          Only coaches can edit the schedule.
-        </div>
-        <div className="mt-4">
-          <Link href="/schedule" className="text-sm underline text-zinc-300">
-            Back to schedule
-          </Link>
-        </div>
-      </section>
-    );
+  function addSlot() {
+    const upd = [...listByDow, { time: '07:00', title: 'Class', capacityMain: CAP_MAIN_DEFAULT, capacityWait: CAP_WAIT_DEFAULT, enabled: true }];
+    setList(upd);
+  }
+  function updateSlot(index: number, patch: Partial<TemplateSlot>) {
+    const upd = listByDow.map((s, i) => (i === index ? { ...s, ...patch } : s));
+    setList(upd);
+  }
+  function removeSlot(index: number) {
+    const upd = listByDow.filter((_, i) => i !== index);
+    setList(upd);
   }
 
-  async function saveDay() {
-    // upsert all 12 slots for the selected day
-    const payload = rows.map((r) => ({
-      day_of_week: r.day_of_week,
-      slot_index: r.slot_index,
-      slot_time: r.slot_time, // HH:MM:SS
-      slot_title: r.slot_title || 'Class',
-      cap_main: r.cap_main || CAP_MAIN_DEFAULT,
-      cap_wait: r.cap_wait || CAP_WAIT_DEFAULT,
-      active: !!r.active,
-    }));
+  function onSaveTemplate() {
+    // sanitize
+    const sanitize = (arr: TemplateSlot[]) =>
+      arr
+        .map(s => ({
+          time: padHM(s.time || '00:00'),
+          title: s.title?.trim() || 'Class',
+          capacityMain: Number(s.capacityMain ?? CAP_MAIN_DEFAULT),
+          capacityWait: Number(s.capacityWait ?? CAP_WAIT_DEFAULT),
+          enabled: s.enabled !== false
+        }))
+        .sort((a, b) => a.time.localeCompare(b.time));
 
-    const { error } = await supabase.from('class_hours').upsert(payload, {
-      onConflict: 'day_of_week,slot_index',
-    });
-
-    if (error) {
-      console.error(error);
-      setMsg('❌ Failed to save');
-      setTimeout(() => setMsg(''), 1800);
-      return;
-    }
-    setMsg('✅ Saved');
-    setTimeout(() => setMsg(''), 1200);
-    // reload to normalize / ensure order
-    loadDayHours(dow);
-  }
-
-  async function applyRange() {
-    if (!fromDate || !toDate) {
-      setMsg('⚠️ Select from & to dates');
-      setTimeout(() => setMsg(''), 1800);
-      return;
-    }
-    const { error } = await supabase.rpc('apply_hours_to_range', {
-      from_date: fromDate,
-      to_date: toDate,
-      coach: coachId || null,
-    });
-    if (error) {
-      console.error(error);
-      setMsg('❌ Failed to apply to DB');
-      setTimeout(() => setMsg(''), 2000);
-      return;
-    }
-    setMsg('✅ Applied to DB');
+    const clean: WeekTemplate = {
+      weekdays: sanitize(tpl.weekdays),
+      saturday: sanitize(tpl.saturday),
+      sunday: sanitize(tpl.sunday)
+    };
+    setTpl(clean);
+    saveTemplate(clean);
+    setMsg('✅ Template saved');
     setTimeout(() => setMsg(''), 1400);
   }
 
-  function setRow(i: number, patch: Partial<HourRow>) {
-    setRows((prev) =>
-      prev.map((r) => (r.slot_index === i ? { ...r, ...patch } : r))
-    );
+  function applyToRange() {
+    if (!fromDate || !toDate) {
+      setMsg('⚠️ Select from & to dates');
+      setTimeout(() => setMsg(''), 1600);
+      return;
+    }
+    const dates = eachDate(fromDate, toDate);
+    const days = loadDays();
+
+    for (const date of dates) {
+      const d = new Date(date + 'T00:00:00');
+      const dowLocal = d.getDay(); // 0..6
+      const base = dowLocal === 0 ? tpl.sunday : dowLocal === 6 ? tpl.saturday : tpl.weekdays;
+      const sanitized = base
+        .filter(s => s.enabled !== false)
+        .map(s => ({
+          id: uid(),
+          time: padHM(s.time || '00:00'),
+          title: s.title?.trim() || 'Class',
+          capacityMain: Number(s.capacityMain ?? CAP_MAIN_DEFAULT),
+          capacityWait: Number(s.capacityWait ?? CAP_WAIT_DEFAULT),
+          participantsMain: [] as string[],
+          participantsWait: [] as string[]
+        }))
+        .sort((a, b) => a.time.localeCompare(b.time));
+
+      const record: DayRecord = { date, slots: sanitized };
+      (days as DaysStore)[date] = record;
+    }
+
+    saveDays(days);
+    setMsg('✅ Applied to range');
+    setTimeout(() => setMsg(''), 1400);
   }
 
   return (
@@ -191,13 +216,14 @@ export default function ScheduleEditPage() {
         </select>
 
         <button
-          onClick={saveDay}
+          onClick={onSaveTemplate}
           className="ml-auto px-3 py-1.5 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
         >
-          Save day
+          Save template
         </button>
       </div>
 
+      {/* Slots table/editor */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-950">
         <div className="grid grid-cols-12 gap-2 p-2 text-xs text-zinc-400 border-b border-zinc-800">
           <div className="col-span-1">#</div>
@@ -208,18 +234,18 @@ export default function ScheduleEditPage() {
           <div className="col-span-2">Wait cap</div>
         </div>
 
-        {rows.map((r) => (
+        {listByDow.map((s, idx) => (
           <div
-            key={r.slot_index}
+            key={idx}
             className="grid grid-cols-12 gap-2 p-2 border-b border-zinc-900 items-center"
           >
-            <div className="col-span-1 text-xs text-zinc-400">#{r.slot_index}</div>
+            <div className="col-span-1 text-xs text-zinc-400">#{idx + 1}</div>
             <div className="col-span-2">
               <label className="inline-flex items-center gap-2 text-xs">
                 <input
                   type="checkbox"
-                  checked={r.active}
-                  onChange={(e) => setRow(r.slot_index, { active: e.target.checked })}
+                  checked={s.enabled !== false}
+                  onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
                 />
                 active
               </label>
@@ -227,18 +253,16 @@ export default function ScheduleEditPage() {
             <div className="col-span-2">
               <input
                 placeholder="07:00"
-                value={r.slot_time ? String(r.slot_time).slice(0,5) : ''}
-                onChange={(e) =>
-                  setRow(r.slot_index, { slot_time: padHM(e.target.value) + ':00' })
-                }
+                value={s.time}
+                onChange={(e) => updateSlot(idx, { time: padHM(e.target.value) })}
                 className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
               />
             </div>
             <div className="col-span-3">
               <input
                 placeholder="Class"
-                value={r.slot_title}
-                onChange={(e) => setRow(r.slot_index, { slot_title: e.target.value })}
+                value={s.title ?? ''}
+                onChange={(e) => updateSlot(idx, { title: e.target.value })}
                 className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
               />
             </div>
@@ -246,26 +270,45 @@ export default function ScheduleEditPage() {
               <input
                 type="number"
                 min={0}
-                value={r.cap_main}
-                onChange={(e) => setRow(r.slot_index, { cap_main: Number(e.target.value || CAP_MAIN_DEFAULT) })}
+                value={Number(s.capacityMain ?? CAP_MAIN_DEFAULT)}
+                onChange={(e) => updateSlot(idx, { capacityMain: Number(e.target.value || CAP_MAIN_DEFAULT) })}
                 className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
               />
             </div>
             <div className="col-span-2">
-              <input
-                type="number"
-                min={0}
-                value={r.cap_wait}
-                onChange={(e) => setRow(r.slot_index, { cap_wait: Number(e.target.value || CAP_WAIT_DEFAULT) })}
-                className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  value={Number(s.capacityWait ?? CAP_WAIT_DEFAULT)}
+                  onChange={(e) => updateSlot(idx, { capacityWait: Number(e.target.value || CAP_WAIT_DEFAULT) })}
+                  className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
+                />
+                <button
+                  onClick={() => removeSlot(idx)}
+                  className="px-2 py-1 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
+                  title="Remove slot"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
         ))}
+
+        <div className="p-2">
+          <button
+            onClick={addSlot}
+            className="px-3 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
+          >
+            + Add slot
+          </button>
+        </div>
       </div>
 
+      {/* Apply to date range */}
       <div className="mt-6 flex flex-col gap-2 p-4 rounded-xl border border-zinc-800 bg-zinc-950">
-        <div className="text-sm text-zinc-300 font-medium">Apply hours to a date range</div>
+        <div className="text-sm text-zinc-300 font-medium">Apply template to a date range</div>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
           <input
             type="date"
@@ -273,27 +316,20 @@ export default function ScheduleEditPage() {
             onChange={(e) => setFromDate(e.target.value)}
             className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
           />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mt-2">
           <input
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
             className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
           />
-          <input
-            placeholder="Coach UUID (optional)"
-            value={coachId}
-            onChange={(e) => setCoachId(e.target.value)}
-            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-          />
           <button
-            onClick={applyRange}
+            onClick={applyToRange}
             className="px-3 py-2 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
           >
-            Apply to DB
+            Apply to days
           </button>
-        </div>
-        <div className="text-xs text-zinc-500">
-          Θα δημιουργήσει / αντικαταστήσει τις ημέρες στο <code>schedule_day</code> βάσει των <code>class_hours</code>. Default capacities: Main 14, WL 2.
         </div>
         {msg && <div className="text-sm text-zinc-300">{msg}</div>}
       </div>
