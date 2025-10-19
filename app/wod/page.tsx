@@ -400,7 +400,7 @@ const hasStrMatch = useMemo(() => {
                 placeholder="e.g. Back Squat"
                 className={
                   fieldBase +
-                  (hasMainMatch
+                  (hasStrMatch
     ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
     : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
@@ -497,7 +497,7 @@ const hasStrMatch = useMemo(() => {
                 onKeyDown={onMainKeyDown}
                 className={
                   fieldBase +
-                  (hasStrMatch
+                  (hasMainMatch
     ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
     : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
