@@ -88,6 +88,35 @@ useEffect(() => {
   };
 }, []);
 
+const routePostAuth = async () => {
+  // βεβαιώσου ότι υπάρχει session
+  const { data: s } = await supabase.auth.getSession();
+  const uid = s.session?.user?.id;
+  if (!uid) {
+    router.replace('/');
+    return;
+  }
+  // ψάξε αν υπάρχει athlete για αυτό το user_id
+  const { data, error } = await supabase
+    .from('athletes')
+    .select('id')
+    .eq('user_id', uid)
+    .maybeSingle();
+
+  // Αν δεν υπάρχει γραμμή ή γύρισε 406/Not Found -> add athlete
+  if (error?.code === 'PGRST116' || (!data && !error)) {
+    router.replace('/athletes/add');
+    return;
+  }
+  if (!data && error) {
+    // σε περίπτωση άλλου σφάλματος, στείλε schedule για να μη μπλοκάρει
+    console.warn('athletes lookup error', error);
+    router.replace('/schedule');
+    return;
+  }
+  // Βρέθηκε athlete
+  router.replace('/schedule');
+};
 
   // ----- guards -----
   const canEmail = useMemo(() => /\S+@\S+\.\S+/.test(email) && !busy, [email, busy]);
@@ -99,7 +128,9 @@ useEffect(() => {
     () => email.trim().length > 3 && /^\d{6}$/.test(otp) && !busy,
     [email, otp, busy]
   );
-const goContinue = () => router.replace('/schedule');
+ const goContinue = async () => {
+   await routePostAuth();
+ };
 
 const signOutAndReset = async () => {
   await supabase.auth.signOut(); // καθάρισε πλήρως το session
@@ -174,7 +205,8 @@ const signOutAndReset = async () => {
       email: email.trim(),
       options: {
         shouldCreateUser: true,
-        emailRedirectTo, // fallback αν πατήσει verify link
+           emailRedirectTo,
+   data: { needs_profile: true },
       },
     });
 
@@ -200,7 +232,7 @@ const signOutAndReset = async () => {
     });
 
     if (!error && data.session) {
-      router.replace('/schedule');
+      await routePostAuth();
       setBusy(false);
       return;
     }
@@ -246,11 +278,7 @@ const signOutAndReset = async () => {
       return;
     }
 
-    if (sp.get('new') === '1') {
-      router.replace('/athletes/add');
-    } else {
-      router.replace('/schedule');
-    }
+    await routePostAuth();
     setBusy(false);
   };
 

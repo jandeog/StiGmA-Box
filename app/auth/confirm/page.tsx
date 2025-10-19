@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase =
@@ -12,7 +12,6 @@ const supabase =
       )
     : (null as any);
 
-// (προαιρετικό, αλλά καλό για ασφάλεια απέναντι σε SSG)
 export const dynamic = 'force-dynamic';
 
 export default function AuthConfirmPage() {
@@ -25,33 +24,42 @@ export default function AuthConfirmPage() {
 
 function AuthConfirmInner() {
   const router = useRouter();
-  const sp = useSearchParams();
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      const hasSession = !!data.session;
+      const { data: s } = await supabase.auth.getSession();
+      const uid = s.session?.user?.id;
 
       if (!mounted) return;
 
-      if (!hasSession) {
-        // Αν για κάποιο λόγο δεν ολοκληρώθηκε το session από το email link
+      if (!uid) {
         router.replace('/');
         return;
       }
 
-      if (sp.get('new') === '1') {
-        router.replace('/athletes/add');
-      } else {
-        router.replace('/schedule');
-      }
-    })();
+      // Έλεγχος ύπαρξης athlete
+      const { data, error } = await supabase
+        .from('athletes')
+        .select('id')
+        .eq('user_id', uid)
+        .maybeSingle();
 
+      if (error?.code === 'PGRST116' || (!data && !error)) {
+        router.replace('/athletes/add');
+        return;
+      }
+      if (!data && error) {
+        console.warn('athletes lookup error', error);
+        router.replace('/schedule');
+        return;
+      }
+      router.replace('/schedule');
+    })();
     return () => {
       mounted = false;
     };
-  }, [router, sp]);
+  }, [router]);
 
   return (
     <div className="min-h-[70vh] grid place-items-center text-sm text-zinc-400">
