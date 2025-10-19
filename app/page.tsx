@@ -131,7 +131,7 @@ function AuthLandingInner() {
     url.searchParams.set('new', '1');
     window.history.replaceState(null, '', url.toString());
 
-    const emailRedirectTo = `${getSiteUrl()}/auth/callback?new=1`;
+    const emailRedirectTo = `${getSiteUrl()}/auth/confirm?new=1`;
 
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
@@ -221,7 +221,7 @@ function AuthLandingInner() {
     if (!email || !supabase) return;
     setResendMsg(null);
     setBusy(true);
-    const emailRedirectTo = `${getSiteUrl()}/auth/callback?new=1`;
+    const emailRedirectTo = `${getSiteUrl()}/auth/confirm?new=1`;
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { shouldCreateUser: true, emailRedirectTo },
