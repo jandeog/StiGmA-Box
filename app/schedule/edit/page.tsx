@@ -5,7 +5,7 @@ import Link from 'next/link';
 
 type TemplateSlot = {
   time: string;            // "HH:MM"
-  title?: string;
+  title?: 'Class' | 'Competitive' | 'Teams';
   capacityMain?: number;   // default 14
   capacityWait?: number;   // default 2
   enabled?: boolean;       // false → ignore
@@ -14,7 +14,7 @@ type TemplateSlot = {
 type WeekTemplate = {
   weekdays: TemplateSlot[];   // Mon..Fri
   saturday: TemplateSlot[];
-  sunday: TemplateSlot[];     // optional
+  sunday: TemplateSlot[];     // usually empty
 };
 
 type Slot = {
@@ -35,13 +35,17 @@ const STORAGE_DAYS = 'schedule:days';
 const CAP_MAIN_DEFAULT = 14;
 const CAP_WAIT_DEFAULT = 2;
 
+// Εφαρμογή “from now on” για πόσες μέρες μπροστά (6 μήνες ~ 180 μέρες)
+const APPLY_HORIZON_DAYS = 180;
+
 const DEFAULT_TEMPLATE: WeekTemplate = {
   weekdays: [
-    { time: '07:00' }, { time: '08:30' }, { time: '09:30' }, { time: '10:30' },
-    { time: '17:00' }, { time: '18:00', title: 'competitive' },
-    { time: '19:00' }, { time: '20:00' }, { time: '21:00' }
+    { time: '07:00', title: 'Class' }, { time: '08:30', title: 'Class' }, { time: '09:30', title: 'Class' },
+    { time: '10:30', title: 'Class' }, { time: '17:00', title: 'Class' }, { time: '18:00', title: 'Competitive' },
+    { time: '19:00', title: 'Class' }, { time: '20:00', title: 'Class' }, { time: '21:00', title: 'Class' }
   ],
-  saturday: [{ time: '10:00' }, { time: '18:00' }],
+  // Σάββατο: πάντα 2 classes με Teams, εκτός αν αλλάξει το template ο coach
+  saturday: [{ time: '10:00', title: 'Teams' }, { time: '18:00', title: 'Teams' }],
   sunday: []
 };
 
@@ -79,6 +83,22 @@ function padHM(v: string) {
   const [h, m] = v.split(':').map(s => s.trim());
   return `${String(h || '00').padStart(2, '0')}:${String(m || '00').padStart(2, '0')}`;
 }
+function isoToday(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function addDays(iso: string, days: number) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const y2 = dt.getFullYear();
+  const m2 = String(dt.getMonth() + 1).padStart(2, '0');
+  const d2 = String(dt.getDate()).padStart(2, '0');
+  return `${y2}-${m2}-${d2}`;
+}
 function eachDate(fromISO: string, toISO: string): string[] {
   const out: string[] = [];
   const [fy, fm, fd] = fromISO.split('-').map(Number);
@@ -97,9 +117,9 @@ function eachDate(fromISO: string, toISO: string): string[] {
 
 export default function ScheduleEditPage() {
   const [tpl, setTpl] = useState<WeekTemplate>(DEFAULT_TEMPLATE);
-  const [dow, setDow] = useState<number>(1); // 1=Mon ... 6=Sat, 0=Sun (UI)
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [dow, setDow] = useState<number>(1); // 1=Mon ... 6=Sat, 0=Sun
+  const [applyMode, setApplyMode] = useState<'one' | 'weekly' | 'weekdays'>('one');
+  const [specificDate, setSpecificDate] = useState<string>(isoToday());
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
@@ -119,13 +139,22 @@ export default function ScheduleEditPage() {
   }
 
   function addSlot() {
-    const upd = [...listByDow, { time: '07:00', title: 'Class', capacityMain: CAP_MAIN_DEFAULT, capacityWait: CAP_WAIT_DEFAULT, enabled: true }];
+    const newSlot: TemplateSlot = {
+      time: '07:00',
+      title: (dow === 6 ? 'Teams' : 'Class') as 'Class' | 'Competitive' | 'Teams',
+      capacityMain: CAP_MAIN_DEFAULT,
+      capacityWait: CAP_WAIT_DEFAULT,
+      enabled: true,
+    };
+    const upd: TemplateSlot[] = [...listByDow, newSlot];
     setList(upd);
   }
+
   function updateSlot(index: number, patch: Partial<TemplateSlot>) {
     const upd = listByDow.map((s, i) => (i === index ? { ...s, ...patch } : s));
     setList(upd);
   }
+
   function removeSlot(index: number) {
     const upd = listByDow.filter((_, i) => i !== index);
     setList(upd);
@@ -133,15 +162,15 @@ export default function ScheduleEditPage() {
 
   function onSaveTemplate() {
     // sanitize
-    const sanitize = (arr: TemplateSlot[]) =>
-      arr
-        .map(s => ({
-          time: padHM(s.time || '00:00'),
-          title: s.title?.trim() || 'Class',
-          capacityMain: Number(s.capacityMain ?? CAP_MAIN_DEFAULT),
-          capacityWait: Number(s.capacityWait ?? CAP_WAIT_DEFAULT),
-          enabled: s.enabled !== false
-        }))
+   const sanitize = (arr: TemplateSlot[]) =>
+    arr
+      .map((s): TemplateSlot => ({
+        time: padHM(s.time || '00:00'),
+        title: (s.title ?? ((dow === 6 ? 'Teams' : 'Class') as 'Class' | 'Competitive' | 'Teams')),
+        capacityMain: Number(s.capacityMain ?? CAP_MAIN_DEFAULT),
+        capacityWait: Number(s.capacityWait ?? CAP_WAIT_DEFAULT),
+        enabled: s.enabled !== false,
+      }))
         .sort((a, b) => a.time.localeCompare(b.time));
 
     const clean: WeekTemplate = {
@@ -155,38 +184,70 @@ export default function ScheduleEditPage() {
     setTimeout(() => setMsg(''), 1400);
   }
 
-  function applyToRange() {
-    if (!fromDate || !toDate) {
-      setMsg('⚠️ Select from & to dates');
-      setTimeout(() => setMsg(''), 1600);
-      return;
-    }
-    const dates = eachDate(fromDate, toDate);
+  // Μετατρέπει template slots σε DayRecord.slots (local storage σχήμα)
+  function buildDaySlots(from: TemplateSlot[]): Slot[] {
+    return from
+      .filter(s => s.enabled !== false)
+      .map(s => ({
+        id: uid(),
+        time: padHM(s.time || '00:00'),
+        title: (s.title || 'Class') as string,
+        capacityMain: Number(s.capacityMain ?? CAP_MAIN_DEFAULT),
+        capacityWait: Number(s.capacityWait ?? CAP_WAIT_DEFAULT),
+        participantsMain: [],
+        participantsWait: []
+      }))
+      .sort((a, b) => a.time.localeCompare(b.time));
+  }
+
+  function applyNow() {
     const days = loadDays();
 
-    for (const date of dates) {
-      const d = new Date(date + 'T00:00:00');
-      const dowLocal = d.getDay(); // 0..6
-      const base = dowLocal === 0 ? tpl.sunday : dowLocal === 6 ? tpl.saturday : tpl.weekdays;
-      const sanitized = base
-        .filter(s => s.enabled !== false)
-        .map(s => ({
-          id: uid(),
-          time: padHM(s.time || '00:00'),
-          title: s.title?.trim() || 'Class',
-          capacityMain: Number(s.capacityMain ?? CAP_MAIN_DEFAULT),
-          capacityWait: Number(s.capacityWait ?? CAP_WAIT_DEFAULT),
-          participantsMain: [] as string[],
-          participantsWait: [] as string[]
-        }))
-        .sort((a, b) => a.time.localeCompare(b.time));
+    if (applyMode === 'one') {
+      if (!specificDate) {
+        setMsg('⚠️ Pick a date');
+        setTimeout(() => setMsg(''), 1500);
+        return;
+      }
+      const d = new Date(specificDate + 'T00:00:00');
+      const curDow = d.getDay();
+      const base = curDow === 0 ? tpl.sunday : curDow === 6 ? tpl.saturday : tpl.weekdays;
+      const slots = buildDaySlots(base);
+      (days as DaysStore)[specificDate] = { date: specificDate, slots };
+    }
 
-      const record: DayRecord = { date, slots: sanitized };
-      (days as DaysStore)[date] = record;
+    if (applyMode === 'weekly') {
+      // για αυτό το dow, κάθε εβδομάδα από σήμερα μέχρι το horizon
+      const today = isoToday();
+      const end = addDays(today, APPLY_HORIZON_DAYS);
+      const all = eachDate(today, end);
+      const base = dow === 0 ? tpl.sunday : dow === 6 ? tpl.saturday : tpl.weekdays;
+      const slots = buildDaySlots(base);
+      for (const date of all) {
+        const d = new Date(date + 'T00:00:00');
+        if (d.getDay() === dow) {
+          (days as DaysStore)[date] = { date, slots: buildDaySlots(base) }; // νέα ids ανά μέρα
+        }
+      }
+    }
+
+    if (applyMode === 'weekdays') {
+      // Mon-Fri από σήμερα μέχρι horizon, κάθε μέρα σύμφωνα με το αντίστοιχο template της ημέρας
+      const today = isoToday();
+      const end = addDays(today, APPLY_HORIZON_DAYS);
+      const all = eachDate(today, end);
+      for (const date of all) {
+        const d = new Date(date + 'T00:00:00');
+        const dow = d.getDay();
+        if (dow >= 1 && dow <= 5) {
+          const base = tpl.weekdays;
+          (days as DaysStore)[date] = { date, slots: buildDaySlots(base) };
+        }
+      }
     }
 
     saveDays(days);
-    setMsg('✅ Applied to range');
+    setMsg('✅ Applied');
     setTimeout(() => setMsg(''), 1400);
   }
 
@@ -259,12 +320,16 @@ export default function ScheduleEditPage() {
               />
             </div>
             <div className="col-span-3">
-              <input
-                placeholder="Class"
-                value={s.title ?? ''}
-                onChange={(e) => updateSlot(idx, { title: e.target.value })}
+              {/* Dropdown Title */}
+              <select
+                value={s.title ?? (dow === 6 ? 'Teams' : 'Class')}
+                onChange={(e) => updateSlot(idx, { title: e.target.value as 'Class' | 'Competitive' | 'Teams' })}
                 className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
-              />
+              >
+                <option value="Class">Class</option>
+                <option value="Competitive">Competitive</option>
+                <option value="Teams">Teams</option>
+              </select>
             </div>
             <div className="col-span-2">
               <input
@@ -306,32 +371,70 @@ export default function ScheduleEditPage() {
         </div>
       </div>
 
-      {/* Apply to date range */}
-      <div className="mt-6 flex flex-col gap-2 p-4 rounded-xl border border-zinc-800 bg-zinc-950">
-        <div className="text-sm text-zinc-300 font-medium">Apply template to a date range</div>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-          />
+      {/* Apply options */}
+      <div className="mt-6 flex flex-col gap-3 p-4 rounded-xl border border-zinc-800 bg-zinc-950">
+        <div className="text-sm text-zinc-300 font-medium">Apply template</div>
+
+        <div className="flex flex-col gap-2 text-sm">
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="applyMode"
+              value="one"
+              checked={applyMode === 'one'}
+              onChange={() => setApplyMode('one')}
+            />
+            For this specific day (only one day)
+          </label>
+
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="applyMode"
+              value="weekly"
+              checked={applyMode === 'weekly'}
+              onChange={() => setApplyMode('weekly')}
+            />
+            For this day every week from now on
+          </label>
+
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="applyMode"
+              value="weekdays"
+              checked={applyMode === 'weekdays'}
+              onChange={() => setApplyMode('weekdays')}
+            />
+            For all week days (Mon–Fri) from now on
+          </label>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mt-2">
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-          />
+
+        {applyMode === 'one' && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={specificDate}
+              onChange={(e) => setSpecificDate(e.target.value)}
+              className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm"
+            />
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
           <button
-            onClick={applyToRange}
+            onClick={applyNow}
             className="px-3 py-2 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
           >
-            Apply to days
+            Apply
           </button>
+          {msg && <div className="text-sm text-zinc-300">{msg}</div>}
         </div>
-        {msg && <div className="text-sm text-zinc-300">{msg}</div>}
+
+        <div className="text-xs text-zinc-500">
+          • Saturdays default to two <span className="text-zinc-300">Teams</span> classes unless you update this template. <br />
+          • “From now on” applies for ~{APPLY_HORIZON_DAYS} days ahead (change <code>APPLY_HORIZON_DAYS</code> if θες μεγαλύτερο ορίζοντα).
+        </div>
       </div>
     </section>
   );
