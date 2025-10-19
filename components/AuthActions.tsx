@@ -32,7 +32,7 @@ export default function AuthActions() {
 
   if (!user) {
     return (
-      <a href="/auth/login" className="px-3 py-1 rounded-xl border">Sign in</a>
+      <a href="/" className="px-3 py-1 rounded-xl border">Sign in</a>
     )
   }
 
