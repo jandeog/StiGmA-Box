@@ -2,6 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+// Datepicker όπως στο WOD
+// Αν το μονοπάτι είναι διαφορετικό στο repo σου, άλλαξέ το ανάλογα.
+import DateStepper from '@/components/DateStepper';
 
 type UserSession = { id: string; name?: string; role?: 'coach' | 'athlete' };
 type Slot = {
@@ -13,10 +16,7 @@ type Slot = {
   participantsMain: string[];   // array of userIds
   participantsWait: string[];   // array of userIds
 };
-type DayRecord = {
-  date: string;                 // "YYYY-MM-DD"
-  slots: Slot[];
-};
+type DayRecord = { date: string; slots: Slot[] };
 type DaysStore = Record<string, DayRecord>;
 
 const CAP_MAIN_DEFAULT = 14;
@@ -44,7 +44,6 @@ function addDays(iso: string, days: number) {
   return `${y2}-${m2}-${d2}`;
 }
 function formatHM(time: string) {
-  // expect "HH:MM" (if "HH:MM:SS" arrives, cut it)
   return time.slice(0, 5);
 }
 function toDateAt(dateISO: string, hhmm: string) {
@@ -89,7 +88,6 @@ function loadTemplate(): WeekTemplate {
     return DEFAULT_TEMPLATE;
   }
 }
-
 function ensureDay(days: DaysStore, date: string): DaysStore {
   if (days[date]) return days;
   // Build from template by weekday
@@ -117,7 +115,6 @@ function ensureDay(days: DaysStore, date: string): DaysStore {
     [date]: { date, slots }
   };
 }
-
 function loadDays(): DaysStore {
   try {
     const raw = localStorage.getItem(STORAGE_DAYS);
@@ -127,11 +124,9 @@ function loadDays(): DaysStore {
     return {};
   }
 }
-
 function saveDays(days: DaysStore) {
   localStorage.setItem(STORAGE_DAYS, JSON.stringify(days));
 }
-
 function loadUser(): UserSession | null {
   try {
     const raw = localStorage.getItem(STORAGE_USER);
@@ -147,6 +142,7 @@ export default function SchedulePage() {
   const [days, setDays] = useState<DaysStore>({});
   const [user, setUser] = useState<UserSession | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null); // για click-επιλογή slot
 
   const row: DayRecord | null = days[date] ?? null;
   const isCoach = user?.role === 'coach';
@@ -157,6 +153,7 @@ export default function SchedulePage() {
     const d1 = ensureDay(d0, date);
     setDays(d1);
     setUser(loadUser());
+    setSelectedId(null); // clear selection όταν αλλάζει μέρα
     setLoading(false);
   }, [date]);
 
@@ -247,47 +244,37 @@ export default function SchedulePage() {
     saveDays(updated);
   }
 
-  return (
-    <section className="max-w-5xl mx-auto p-4">
-      <header className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Schedule</h1>
-        <div className="flex items-center gap-2">
-          <button
-            className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-            onClick={() => setDate(addDays(date, -1))}
-          >
-            ◀ Prev
-          </button>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
-          />
-          <button
-            className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-            onClick={() => setDate(addDays(date, +1))}
-          >
-            Next ▶
-          </button>
+  // εμφανίζει Book/Cancel μόνο όταν το slot είναι selected
+  function onCardClick(s: Slot) {
+    setSelectedId(prev => (prev === s.id ? null : s.id));
+  }
 
-          {isCoach && (
-            <Link
-              href="/schedule/edit"
-              className="ml-2 px-3 py-1.5 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm"
-            >
-              Edit hours
-            </Link>
-          )}
-        </div>
+  return (
+    <section className="max-w-4xl mx-auto p-3">
+      <header className="flex items-center justify-between mb-3">
+        <h1 className="text-xl font-semibold">Schedule</h1>
+
+        {/* Datepicker όπως στο WOD/page.tsx */}
+        {/* @ts-ignore – αγνοούμε typings για να ταιριάξει ακριβώς με το δικό σου component */}
+        <DateStepper value={date} onChange={(v: string) => setDate(v)} />
+
+        {isCoach && (
+          <Link
+            href="/schedule/edit"
+            className="ml-2 px-2.5 py-1.5 rounded-lg border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-xs"
+          >
+            Edit hours
+          </Link>
+        )}
       </header>
 
-      {loading && <div className="text-sm text-zinc-400">Loading…</div>}
+      {loading && <div className="text-xs text-zinc-400">Loading…</div>}
       {!loading && (!row || slots.length === 0) && (
-        <div className="text-sm text-zinc-400">No classes for this day.</div>
+        <div className="text-xs text-zinc-400">No classes for this day.</div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {/* 2 στήλες (1 σε mobile) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {slots.map((s) => {
           const mainCount = s.participantsMain.length;
           const waitCount = s.participantsWait.length;
@@ -295,58 +282,63 @@ export default function SchedulePage() {
           const waitLeft = Math.max(s.capacityWait - waitCount, 0);
           const isFull = mainLeft <= 0 && waitLeft <= 0;
           const mine = amIMember(s);
+          const selected = selectedId === s.id;
 
-          // names: απλή απόδοση — αν υπάρχει user.name, δείχνουμε "You" όταν συμμετέχεις
-          const compact = mine ? 'You' : (mainCount > 0 ? `${mainCount} booked` : '');
+          // badges
+          const badgeBase = "px-1.5 py-0.5 rounded-md border text-[10px] leading-none";
+          const badgeGrey = "border-zinc-700 text-zinc-400"; // για Main/WL
+          const badgeGreen = "border-emerald-700 text-emerald-300"; // για Class/Competitive
 
           return (
-            <div key={s.id} className="relative rounded-xl border border-zinc-800 bg-zinc-950 p-3">
-              <div className="text-lg font-medium tracking-tight">{formatHM(s.time)}</div>
-              <div className="text-sm text-zinc-400 mb-2">{s.title || 'Class'}</div>
+            <div
+              key={s.id}
+              onClick={() => onCardClick(s)}
+              className={
+                "relative rounded-xl border p-2 cursor-pointer transition-colors " +
+                (selected ? "border-emerald-700 bg-emerald-900/15" : "border-zinc-800 bg-zinc-950")
+              }
+            >
+              {/* header line compact */}
+              <div className="flex items-center gap-2">
+                <div className="text-base font-medium tracking-tight">{formatHM(s.time)}</div>
+                {/* Class/Competitive pill — πράσινο rectangle */}
+                <span className={`${badgeBase} ${badgeGreen}`}>{s.title || 'Class'}</span>
 
-              <div className="flex items-center gap-2 text-xs">
-                <span
-                  className={
-                    'px-2 py-0.5 rounded-full border ' +
-                    (mainLeft > 0 ? 'border-emerald-700 text-emerald-300' : 'border-zinc-700 text-zinc-400')
-                  }
-                >
-                  Main {mainCount}/{s.capacityMain}
-                </span>
-                <span
-                  className={
-                    'px-2 py-0.5 rounded-full border ' +
-                    (waitLeft > 0 ? 'border-amber-700 text-amber-300' : 'border-zinc-700 text-zinc-400')
-                  }
-                >
-                  WL {waitCount}/{s.capacityWait}
-                </span>
-                {compact && (
-                  <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300">
-                    {compact}
-                  </span>
-                )}
+                {/* Compact counts badges — ΓΚΡΙ */}
+                <span className={`${badgeBase} ${badgeGrey}`}>Main {mainCount}/{s.capacityMain}</span>
+                <span className={`${badgeBase} ${badgeGrey}`}>WL {waitCount}/{s.capacityWait}</span>
               </div>
 
-              <div className="mt-3 flex items-center justify-end gap-2">
-                {mine ? (
-                  <button
-                    className="px-3 py-1.5 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
-                    onClick={() => cancel(s)}
-                  >
-                    Cancel
-                  </button>
-                ) : (
-                  <button
-                    className="px-3 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-xs"
-                    disabled={isFull}
-                    title={isFull ? 'Full (including waitlist).' : 'Book this class'}
-                    onClick={() => book(s)}
-                  >
-                    {isFull ? 'Full' : 'Book'}
-                  </button>
-                )}
-              </div>
+              {/* action row: φαίνεται μόνο όταν είναι selected */}
+              {selected && (
+                <div className="mt-2 flex items-center justify-end">
+                  {mine ? (
+                    <button
+                      className="px-2.5 py-1.5 rounded-lg border border-red-800 text-red-300 hover:bg-red-900/20 text-[12px]"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        cancel(s);
+                        setSelectedId(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button
+                      className="px-2.5 py-1.5 rounded-lg border border-zinc-700 hover:bg-zinc-800 text-[12px]"
+                      disabled={isFull}
+                      title={isFull ? 'Full (including waitlist).' : 'Book this class'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        book(s);
+                        setSelectedId(null);
+                      }}
+                    >
+                      {isFull ? 'Full' : 'Book'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
