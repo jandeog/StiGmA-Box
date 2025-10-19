@@ -1,11 +1,9 @@
 // app/wod/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-
-
 
 type ScoringType = 'for_time' | 'amrap' | 'emom';
 
@@ -17,13 +15,12 @@ type StrengthPart = {
 };
 
 type WOD = {
-  // Η ημερομηνία κρατιέται ξεχωριστά (string YYYY-MM-DD)
   strength: StrengthPart;
   title: string;
   description: string;
   scoring: ScoringType;
   timeCap: string;
-  recordMainScore: boolean; // ΝΕΟ: στήλη στη βάση
+  recordMainScore: boolean;
 };
 
 // ===== Helpers =====
@@ -41,13 +38,9 @@ const fmtDDMMYYYY = (iso: string) => {
   return `${d}-${m}-${y}`;
 };
 
-// Παράγει ISO timestamptz για 00:00:00 Europe/Athens (αρκεί για πρακτική χρήση)
-// Αν θέλεις πλήρη ακρίβεια σε DST, μπορώ να το γυρίσω σε Temporal polyfill.
-const toAthensMidnightISO = (yyyy_mm_dd: string) => {
-  // Οκτώβριος 2025: UTC+3. Αν κινείσαι όλο τον χρόνο, προτίμησε Temporal/ZonedDateTime.
-  const iso = new Date(`${yyyy_mm_dd}T00:00:00+03:00`).toISOString();
-  return iso;
-};
+// 00:00:00 Europe/Athens → ISO (αρκεί πρακτικά)
+const toAthensMidnightISO = (yyyy_mm_dd: string) =>
+  new Date(`${yyyy_mm_dd}T00:00:00+03:00`).toISOString();
 
 const defaultWOD = (): WOD => ({
   strength: { title: '', description: '', scoreHint: '', recordScore: false },
@@ -58,21 +51,35 @@ const defaultWOD = (): WOD => ({
   recordMainScore: true,
 });
 
+// ===== Autocomplete types =====
+type BenchmarkRow = {
+  title: string;
+  description: string | null;
+  scoring: ScoringType | null;
+  timeCap: string | null;
+};
+
 export default function WodPage() {
-  // Ημερομηνία ανεξάρτητη από το περιεχόμενο
-  const supabase = createClientComponentClient(); // <-- νέο
+  const supabase = createClientComponentClient();
   const [date, setDate] = useState(todayStr());
-
-  // Περιεχόμενο WOD για την επιλεγμένη ημερομηνία
   const [wod, setWod] = useState<WOD>(defaultWOD());
-
   const [savedMsg, setSavedMsg] = useState('');
-  const [locked, setLocked] = useState(false); // Αν θέλεις να κλειδώνει όταν υπάρχει ήδη
+  const [locked, setLocked] = useState(false);
+
+  // Autocomplete state (Main)
+  const [mainSugs, setMainSugs] = useState<BenchmarkRow[]>([]);
+  const [mainOpen, setMainOpen] = useState(false);
+  const mainInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Autocomplete state (Strength)
+  const [strSugs, setStrSugs] = useState<BenchmarkRow[]>([]);
+  const [strOpen, setStrOpen] = useState(false);
+  const strInputRef = useRef<HTMLInputElement | null>(null);
 
   // Κοινή κλάση για inputs
-  const field =
+  const fieldBase =
     'w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm field-muted ' +
-    'focus:ring-2 focus:ring-zinc-700/50 focus:outline-none shadow-sm';
+    'focus:outline-none shadow-sm transition';
 
   // ===== Load από Supabase όταν αλλάζει η μέρα =====
   useEffect(() => {
@@ -101,7 +108,6 @@ export default function WodPage() {
       }
 
       if (data) {
-        // Υπάρχει WOD για τη μέρα — γέμισμα φόρμας
         setWod({
           strength: {
             title: data.strengthTitle ?? '',
@@ -115,10 +121,7 @@ export default function WodPage() {
           timeCap: data.timeCap ?? '',
           recordMainScore: data.recordMainScore ?? true,
         });
-        // Αν θέλεις να "κλειδώνει" όταν έχει ήδη αποθηκευτεί:
-        // setLocked(true);
       } else {
-        // Δεν υπάρχει καταχώρηση — καθαρή φόρμα
         setWod(defaultWOD());
       }
     })();
@@ -126,7 +129,7 @@ export default function WodPage() {
     return () => {
       isMounted = false;
     };
-  }, [date]);
+  }, [date, supabase]);
 
   // ===== Save/Upsert στο Supabase =====
   const handleSubmit = async (e: React.FormEvent) => {
@@ -136,31 +139,21 @@ export default function WodPage() {
       setSavedMsg('⚠️ Πρόσθεσε τίτλο για το Main WOD');
       return;
     }
-// μέσα στη handleSubmit, πριν το upsert:
-const { data: { user }, error: uerr } = await supabase.auth.getUser();
-if (!user) {
-  setSavedMsg('⚠️ Πρέπει να είσαι συνδεδεμένος για να κάνεις Save.');
-  console.log('[AUTH USER] NULL', uerr ?? null);
-  return;
-}
-// ακόμα μέσα στη handleSubmit, αμέσως μετά το getUser()
-const { data: sess, error: serr } = await supabase.auth.getSession();
-console.log('[AUTH SESSION EXISTS]', !!sess.session, serr ?? null);
 
-const token = sess.session?.access_token;
-if (token) {
-  const payload = JSON.parse(atob(token.split('.')[1]));
-  console.log('[JWT ROLE]', payload.role); // περιμένουμε "authenticated"
-} else {
-  console.log('[JWT ROLE] NO TOKEN');
-}
-
-console.log('[AUTH USER]', user.id);
+    // Auth guard
+    const {
+      data: { user },
+      error: uerr,
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setSavedMsg('⚠️ Πρέπει να είσαι συνδεδεμένος για να κάνεις Save.');
+      console.log('[AUTH USER] NULL', uerr ?? null);
+      return;
+    }
 
     const atMidnight = toAthensMidnightISO(date);
 
     const row = {
-      // id: αφήνουμε το default στη βάση (gen_random_uuid()) — δες το alter table
       date: atMidnight,
       title: wod.title,
       description: wod.description,
@@ -174,24 +167,184 @@ console.log('[AUTH USER]', user.id);
     };
 
     const { error } = await supabase.from('Wod').upsert(row, {
-      onConflict: 'date', // unique constraint στη βάση
+      onConflict: 'date',
     });
 
     if (error) {
       console.error('[WOD save error]', error);
- setSavedMsg(`❌ Save failed: ${error.message}${error.details ? ' — ' + error.details : ''}`);      return;
+      setSavedMsg(
+        `❌ Save failed: ${error.message}${
+          (error as any).details ? ' — ' + (error as any).details : ''
+        }`
+      );
+      return;
     }
 
     setSavedMsg('✅ Αποθηκεύτηκε στη βάση για αυτή την ημερομηνία');
     setTimeout(() => setSavedMsg(''), 1600);
-    // setLocked(true);
+  };
+
+  // ============ AUTOCOMPLETE LOGIC ============
+  // Reusable fetch for suggestions (prefix, top-3), μόνο για isBenchmark=true
+  const fetchSuggestions = async (q: string) => {
+    const qTrim = q.trim();
+    if (qTrim.length < 1) return [];
+    const { data, error } = await supabase
+      .from('Wod')
+      .select('title, description, scoring, timeCap')
+      .eq('isBenchmark', true)
+      .ilike('title', `${qTrim}%`)
+      .order('title', { ascending: true })
+      .limit(3);
+    if (error) {
+      console.warn('[autocomplete error]', error);
+      return [];
+    }
+    return (data ?? []) as BenchmarkRow[];
+  };
+
+  // Debounce helper
+  const useDebounced = (value: string, delay = 200) => {
+    const [debounced, setDebounced] = useState(value);
+    useEffect(() => {
+      const id = setTimeout(() => setDebounced(value), delay);
+      return () => clearTimeout(id);
+    }, [value, delay]);
+    return debounced;
+  };
+
+  // Main WOD suggestions
+  const mainQuery = useDebounced(wod.title, 180);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!mainQuery) {
+        setMainSugs([]);
+        setMainOpen(false);
+        return;
+      }
+      const sugs = await fetchSuggestions(mainQuery);
+      if (!alive) return;
+      setMainSugs(sugs);
+      setMainOpen(sugs.length > 0);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainQuery]);
+
+  const hasMainPrefixMatch = useMemo(() => {
+    const q = wod.title.trim().toLowerCase();
+    return q.length > 0 && mainSugs.some((s) => s.title.toLowerCase().startsWith(q));
+  }, [wod.title, mainSugs]);
+
+  const applyMainSuggestion = (s: BenchmarkRow) => {
+    setWod((prev) => ({
+      ...prev,
+      title: s.title,
+      description: s.description ?? prev.description,
+      timeCap: s.timeCap ?? prev.timeCap,
+      scoring: (s.scoring ?? prev.scoring) as ScoringType,
+    }));
+    setMainOpen(false);
+    // focus next field for flow
+    mainInputRef.current?.blur();
+  };
+
+  const onMainKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === 'Enter' && mainSugs.length > 0) {
+      e.preventDefault();
+      applyMainSuggestion(mainSugs[0]);
+    }
+  };
+
+  // Strength suggestions (χρησιμοποιούμε τα ίδια benchmarks ως templates, αν θες)
+  const strQuery = useDebounced(wod.strength.title, 180);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!strQuery) {
+        setStrSugs([]);
+        setStrOpen(false);
+        return;
+      }
+      const sugs = await fetchSuggestions(strQuery);
+      if (!alive) return;
+      setStrSugs(sugs);
+      setStrOpen(sugs.length > 0);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strQuery]);
+
+  const hasStrPrefixMatch = useMemo(() => {
+    const q = wod.strength.title.trim().toLowerCase();
+    return q.length > 0 && strSugs.some((s) => s.title.toLowerCase().startsWith(q));
+  }, [wod.strength.title, strSugs]);
+
+  const applyStrengthSuggestion = (s: BenchmarkRow) => {
+    setWod((prev) => ({
+      ...prev,
+      strength: {
+        ...prev.strength,
+        title: s.title,
+        // χρησιμοποιούμε την περιγραφή ως template για strength (προαιρετικό)
+        description: s.description ?? prev.strength.description,
+      },
+    }));
+    setStrOpen(false);
+    strInputRef.current?.blur();
+  };
+
+  const onStrKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === 'Enter' && strSugs.length > 0) {
+      e.preventDefault();
+      applyStrengthSuggestion(strSugs[0]);
+    }
+  };
+
+  // Common dropdown UI
+  const Dropdown = ({
+    open,
+    items,
+    onPick,
+  }: {
+    open: boolean;
+    items: BenchmarkRow[];
+    onPick: (s: BenchmarkRow) => void;
+  }) => {
+    if (!open || items.length === 0) return null;
+    return (
+      <div className="absolute z-20 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900/95 shadow-lg backdrop-blur">
+        <ul className="max-h-56 overflow-auto text-sm">
+          {items.map((it) => (
+            <li
+              key={it.title}
+              className="px-3 py-2 hover:bg-zinc-800 cursor-pointer"
+              onMouseDown={(e) => {
+                e.preventDefault(); // avoid blurring input
+                onPick(it);
+              }}
+            >
+              <div className="font-medium">{it.title}</div>
+              {it.description ? (
+                <div className="text-zinc-400 line-clamp-1">{it.description}</div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
   };
 
   return (
     <section className="max-w-3xl mx-auto p-4 space-y-4">
       <h1 className="text-2xl font-bold">WOD</h1>
 
-      {/* Date — standalone and ENABLED */}
+      {/* Date */}
       <div className="flex items-center gap-3">
         <div className="text-sm text-zinc-400">Date</div>
         <DateStepper value={date} onChange={setDate} />
@@ -202,9 +355,10 @@ console.log('[AUTH USER]', user.id);
         <h2 className="text-lg font-semibold">Strength / Skills</h2>
         <div className="border border-zinc-800 rounded p-3 bg-zinc-900">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
+            <div className="relative">
               <label className="block text-sm mb-1 text-zinc-300">Title</label>
               <input
+                ref={strInputRef}
                 disabled={locked}
                 value={wod.strength.title}
                 onChange={(e) =>
@@ -213,14 +367,21 @@ console.log('[AUTH USER]', user.id);
                     strength: { ...s.strength, title: e.target.value },
                   }))
                 }
+                onKeyDown={onStrKeyDown}
                 placeholder="e.g. Back Squat"
-                className={field}
+                className={
+                  fieldBase +
+                  (hasStrPrefixMatch
+                    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
+                    : ' focus:ring-2 focus:ring-zinc-700/50')
+                }
+                onFocus={() => setStrOpen(strSugs.length > 0)}
+                onBlur={() => setTimeout(() => setStrOpen(false), 120)}
               />
+              <Dropdown open={strOpen} items={strSugs} onPick={applyStrengthSuggestion} />
             </div>
             <div>
-              <label className="block text-sm mb-1 text-zinc-300">
-                Score (hint)
-              </label>
+              <label className="block text-sm mb-1 text-zinc-300">Score (hint)</label>
               <input
                 disabled={locked}
                 value={wod.strength.scoreHint}
@@ -231,15 +392,13 @@ console.log('[AUTH USER]', user.id);
                   }))
                 }
                 placeholder="e.g. 5x5 @kg or EMOM 10’"
-                className={field}
+                className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
               />
             </div>
           </div>
 
           <div className="mt-3">
-            <label className="block text-sm mb-1 text-zinc-300">
-              Description
-            </label>
+            <label className="block text-sm mb-1 text-zinc-300">Description</label>
             <textarea
               disabled={locked}
               rows={5}
@@ -251,7 +410,7 @@ console.log('[AUTH USER]', user.id);
                 }))
               }
               placeholder="Sets, reps, tempo, rest, cues…"
-              className={field}
+              className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
             />
           </div>
 
@@ -264,18 +423,12 @@ console.log('[AUTH USER]', user.id);
               onChange={(e) =>
                 setWod((s) => ({
                   ...s,
-                  strength: {
-                    ...s.strength,
-                    recordScore: e.target.checked,
-                  },
+                  strength: { ...s.strength, recordScore: e.target.checked },
                 }))
               }
               className="h-4 w-4 accent-zinc-200"
             />
-            <label
-              htmlFor="strength-record"
-              className="text-sm text-zinc-300 whitespace-nowrap"
-            >
+            <label htmlFor="strength-record" className="text-sm text-zinc-300 whitespace-nowrap">
               Record score for Strength / Skills
             </label>
           </div>
@@ -286,23 +439,29 @@ console.log('[AUTH USER]', user.id);
         <div className="border border-zinc-800 rounded p-3 bg-zinc-900">
           {/* Title + Scoring */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
+            <div className="relative">
               <label className="block text-sm mb-1 text-zinc-300">Title</label>
               <input
+                ref={mainInputRef}
                 disabled={locked}
                 placeholder="e.g. Fran / EMOM 12’ / 5 Rounds …"
                 value={wod.title}
-                onChange={(e) =>
-                  setWod((s) => ({ ...s, title: e.target.value }))
+                onChange={(e) => setWod((s) => ({ ...s, title: e.target.value }))}
+                onKeyDown={onMainKeyDown}
+                className={
+                  fieldBase +
+                  (hasMainPrefixMatch
+                    ? ' ring-2 ring-emerald-500/60 bg-emerald-900/10'
+                    : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
-                className={field}
+                onFocus={() => setMainOpen(mainSugs.length > 0)}
+                onBlur={() => setTimeout(() => setMainOpen(false), 120)}
               />
+              <Dropdown open={mainOpen} items={mainSugs} onPick={applyMainSuggestion} />
             </div>
 
             <div>
-              <label className="block text-sm mb-1 text-zinc-300">
-                Scoring
-              </label>
+              <label className="block text-sm mb-1 text-zinc-300">Scoring</label>
               <select
                 disabled={locked}
                 value={wod.scoring}
@@ -312,7 +471,7 @@ console.log('[AUTH USER]', user.id);
                     scoring: e.target.value as ScoringType,
                   }))
                 }
-                className={field}
+                className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
               >
                 <option value="for_time">For Time</option>
                 <option value="amrap">AMRAP</option>
@@ -322,9 +481,7 @@ console.log('[AUTH USER]', user.id);
           </div>
 
           <div className="mt-3">
-            <label className="block text-sm mb-1 text-zinc-300">
-              Description / Rep scheme
-            </label>
+            <label className="block text-sm mb-1 text-zinc-300">Description / Rep scheme</label>
             <textarea
               disabled={locked}
               rows={6}
@@ -332,10 +489,8 @@ console.log('[AUTH USER]', user.id);
 21-15-9 Thrusters (42.5/30) & Pull-ups
 Time cap: 8:00`}
               value={wod.description}
-              onChange={(e) =>
-                setWod((s) => ({ ...s, description: e.target.value }))
-              }
-              className={field}
+              onChange={(e) => setWod((s) => ({ ...s, description: e.target.value }))}
+              className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
             />
           </div>
 
@@ -346,10 +501,8 @@ Time cap: 8:00`}
               disabled={locked}
               placeholder="e.g. 12:00"
               value={wod.timeCap}
-              onChange={(e) =>
-                setWod((s) => ({ ...s, timeCap: e.target.value }))
-              }
-              className={field}
+              onChange={(e) => setWod((s) => ({ ...s, timeCap: e.target.value }))}
+              className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
             />
 
             <div className="mt-3 inline-flex items-center gap-2">
@@ -358,15 +511,10 @@ Time cap: 8:00`}
                 id="main-record"
                 type="checkbox"
                 checked={wod.recordMainScore}
-                onChange={(e) =>
-                  setWod((s) => ({ ...s, recordMainScore: e.target.checked }))
-                }
+                onChange={(e) => setWod((s) => ({ ...s, recordMainScore: e.target.checked }))}
                 className="h-4 w-4 accent-zinc-200"
               />
-              <label
-                htmlFor="main-record"
-                className="text-sm text-zinc-300 whitespace-nowrap"
-              >
+              <label htmlFor="main-record" className="text-sm text-zinc-300 whitespace-nowrap">
                 Record score for Main WOD
               </label>
             </div>
@@ -381,11 +529,7 @@ Time cap: 8:00`}
               locked ? 'opacity-60 cursor-not-allowed' : 'hover:bg-zinc-800'
             }`}
             disabled={locked}
-            title={
-              locked
-                ? 'This date already has a saved WOD (locked)'
-                : 'Save WOD for this date'
-            }
+            title={locked ? 'This date already has a saved WOD (locked)' : 'Save WOD for this date'}
           >
             Save
           </button>
