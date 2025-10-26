@@ -6,13 +6,10 @@ import Image from 'next/image';
 import bcrypt from 'bcryptjs';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase =
-  typeof window !== 'undefined'
-    ? createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-    : (null as any);
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 const getSiteUrl = () => {
   const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '');
@@ -47,6 +44,7 @@ type Step = 'email' | 'password' | 'otp';
 function AuthLandingInner() {
   const router = useRouter();
   const sp = useSearchParams();
+
   const [sessionChecked, setSessionChecked] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
 
@@ -57,29 +55,27 @@ function AuthLandingInner() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // Έλεγχος session κατά την είσοδο
+  // ✔️ πιο σταθερός έλεγχος session
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!supabase) return;
-      const { data: s } = await supabase.auth.getSession();
-      const hasSession = !!s.session;
-
-      if (!mounted) return;
-
-      if (hasSession) {
-        const { data: u } = await supabase.auth.getUser();
-        const email = u?.user?.email ?? null;
-        setSignedInEmail(email);
-      } else {
+    const checkSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = data.session;
+        if (session?.user?.email) {
+          setSignedInEmail(session.user.email);
+        } else {
+          setSignedInEmail(null);
+        }
+      } catch (err) {
+        console.warn('Session check error', err);
         setSignedInEmail(null);
+      } finally {
+        setSessionChecked(true);
       }
-      setSessionChecked(true);
-    })();
-    return () => {
-      mounted = false;
     };
+    checkSession();
   }, []);
+
 
   // ➤ Νέα έκδοση routePostAuth: ελέγχει με email και user_id
   const routePostAuth = async () => {
