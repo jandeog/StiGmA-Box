@@ -204,28 +204,66 @@ const signOutAndReset = async () => {
   };
 
   // Try password sign-in
-  const onPasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supabase) return;
-    setBusy(true);
-    setMsg(null);
+const onPasswordSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!supabase) return;
+  setBusy(true);
+  setMsg(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+  try {
+    // Αναζήτηση του χρήστη στον πίνακα athletes
+    const { data: athlete, error } = await supabase
+      .from('athletes')
+      .select('email, password, user_id')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle();
 
-    if (!error && data.session) {
-      await routePostAuth();
+    if (error) throw error;
+
+    if (!athlete) {
+      setMsg('No athlete found with this email.');
       setBusy(false);
       return;
     }
 
-    setMsg(
-      'Invalid email or password. Αν δεν έχεις λογαριασμό ή ξέχασες το password, χρησιμοποίησε τις επιλογές από κάτω.'
-    );
+    // Έλεγχος password (απλό string compare για τώρα)
+    if (athlete.password !== password) {
+      setMsg('Invalid password.');
+      setBusy(false);
+      return;
+    }
+
+    // Αν υπάρχει user_id, συνδέσου στο Supabase Auth
+    if (athlete.user_id) {
+      const { error: loginError } = await supabase.auth.signInWithPassword({
+        email: athlete.email,
+        password,
+      });
+
+      if (loginError) {
+        setMsg('Could not sign in: ' + loginError.message);
+        setBusy(false);
+        return;
+      }
+    }
+
+    // Αν δεν έχει user_id, στείλε τον να συμπληρώσει προφίλ
+    if (!athlete.user_id) {
+      router.replace('/athletes/add');
+      setBusy(false);
+      return;
+    }
+
+    // επιτυχία -> προώθηση στο schedule
+    await routePostAuth();
+  } catch (err: any) {
+    console.error(err);
+    setMsg('Server error or invalid credentials.');
+  } finally {
     setBusy(false);
-  };
+  }
+};
+
 
   // Forgot password → send reset email
   const onForgotPassword = async () => {
