@@ -1,15 +1,18 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import bcrypt from 'bcryptjs';
 import { createClient } from '@supabase/supabase-js';
 
+// 1) Σταθερός client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
+
+type Step = 'email' | 'password' | 'otp';
 
 const getSiteUrl = () => {
   const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '');
@@ -19,102 +22,17 @@ const getSiteUrl = () => {
 };
 
 export default function Page() {
-  return (
-    <Suspense fallback={<LoadingShell />}>
-      <AuthLandingInner />
-    </Suspense>
-  );
-}
-
-function LoadingShell() {
-  return (
-    <section className="min-h-[85vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
-        <div className="flex flex-col items-center mb-2">
-          <div className="w-24 h-24 rounded-full border border-zinc-700 animate-pulse" />
-          <p className="mt-4 text-sm text-zinc-400">Loading…</p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-type Step = 'email' | 'password' | 'otp';
-
-function AuthLandingInner() {
   const router = useRouter();
-  const sp = useSearchParams();
 
+  // UI state
   const [sessionChecked, setSessionChecked] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
-
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-
-  // ✔️ πιο σταθερός έλεγχος session
-  useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        const session = data.session;
-        if (session?.user?.email) {
-          setSignedInEmail(session.user.email);
-        } else {
-          setSignedInEmail(null);
-        }
-      } catch (err) {
-        console.warn('Session check error', err);
-        setSignedInEmail(null);
-      } finally {
-        setSessionChecked(true);
-      }
-    };
-    checkSession();
-  }, []);
-
-
-  // ➤ Νέα έκδοση routePostAuth: ελέγχει με email και user_id
-  const routePostAuth = async () => {
-    const { data: s } = await supabase.auth.getSession();
-    const uid = s.session?.user?.id;
-    const userEmail = s.session?.user?.email;
-    if (!uid || !userEmail) {
-      router.replace('/');
-      return;
-    }
-
-    // ψάχνουμε τον athlete με βάση το email (πιο αξιόπιστο)
-    const { data, error } = await supabase
-      .from('athletes')
-      .select('id')
-      .eq('email', userEmail)
-      .maybeSingle();
-
-    if (error?.code === 'PGRST116' || (!data && !error)) {
-      router.replace('/athletes/add'); // δεν υπάρχει profile
-      return;
-    }
-
-    if (!data && error) {
-      console.warn('athletes lookup error', error);
-      router.replace('/schedule');
-      return;
-    }
-
-    // υπάρχει profile -> πάει στο schedule
-    router.replace('/schedule');
-  };
-
-  // Auto redirect όταν ήδη έχει session
-  useEffect(() => {
-    if (sessionChecked && signedInEmail) {
-      void routePostAuth();
-    }
-  }, [sessionChecked, signedInEmail]);
 
   const canEmail = useMemo(() => /\S+@\S+\.\S+/.test(email) && !busy, [email, busy]);
   const canPassword = useMemo(
@@ -126,6 +44,70 @@ function AuthLandingInner() {
     [email, otp, busy]
   );
 
+  // 2) Redirect guard ώστε να μην γίνεται διπλό/άπειρο redirect
+  const redirectedRef = useRef(false);
+
+  // 3) Ενιαία συνάρτηση μετά-auth δρομολόγησης
+  const routePostAuth = async () => {
+    if (redirectedRef.current) return;
+    const { data: s } = await supabase.auth.getSession();
+    const user = s.session?.user;
+    if (!user?.id || !user.email) return;
+
+    // Έλεγχος με βάση email (πιο αξιόπιστο)
+    const { data, error } = await supabase
+      .from('athletes')
+      .select('id')
+      .eq('email', user.email)
+      .maybeSingle();
+
+    redirectedRef.current = true; // από εδώ και πέρα, μην ξανατρέξεις redirect
+    if (error?.code === 'PGRST116' || (!data && !error)) {
+      router.replace('/athletes/add'); // δεν υπάρχει profile
+      return;
+    }
+    router.replace('/schedule'); // υπάρχει profile ή fallback
+  };
+
+  // 4) Ένα αρχικό session check + ένας listener για αλλαγές
+  useEffect(() => {
+    let unsub: () => void;
+
+    const init = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const current = data.session?.user?.email ?? null;
+        setSignedInEmail(current);
+      } catch {
+        setSignedInEmail(null);
+      } finally {
+        setSessionChecked(true);
+      }
+
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+        const emailNow = sess?.user?.email ?? null;
+        setSignedInEmail(emailNow);
+        // μόλις υπάρξει session, κάνε μία και καλή δρομολόγηση
+        if (emailNow) void routePostAuth();
+      });
+
+      unsub = () => sub.subscription.unsubscribe();
+    };
+
+    init();
+    return () => { unsub && unsub(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Αν κατά το initial check είχαμε ήδη session, κάνε redirect μία φορά
+  useEffect(() => {
+    if (sessionChecked && signedInEmail) {
+      void routePostAuth();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionChecked, signedInEmail]);
+
+  // -------- Email step: ελέγχει αν υπάρχει στον athletes --------
   const onEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(null);
@@ -134,14 +116,13 @@ function AuthLandingInner() {
       const res = await fetch('/api/auth/email-exists', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'Lookup failed');
-
-      if (json.exists) {
-        setStep('password');
-      } else {
+      setStep(json.exists ? 'password' : 'otp');
+      if (!json.exists) {
+        // ξεκίνα OTP αμέσως για νέους χρήστες
         await startOtpFlow();
       }
     } catch (err: any) {
@@ -151,29 +132,22 @@ function AuthLandingInner() {
     }
   };
 
+  // -------- Start OTP (signup-or-login) --------
   const startOtpFlow = async () => {
-    if (!supabase) return false;
+    setMsg(null);
     const emailRedirectTo = `${getSiteUrl()}/auth/confirm?new=1`;
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       options: { shouldCreateUser: true, emailRedirectTo },
     });
-    if (error) {
-      setMsg(error.message || 'Could not send verification code.');
-      return false;
-    }
-    setMsg('We sent a 6-digit code to your email.');
-    setStep('otp');
-    return true;
+    if (error) setMsg(error.message || 'Could not send verification code.');
   };
 
-  // 🔐 Ενημερωμένη συνάρτηση login με hash έλεγχο
+  // -------- Password sign-in με hash check στον athletes --------
   const onPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
     setBusy(true);
     setMsg(null);
-
     try {
       const { data: athlete, error } = await supabase
         .from('athletes')
@@ -182,36 +156,17 @@ function AuthLandingInner() {
         .maybeSingle();
 
       if (error) throw error;
-      if (!athlete) {
-        setMsg('No athlete found with this email.');
-        setBusy(false);
-        return;
-      }
+      if (!athlete) { setMsg('No athlete found with this email.'); return; }
+      if (!athlete.password_hash) { setMsg('No password set for this account.'); return; }
 
-      if (!athlete.password_hash) {
-        setMsg('No password set for this account.');
-        setBusy(false);
-        return;
-      }
+      const ok = await bcrypt.compare(password, athlete.password_hash);
+      if (!ok) { setMsg('Invalid password.'); return; }
 
-      const match = await bcrypt.compare(password, athlete.password_hash);
-      if (!match) {
-        setMsg('Invalid password.');
-        setBusy(false);
-        return;
-      }
-
-      // login στο supabase auth
       const { error: loginError } = await supabase.auth.signInWithPassword({
         email: athlete.email,
         password,
       });
-
-      if (loginError) {
-        setMsg(loginError.message);
-        setBusy(false);
-        return;
-      }
+      if (loginError) { setMsg(loginError.message); return; }
 
       await routePostAuth();
     } catch (err: any) {
@@ -221,28 +176,26 @@ function AuthLandingInner() {
     }
   };
 
+  // -------- Verify 6-digit code (email OTP) --------
   const onVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
     setBusy(true);
     setMsg(null);
-
     const { data, error } = await supabase.auth.verifyOtp({
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       token: otp.trim(),
       type: 'email',
     });
-
     if (error || !data.session) {
       setMsg(error?.message || 'Invalid or expired code.');
       setBusy(false);
       return;
     }
-
     await routePostAuth();
     setBusy(false);
   };
 
+  // ---------------- UI ----------------
   return (
     <section className="min-h-[85vh] flex items-center justify-center px-4">
       <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
