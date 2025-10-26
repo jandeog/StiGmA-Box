@@ -3,6 +3,8 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import bcrypt from 'bcryptjs';
+
 
 export const dynamic = 'force-dynamic';
 
@@ -105,59 +107,61 @@ function AddAthleteInner() {
   }, [router]);
 
   const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supabase || !userId) return;
-    setBusy(true);
-    setMsg(null);
+  e.preventDefault();
+  if (!supabase || !userId) return;
+  setBusy(true);
+  setMsg(null);
 
-    try {
-      // 1) Αν ορίζει password εδώ, κάνε updateUser
-      if (newPw1 && newPw2) {
-        if (newPw1.length < 6 || newPw1 !== newPw2) {
-          setMsg('Passwords must match and be at least 6 characters.');
-          setBusy(false);
-          return;
-        }
-        const { error: pwErr } = await supabase.auth.updateUser({ password: newPw1 });
-        if (pwErr) throw pwErr;
+  try {
+    // 1) Αν ορίζει password εδώ, κάνε hash
+    let hashed = null;
+    if (newPw1 && newPw2) {
+      if (newPw1.length < 6 || newPw1 !== newPw2) {
+        setMsg('Passwords must match and be at least 6 characters.');
+        setBusy(false);
+        return;
       }
-
-      // 2) Γράψε/δημιούργησε εγγραφή στο table athletes
-      const now = new Date().toISOString();
-      const payload = {
-        user_id: userId,
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        nickname: nickname.trim() || null,
-        team_name: teamName.trim() || null,
-        dob, // YYYY-MM-DD
-        email: emailLocked, // locked από supabase
-        phone: phone.trim(),
-        gender: gender || null,
-        height_cm: heightCm ? Number(heightCm) : null,
-        weight_kg: weightKg ? Number(weightKg) : null,
-        years_of_experience: years ? Number(years) : null,
-        credits: 0, // κλειδωμένο πεδίο για athlete στην αρχή
-        notes: notes || null,
-        emergency_name: emName || null,
-        emergency_phone: emPhone || null,
-        is_coach: isCoachFlag || false,
-        created_at: now,
-        updated_at: now,
-      };
-
-      const { error: upsertErr } = await supabase.from('athletes').insert(payload);
-      if (upsertErr) throw upsertErr;
-
-      setMsg('✅ Profile saved. Redirecting…');
-      // μικρό delay για UX
-      setTimeout(() => router.replace('/schedule'), 600);
-    } catch (err: any) {
-      setMsg(err?.message || 'Failed to save profile.');
-    } finally {
-      setBusy(false);
+      hashed = await bcrypt.hash(newPw1, 10);
     }
-  };
+
+    // 2) Δημιουργία payload για την εγγραφή
+    const now = new Date().toISOString();
+    const payload = {
+      user_id: userId,
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      nickname: nickname.trim() || null,
+      team_name: teamName.trim() || null,
+      dob,
+      email: emailLocked,
+      phone: phone.trim(),
+      gender: gender || null,
+      height_cm: heightCm ? Number(heightCm) : null,
+      weight_kg: weightKg ? Number(weightKg) : null,
+      years_of_experience: years ? Number(years) : null,
+      credits: 0,
+      notes: notes || null,
+      emergency_name: emName || null,
+      emergency_phone: emPhone || null,
+      is_coach: isCoachFlag || false,
+      password_hash: hashed,
+      created_at: now,
+      updated_at: now,
+    };
+
+    // 3) Αποθήκευση στη βάση
+    const { error: upsertErr } = await supabase.from('athletes').insert(payload);
+    if (upsertErr) throw upsertErr;
+
+    setMsg('✅ Profile saved. Redirecting…');
+    setTimeout(() => router.replace('/schedule'), 600);
+  } catch (err: any) {
+    setMsg(err?.message || 'Failed to save profile.');
+  } finally {
+    setBusy(false);
+  }
+};
+
 
   if (loading) {
     return (
