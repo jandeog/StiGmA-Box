@@ -1,17 +1,18 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import bcrypt from 'bcryptjs';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase =
-  typeof window !== 'undefined'
-    ? createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-    : (null as any);
+// 1) Σταθερός client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+type Step = 'email' | 'password' | 'otp';
 
 const getSiteUrl = () => {
   const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '');
@@ -20,98 +21,19 @@ const getSiteUrl = () => {
   return 'http://localhost:3000';
 };
 
-// ---------- Page wrapper with Suspense ----------
 export default function Page() {
-  return (
-    <Suspense fallback={<LoadingShell />}>
-      <AuthLandingInner />
-    </Suspense>
-  );
-}
-
-function LoadingShell() {
-  return (
-    <section className="min-h-[85vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
-        <div className="flex flex-col items-center mb-2">
-          <div className="w-24 h-24 rounded-full border border-zinc-700 animate-pulse" />
-          <p className="mt-4 text-sm text-zinc-400">Loading…</p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-type Step = 'email' | 'password' | 'otp';
-
-function AuthLandingInner() {
   const router = useRouter();
-  const sp = useSearchParams();
+
+  // UI state
   const [sessionChecked, setSessionChecked] = useState(false);
-const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
-
-
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('email');
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
+  const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // OTP state
-  const [otp, setOtp] = useState('');
-  const [resendMsg, setResendMsg] = useState<string | null>(null);
-
-  // Αν υπάρχει ήδη session, κάνε reroute
-useEffect(() => {
-  let mounted = true;
-  (async () => {
-    if (!supabase) return;
-    const { data: s } = await supabase.auth.getSession();
-    const hasSession = !!s.session;
-
-    if (!mounted) return;
-
-    if (hasSession) {
-      // επιβεβαίωσε ότι το session είναι έγκυρο και φέρε email χρήστη
-      const { data: u } = await supabase.auth.getUser();
-      const email = u?.user?.email ?? null;
-      setSignedInEmail(email);
-    } else {
-      setSignedInEmail(null);
-    }
-    setSessionChecked(true);
-  })();
-  return () => {
-    mounted = false;
-  };
-}, []);
-
-const routePostAuth = async () => {
-  const { data: s } = await supabase.auth.getSession();
-  const uid = s.session?.user?.id;
-  if (!uid) { router.replace('/'); return; }
-
-  const { data, error } = await supabase
-    .from('athletes')
-    .select('id')
-    .eq('user_id', uid)
-    .maybeSingle();
-
-  if (error?.code === 'PGRST116' || (!data && !error)) {
-    router.replace('/athletes/add'); // ΔΕΝ υπάρχει προφίλ -> add
-    return;
-  }
-  if (!data && error) {
-    console.warn('athletes lookup error', error);
-    router.replace('/schedule'); // fallback
-    return;
-  }
-  router.replace('/schedule'); // υπάρχει -> schedule
-};
-
-  // ----- guards -----
   const canEmail = useMemo(() => /\S+@\S+\.\S+/.test(email) && !busy, [email, busy]);
   const canPassword = useMemo(
     () => email.trim().length > 3 && password.trim().length >= 6 && !busy,
@@ -121,32 +43,71 @@ const routePostAuth = async () => {
     () => email.trim().length > 3 && /^\d{6}$/.test(otp) && !busy,
     [email, otp, busy]
   );
-const goContinue = async () => {
-  // Προσπαθεί πρώτα με τον “έξυπνο” έλεγχο profile
-  try {
-    await routePostAuth();
-    // Αν για κάποιο λόγο ο client router δεν προχωρήσει,
-    // χρησιμοποίησε hard navigation — το /schedule/layout.tsx θα κάνει guard -> /athletes/add.
-    setTimeout(() => {
-      if (location.pathname === '/') {
-        window.location.assign('/schedule');
+
+  // 2) Redirect guard ώστε να μην γίνεται διπλό/άπειρο redirect
+  const redirectedRef = useRef(false);
+
+  // 3) Ενιαία συνάρτηση μετά-auth δρομολόγησης
+  const routePostAuth = async () => {
+    if (redirectedRef.current) return;
+    const { data: s } = await supabase.auth.getSession();
+    const user = s.session?.user;
+    if (!user?.id || !user.email) return;
+
+    // Έλεγχος με βάση email (πιο αξιόπιστο)
+    const { data, error } = await supabase
+      .from('athletes')
+      .select('id')
+      .eq('email', user.email)
+      .maybeSingle();
+
+    redirectedRef.current = true; // από εδώ και πέρα, μην ξανατρέξεις redirect
+    if (error?.code === 'PGRST116' || (!data && !error)) {
+      router.replace('/athletes/add'); // δεν υπάρχει profile
+      return;
+    }
+    router.replace('/schedule'); // υπάρχει profile ή fallback
+  };
+
+  // 4) Ένα αρχικό session check + ένας listener για αλλαγές
+  useEffect(() => {
+    let unsub: () => void;
+
+    const init = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const current = data.session?.user?.email ?? null;
+        setSignedInEmail(current);
+      } catch {
+        setSignedInEmail(null);
+      } finally {
+        setSessionChecked(true);
       }
-    }, 150);
-  } catch {
-    window.location.assign('/schedule');
-  }
-};
 
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+        const emailNow = sess?.user?.email ?? null;
+        setSignedInEmail(emailNow);
+        // μόλις υπάρξει session, κάνε μία και καλή δρομολόγηση
+        if (emailNow) void routePostAuth();
+      });
 
-const signOutAndReset = async () => {
-  await supabase.auth.signOut(); // καθάρισε πλήρως το session
-  setSignedInEmail(null);
-  setStep('email');
-  setMsg(null);
-};
+      unsub = () => sub.subscription.unsubscribe();
+    };
 
-  // ----- flows -----
-  // Server-side lookup: does email exist?
+    init();
+    return () => { unsub && unsub(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Αν κατά το initial check είχαμε ήδη session, κάνε redirect μία φορά
+  useEffect(() => {
+    if (sessionChecked && signedInEmail) {
+      void routePostAuth();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionChecked, signedInEmail]);
+
+  // -------- Email step: ελέγχει αν υπάρχει στον athletes --------
   const onEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(null);
@@ -155,15 +116,13 @@ const signOutAndReset = async () => {
       const res = await fetch('/api/auth/email-exists', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'Lookup failed');
-
-      if (json.exists) {
-        setStep('password');
-      } else {
-        // Νέος χρήστης: ξεκινάμε OTP (signup)
+      setStep(json.exists ? 'password' : 'otp');
+      if (!json.exists) {
+        // ξεκίνα OTP αμέσως για νέους χρήστες
         await startOtpFlow();
       }
     } catch (err: any) {
@@ -173,338 +132,159 @@ const signOutAndReset = async () => {
     }
   };
 
-
-  // Create account / Send OTP (signup-or-login via code)
+  // -------- Start OTP (signup-or-login) --------
   const startOtpFlow = async () => {
-    if (!supabase) return false;
-
-    // Σημαδεύουμε ότι πρόκειται για νέα εγγραφή
-    const url = new URL(window.location.href);
-    url.searchParams.set('new', '1');
-    window.history.replaceState(null, '', url.toString());
-
+    setMsg(null);
     const emailRedirectTo = `${getSiteUrl()}/auth/confirm?new=1`;
-
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        shouldCreateUser: true,
-           emailRedirectTo,
-   data: { needs_profile: true },
-      },
+      email: email.trim().toLowerCase(),
+      options: { shouldCreateUser: true, emailRedirectTo },
     });
-
-    if (error) {
-      setMsg(error.message || 'Could not send verification code.');
-      return false;
-    }
-    setMsg('Στείλαμε 6-ψήφιο κωδικό στο email σου. Πληκτρολόγησέ τον παρακάτω.');
-    setStep('otp');
-    return true;
+    if (error) setMsg(error.message || 'Could not send verification code.');
   };
 
-  // Try password sign-in
+  // -------- Password sign-in με hash check στον athletes --------
   const onPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
     setBusy(true);
     setMsg(null);
+    try {
+      const { data: athlete, error } = await supabase
+        .from('athletes')
+        .select('email, password_hash, user_id')
+        .eq('email', email.trim().toLowerCase())
+        .maybeSingle();
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+      if (error) throw error;
+      if (!athlete) { setMsg('No athlete found with this email.'); return; }
+      if (!athlete.password_hash) { setMsg('No password set for this account.'); return; }
 
-    if (!error && data.session) {
+      const ok = await bcrypt.compare(password, athlete.password_hash);
+      if (!ok) { setMsg('Invalid password.'); return; }
+
+      const { error: loginError } = await supabase.auth.signInWithPassword({
+        email: athlete.email,
+        password,
+      });
+      if (loginError) { setMsg(loginError.message); return; }
+
       await routePostAuth();
+    } catch (err: any) {
+      setMsg(err?.message || 'Login failed.');
+    } finally {
       setBusy(false);
-      return;
     }
-
-    setMsg(
-      'Invalid email or password. Αν δεν έχεις λογαριασμό ή ξέχασες το password, χρησιμοποίησε τις επιλογές από κάτω.'
-    );
-    setBusy(false);
   };
 
-  // Forgot password → send reset email
-  const onForgotPassword = async () => {
-    if (!supabase) return;
-    setBusy(true);
-    setMsg(null);
-    const redirectTo = `${getSiteUrl()}/auth/reset`;
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo,
-    });
-    if (error) {
-      setMsg(error.message || 'Could not send reset email.');
-    } else {
-      setMsg('Σου στείλαμε email για αλλαγή password. Άνοιξέ το και ακολούθησε το link.');
-    }
-    setBusy(false);
-  };
-
+  // -------- Verify 6-digit code (email OTP) --------
   const onVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
     setBusy(true);
     setMsg(null);
-
     const { data, error } = await supabase.auth.verifyOtp({
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       token: otp.trim(),
-      type: 'email', // 6-digit email OTP
+      type: 'email',
     });
-
     if (error || !data.session) {
-      setMsg(error?.message || 'Λάθος ή ληγμένος κωδικός.');
+      setMsg(error?.message || 'Invalid or expired code.');
       setBusy(false);
       return;
     }
-
     await routePostAuth();
     setBusy(false);
   };
 
-  const onResend = async () => {
-    if (!email || !supabase) return;
-    setResendMsg(null);
-    setBusy(true);
-    const emailRedirectTo = `${getSiteUrl()}/auth/confirm?new=1`;
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { shouldCreateUser: true, emailRedirectTo },
-    });
-    if (error) {
-      setResendMsg(error.message || 'Could not resend code.');
-    } else {
-      setResendMsg('Στείλαμε ξανά τον κωδικό στο email σου.');
-    }
-    setBusy(false);
-  };
-
-  // ----- UI -----
+  // ---------------- UI ----------------
   return (
-  <section className="min-h-[85vh] flex items-center justify-center px-4">
-    <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
-      <div className="flex flex-col items-center mb-6">
-        <Image
-          src="/images/Stigma-Logo-white-650x705.png"
-          alt="Stigma Logo"
-          width={180}
-          height={180}
-          priority
-          className="w-32 sm:w-40 md:w-44 h-auto mx-auto"
-        />
-      </div>
-
-      {/* Αν υπάρχει ενεργό session, δείξε επιλογές αντί για φόρμες */}
-      {sessionChecked && signedInEmail ? (
-        <div className="space-y-3">
-          <div className="text-sm text-zinc-300">
-            Είσαι ήδη συνδεδεμένος ως <span className="font-medium">{signedInEmail}</span>.
-          </div>
-          <div className="flex gap-2">
-           <a
-  href="/schedule"
-  onClick={(e) => {
-    e.preventDefault(); // δοκίμασε πρώτα το έξυπνο route
-    void goContinue();
-  }}
-  className="px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm inline-block"
->
-  Continue to Schedule
-</a>
-
-            <button
-              type="button"
-              onClick={signOutAndReset}
-              className="px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-            >
-              Sign out & use another email
-            </button>
-          </div>
+    <section className="min-h-[85vh] flex items-center justify-center px-4">
+      <div className="w-full max-w-md border border-zinc-800 bg-zinc-900 rounded-2xl p-6 shadow">
+        <div className="flex flex-col items-center mb-6">
+          <Image
+            src="/images/Stigma-Logo-white-650x705.png"
+            alt="Stigma Logo"
+            width={180}
+            height={180}
+            priority
+            className="w-32 sm:w-40 md:w-44 h-auto mx-auto"
+          />
         </div>
-      ) : null}
 
-      {/* Αν ΔΕΝ υπάρχει session, δείξε τα βήματα */}
-      {sessionChecked && !signedInEmail && (
-        <>
-          {step === 'email' && (
-            <form onSubmit={onEmailSubmit} className="space-y-3">
-              <div>
-                <label className="block text-sm mb-1 text-zinc-300">Email</label>
+        {!sessionChecked && (
+          <p className="text-sm text-zinc-400 text-center">Checking session…</p>
+        )}
+
+        {sessionChecked && !signedInEmail && (
+          <>
+            {step === 'email' && (
+              <form onSubmit={onEmailSubmit} className="space-y-3">
                 <input
                   type="email"
                   value={email}
-                  autoComplete="email"
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                   placeholder="you@example.com"
-                  autoFocus
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                   required
                 />
-              </div>
-
-              {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
-
-              <button
-                className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
-                type="submit"
-                disabled={!canEmail}
-              >
-                Continue
-              </button>
-
-              <div className="flex items-center justify-center gap-2 pt-2">
                 <button
-                  type="button"
-                  onClick={startOtpFlow}
-                  disabled={!canEmail || busy}
-                  className="text-sm underline underline-offset-4 text-emerald-300 hover:text-emerald-200 disabled:opacity-50"
+                  type="submit"
+                  className="w-full px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm"
+                  disabled={!canEmail}
                 >
-                  Create account / Send code
+                  Continue
                 </button>
-              </div>
-            </form>
-          )}
+              </form>
+            )}
 
-          {step === 'password' && (
-            <form onSubmit={onPasswordSubmit} className="space-y-3">
-              <div>
-                <label className="block text-sm mb-1 text-zinc-300">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  readOnly
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1 text-zinc-300">Password</label>
+            {step === 'password' && (
+              <form onSubmit={onPasswordSubmit} className="space-y-3">
                 <input
                   type="password"
                   value={password}
-                  autoComplete="current-password"
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                   placeholder="••••••••"
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                   required
                   minLength={6}
                 />
-              </div>
-
-              {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
-
-              <button
-                className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
-                type="submit"
-                disabled={!canPassword}
-              >
-                Sign in
-              </button>
-
-              <div className="flex items-center justify-between pt-2">
                 <button
-                  type="button"
-                  onClick={() => setStep('email')}
-                  className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
+                  type="submit"
+                  className="w-full px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm"
+                  disabled={!canPassword}
                 >
-                  Back
+                  Sign in
                 </button>
-                <div className="flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={onForgotPassword}
-                    className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
-                    disabled={busy}
-                  >
-                    Forgot password
-                  </button>
-                  <button
-                    type="button"
-                    onClick={startOtpFlow}
-                    className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
-                    disabled={busy}
-                  >
-                    Create account / Send code
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
+              </form>
+            )}
 
-          {step === 'otp' && (
-            <form onSubmit={onVerifyOtp} className="space-y-3">
-              <div>
-                <label className="block text-sm mb-1 text-zinc-300">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  readOnly
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 opacity-70"
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1 text-zinc-300">6-digit code</label>
+            {step === 'otp' && (
+              <form onSubmit={onVerifyOtp} className="space-y-3">
                 <input
                   inputMode="numeric"
                   pattern="\d{6}"
                   maxLength={6}
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  onPaste={(e) => {
-                    const text = e.clipboardData.getData('text') || '';
-                    const clean = text.replace(/\D/g, '').slice(0, 6);
-                    if (clean) {
-                      e.preventDefault();
-                      setOtp(clean);
-                    }
-                  }}
+                  onChange={(e) =>
+                    setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))
+                  }
                   className="tracking-widest text-center text-lg w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                   placeholder="••••••"
                   required
                 />
-              </div>
-
-              {msg && <div className="text-sm mt-1 text-zinc-200">{msg}</div>}
-              {resendMsg && <div className="text-sm mt-1 text-zinc-300">{resendMsg}</div>}
-
-              <button
-                className="w-full mt-2 px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm disabled:opacity-50"
-                type="submit"
-                disabled={!canVerify}
-              >
-                Verify code
-              </button>
-
-              <div className="flex items-center justify-between pt-2">
                 <button
-                  type="button"
-                  onClick={() => setStep('email')}
-                  className="text-xs underline underline-offset-4 text-zinc-400 hover:text-zinc-300"
+                  type="submit"
+                  className="w-full px-4 py-2 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 text-sm"
+                  disabled={!canVerify}
                 >
-                  Back
+                  Verify code
                 </button>
-                <button
-                  type="button"
-                  onClick={onResend}
-                  className="text-xs underline underline-offset-4 text-emerald-300 hover:text-emerald-200"
-                  disabled={busy}
-                >
-                  Resend code
-                </button>
-              </div>
+              </form>
+            )}
 
-              <div className="text-xs text-zinc-500 mt-2 leading-relaxed">
-                Μετά την επιβεβαίωση θα πας στο{' '}
-                <span className="font-mono">{sp.get('new') === '1' ? '/athletes/add' : '/schedule'}</span>.
-              </div>
-            </form>
-          )}
-        </>
-      )}
-    </div>
-  </section>
-);
+            {msg && <div className="text-sm mt-2 text-zinc-200">{msg}</div>}
+          </>
+        )}
+      </div>
+    </section>
+  );
 }
