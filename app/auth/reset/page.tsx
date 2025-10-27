@@ -2,15 +2,8 @@
 
 import { useEffect, useMemo, useState, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase =
-  typeof window !== 'undefined'
-    ? createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-    : (null as any);
+import { getSupabaseBrowser } from '@/lib/supabaseClient';
+const supabase = getSupabaseBrowser();
 
 export default function ResetPage() {
   return (

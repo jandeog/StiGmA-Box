@@ -1,16 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import bcrypt from 'bcryptjs';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseBrowser } from '@/lib/supabaseClient';
 
 // 1) Σταθερός client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabase = getSupabaseBrowser();
 
 type Step = 'email' | 'password' | 'otp';
 
@@ -23,7 +20,7 @@ const getSiteUrl = () => {
 
 export default function Page() {
   const router = useRouter();
-
+ const params = useSearchParams();
   // UI state
   const [sessionChecked, setSessionChecked] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
@@ -68,7 +65,15 @@ export default function Page() {
     }
     router.replace('/schedule'); // υπάρχει profile ή fallback
   };
-
+ useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hasToken = window.location.hash.includes('access_token=');
+    const target = params.get('redirect');
+    if (hasToken || target) {
+      const next = target || '/athletes/add';
+      router.replace(`/auth/confirm?redirect=${encodeURIComponent(next)}`);
+    }
+    }, [router, params]);
   // 4) Ένα αρχικό session check + ένας listener για αλλαγές
   useEffect(() => {
     let unsub: () => void;
