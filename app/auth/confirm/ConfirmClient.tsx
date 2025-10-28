@@ -24,35 +24,34 @@ export default function ConfirmClient() {
   useEffect(() => {
     const finishSignIn = async () => {
       try {
-        // [A] PKCE: ?code=...
+        // 1) PKCE: ?code=...
         const code = params.get('code');
         if (code) {
           const { data, error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
           setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 350);
+          setTimeout(() => router.replace(redirect), 300);
           return;
         }
 
-        // [B] Classic magic link: #access_token & #refresh_token στο hash
+        // 2) Classic magic link: tokens στο #hash
         const { access_token, refresh_token } = parseHashTokens();
         if (access_token && refresh_token) {
           const { error } = await supabase.auth.setSession({ access_token, refresh_token });
           if (error) throw error;
-          // καθάρισε το hash ώστε να μη μείνει στο URL
           if (typeof window !== 'undefined' && window.location.hash) {
             history.replaceState({}, '', window.location.pathname + window.location.search);
           }
           setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 350);
+          setTimeout(() => router.replace(redirect), 300);
           return;
         }
 
-        // [C] Τελικός έλεγχος – ίσως το session είναι ήδη έτοιμο
+        // 3) Μήπως υπάρχει ήδη session
         const { data: s } = await supabase.auth.getSession();
         if (s.session) {
           setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 350);
+          setTimeout(() => router.replace(redirect), 300);
           return;
         }
 

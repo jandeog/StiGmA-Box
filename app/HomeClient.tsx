@@ -1,101 +1,75 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useMemo, useState } from 'react';
 import { getSupabaseBrowser } from '@/lib/supabaseClient';
+import Image from 'next/image';
 
-function parseHashTokens(): { access_token?: string; refresh_token?: string } {
-  if (typeof window === 'undefined') return {};
-  const hash = window.location.hash || '';
-  const params = new URLSearchParams(hash.replace(/^#/, ''));
-  return {
-    access_token: params.get('access_token') || undefined,
-    refresh_token: params.get('refresh_token') || undefined,
-  };
-}
-
-export default function ConfirmClient() {
-  const router = useRouter();
-  const params = useSearchParams();
+export default function HomeClient() {
   const supabase = getSupabaseBrowser();
-  const redirect = params.get('redirect') || '/athletes/add';
-  const [msg, setMsg] = useState('Completing sign-in…');
 
-  useEffect(() => {
-    const finishSignIn = async () => {
-      try {
-        // [A] PKCE: ?code=...
-        const code = params.get('code');
-        if (code) {
-          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-          setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 350);
-          return;
-        }
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
-        // [B] Classic magic link: #access_token & #refresh_token στο hash
-        const { access_token, refresh_token } = parseHashTokens();
-        if (access_token && refresh_token) {
-          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-          if (error) throw error;
-          // καθάρισε το hash ώστε να μη μείνει στο URL
-          if (typeof window !== 'undefined' && window.location.hash) {
-            history.replaceState({}, '', window.location.pathname + window.location.search);
-          }
-          setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 350);
-          return;
-        }
+  const canSend = useMemo(() => /\S+@\S+\.\S+/.test(email) && !busy, [email, busy]);
 
-        // [C] Τελικός έλεγχος – ίσως το session είναι ήδη έτοιμο
-        const { data: s } = await supabase.auth.getSession();
-        if (s.session) {
-          setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 350);
-          return;
-        }
+  const handleSendMagicLink = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      const emailRedirectTo = `${origin}/auth/confirm?redirect=/athletes/add`;
 
-        setMsg('No auth code or tokens found in URL.');
-      } catch (err: any) {
-        console.error(err);
-        setMsg('Sign-in failed: ' + (err?.message || 'unknown error'));
-      }
-    };
-// ✅ Catch "?redirect=..." όταν φτάνεις στην αρχική
-useEffect(() => {
-  if (typeof window === 'undefined') return;
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo,   // magic link → /auth/confirm
+          shouldCreateUser: true,
+        },
+      });
 
-  const qs = new URLSearchParams(window.location.search);
-  const target = qs.get('redirect');
-  if (!target) return;
-
-  const go = async () => {
-    // δώσε λίγο χρόνο να "δέσει" το session αν μόλις γύρισες από το magic link
-    const start = Date.now();
-    let { data } = await supabase.auth.getSession();
-
-    while (!data.session && Date.now() - start < 2000) {
-      await new Promise((r) => setTimeout(r, 150));
-      ({ data } = await supabase.auth.getSession());
-    }
-
-    if (data.session) {
-      router.replace(target);
-    } else {
-      router.replace(`/auth/confirm?redirect=${encodeURIComponent(target)}`);
+      if (error) throw error;
+      setMsg('✅ Check your email for the magic link!');
+    } catch (err: any) {
+      setMsg('❌ ' + err.message);
+    } finally {
+      setBusy(false);
     }
   };
-
-  go();
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-    finishSignIn();
-  }, [router, redirect, supabase, params]);
 
   return (
-    <div className="min-h-[60vh] grid place-items-center text-sm text-zinc-400">
-      {msg}
-    </div>
+    <main className="min-h-screen flex flex-col items-center justify-center px-6 text-zinc-300">
+      <div className="w-full max-w-sm space-y-6 text-center">
+        <Image
+          src="/logo.svg"
+          alt="StiGmA-Box Logo"
+          width={120}
+          height={120}
+          className="mx-auto mb-4 opacity-90"
+        />
+        <h1 className="text-3xl font-bold tracking-tight">Welcome to StiGmA-Box</h1>
+        <p className="text-sm text-zinc-400">Sign in using a magic link</p>
+
+        <div className="space-y-4">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email address"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm
+                       focus:ring-2 focus:ring-zinc-700/50 focus:outline-none shadow-sm"
+          />
+          <button
+            onClick={handleSendMagicLink}
+            disabled={!canSend}
+            className="w-full py-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50"
+          >
+            Send magic link
+          </button>
+        </div>
+
+        {msg && <p className="text-xs text-zinc-400">{msg}</p>}
+      </div>
+    </main>
   );
 }
