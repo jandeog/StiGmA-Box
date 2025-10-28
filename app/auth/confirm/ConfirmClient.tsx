@@ -14,24 +14,16 @@ export default function ConfirmClient() {
   useEffect(() => {
     const finishSignIn = async () => {
       try {
-        // 🔹 1. Πάρε το auth code από το URL
-        const code = params.get('code');
-        if (!code) {
-          setMsg('No auth code found in URL.');
-          return;
+        // ✅ Ελέγχει αν υπάρχουν tokens στο hash (classic magic link)
+        if (typeof window !== 'undefined' && window.location.hash.includes('access_token=')) {
+          // @ts-ignore - exists in runtime
+          await supabase.auth.getSessionFromUrl({ storeSession: true });
+          history.replaceState({}, '', window.location.pathname + window.location.search);
         }
 
-        // 🔹 2. Αντάλλαξε το code με session
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        const { data } = await supabase.auth.getSession();
 
-        if (error) {
-          console.error(error);
-          setMsg('Sign-in failed: ' + error.message);
-          return;
-        }
-
-        // 🔹 3. Αν υπάρχει session → redirect
-        if (data?.session) {
+        if (data.session) {
           setMsg('Redirecting…');
           setTimeout(() => router.replace(redirect), 400);
         } else {
@@ -44,7 +36,7 @@ export default function ConfirmClient() {
     };
 
     finishSignIn();
-  }, [router, redirect, supabase, params]);
+  }, [router, redirect, supabase]);
 
   return (
     <div className="min-h-[60vh] grid place-items-center text-sm text-zinc-400">
