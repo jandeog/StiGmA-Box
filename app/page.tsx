@@ -3,17 +3,17 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import HomeClient from './HomeClient';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
-export default function Page({
+// ✅ Η νέα σωστή υπογραφή Next.js 15+
+export default async function Page({
   searchParams,
 }: {
-  searchParams?: { redirect?: string };
+  searchParams?: Promise<{ redirect?: string }>;
 }) {
-  const target = searchParams?.redirect;
+  // ✅ Περιμένουμε το Promise αν χρειάζεται
+  const params = (await searchParams) || {};
+  const target = params.redirect;
+
   if (target) {
-    // server-side, instant redirect → καμία client εξαίρεση
     redirect(`/auth/confirm?redirect=${encodeURIComponent(target)}`);
   }
 
