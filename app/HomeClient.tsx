@@ -1,18 +1,33 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseBrowser } from '@/lib/supabaseClient';
 import Image from 'next/image';
 
 export default function HomeClient() {
   const supabase = getSupabaseBrowser();
-
+const router = useRouter();
+  const params = useSearchParams();
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const canSend = useMemo(() => /\S+@\S+\.\S+/.test(email) && !busy, [email, busy]);
+  useEffect(() => {
+    const target = params.get('redirect');
+    if (!target) return;
 
+    const run = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        router.replace(target);            // ήδη συνδεδεμένος → πάμε κατευθείαν
+      } else {
+        router.replace(`/auth/confirm?redirect=${encodeURIComponent(target)}`);
+      }
+    };
+    run();
+  }, [params, router, supabase]);
   const handleSendMagicLink = async () => {
     setBusy(true);
     setMsg(null);
