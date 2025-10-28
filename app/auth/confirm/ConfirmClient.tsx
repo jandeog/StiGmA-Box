@@ -8,9 +8,10 @@ function parseHashTokens(): { access_token?: string; refresh_token?: string } {
   if (typeof window === 'undefined') return {};
   const hash = window.location.hash || '';
   const params = new URLSearchParams(hash.replace(/^#/, ''));
-  const access_token = params.get('access_token') || undefined;
-  const refresh_token = params.get('refresh_token') || undefined;
-  return { access_token, refresh_token };
+  return {
+    access_token: params.get('access_token') || undefined,
+    refresh_token: params.get('refresh_token') || undefined,
+  };
 }
 
 export default function ConfirmClient() {
@@ -23,41 +24,35 @@ export default function ConfirmClient() {
   useEffect(() => {
     const finishSignIn = async () => {
       try {
-        // 1) Αν υπάρχει PKCE code στο query => χρησιμοποίησέ το
+        // [A] PKCE: ?code=...
         const code = params.get('code');
         if (code) {
           const { data, error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
-
           setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 300);
+          setTimeout(() => router.replace(redirect), 350);
           return;
         }
 
-        // 2) Αλλιώς, δοκίμασε classic magic link: tokens στο #hash
+        // [B] Classic magic link: #access_token & #refresh_token στο hash
         const { access_token, refresh_token } = parseHashTokens();
         if (access_token && refresh_token) {
-          const { data, error } = await supabase.auth.setSession({
-            access_token,
-            refresh_token,
-          });
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
           if (error) throw error;
-
-          // καθάρισε το hash από το URL
+          // καθάρισε το hash ώστε να μη μείνει στο URL
           if (typeof window !== 'undefined' && window.location.hash) {
             history.replaceState({}, '', window.location.pathname + window.location.search);
           }
-
           setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 300);
+          setTimeout(() => router.replace(redirect), 350);
           return;
         }
 
-        // 3) Τελικός έλεγχος: ίσως έχει ήδη session (π.χ. auto-refresh)
+        // [C] Τελικός έλεγχος – ίσως το session είναι ήδη έτοιμο
         const { data: s } = await supabase.auth.getSession();
         if (s.session) {
           setMsg('Redirecting…');
-          setTimeout(() => router.replace(redirect), 300);
+          setTimeout(() => router.replace(redirect), 350);
           return;
         }
 

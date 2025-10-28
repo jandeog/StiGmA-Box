@@ -52,6 +52,33 @@ function AddAthleteInner() {
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+useEffect(() => {
+  let cancel = false;
+
+  const ensureSession = async () => {
+    const { data: s } = await supabase.auth.getSession();
+    if (s.session || cancel) return;
+
+    // Περίμενε λίγο μήπως ολοκληρωθεί από το confirm
+    const { data: sub } = supabase.auth.onAuthStateChange((evt) => {
+      if (evt === 'SIGNED_IN' && !cancel) {
+        // έχει φτιαχτεί session, απλώς συνεχίζουμε
+      }
+    });
+
+    setTimeout(() => {
+      if (!cancel) {
+        // αν ακόμη δεν υπάρχει, τότε γύρνα στο /
+        router.replace(`/?redirect=${encodeURIComponent('/athletes/add')}`);
+      }
+    }, 2000);
+
+    return () => sub?.subscription?.unsubscribe?.();
+  };
+
+  ensureSession();
+  return () => { cancel = true; };
+}, [router]);
 
   // Validation
   const canSave = useMemo(() => {
