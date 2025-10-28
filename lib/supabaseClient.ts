@@ -12,7 +12,7 @@ export function getSupabaseBrowser() {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true, // σημαντικό για OTP/magic link
+        detectSessionInUrl: true, // σημαντικό για OTP/magic-link
       },
     }
   );
