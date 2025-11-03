@@ -3,7 +3,10 @@ import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request) {
+  const { pathname } = new URL(req.url);
+  const id = pathname.split('/').pop()!;
+
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   const sess = await verifySession(token);
@@ -17,14 +20,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       dob, phone, gender, height_cm, weight_kg, years_of_experience,
       notes, emergency_name, emergency_phone
     `)
-    .eq('id', params.id)
+    .eq('id', id)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ athlete: data });
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request) {
+  const { pathname } = new URL(req.url);
+  const id = pathname.split('/').pop()!;
+
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   const sess = await verifySession(token);
@@ -56,7 +62,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const { data, error } = await supabaseAdmin
     .from('athletes')
     .update(allowed)
-    .eq('id', params.id)
+    .eq('id', id)
     .select('id')
     .maybeSingle();
 
