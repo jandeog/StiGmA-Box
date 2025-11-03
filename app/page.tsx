@@ -3,15 +3,16 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+
 export default function Page() {
   const router = useRouter();
   const qs = useSearchParams();
+  const [acceptRules, setAcceptRules] = useState(false);
   const redirect = qs.get('redirect') || '';
 
   const [step, setStep] = useState<'email'|'password'|'otp'|'sending'>('email');
   const [email, setEmail] = useState('');
   const [pwd, setPwd] = useState('');
-  const [remember, setRemember] = useState(true);
   const [otp, setOtp] = useState('');
   const [exists, setExists] = useState<boolean | null>(null);
   const [msg, setMsg] = useState<string>('');
@@ -43,7 +44,7 @@ export default function Page() {
 async function onPasswordSubmit(e: React.FormEvent) {
   e.preventDefault(); setMsg('');
   try {
-    const { role } = await post('/api/auth/signin', { email: email.trim(), password: pwd, remember });
+    const { role } = await post('/api/auth/signin', { email: email.trim(), password: pwd, acceptRules, });
     const dest = role === 'coach' ? '/wod' : '/schedule';
 
     // HARD NAV -> layout re-renders and reads fresh cookies
@@ -80,8 +81,8 @@ async function onPasswordSubmit(e: React.FormEvent) {
   <img
     src="/images/Stigma-Logo-white-650x705.png"
     alt="StiGmA Box"
-    width={120}
-    height={130}
+    width={240}
+    height={260}
     style={{ opacity: 0.9 }}
     onError={(e) => {
       const img = e.currentTarget;
@@ -119,8 +120,39 @@ async function onPasswordSubmit(e: React.FormEvent) {
       className="w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm"
     />
 
+    {/* Rules box + required checkbox */}
+    <div className="space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3">
+      <label className="inline-flex items-start gap-2 text-sm text-zinc-300">
+        <input
+          type="checkbox"
+          checked={acceptRules}
+          onChange={(e) => setAcceptRules(e.target.checked)}
+          className="mt-0.5 accent-zinc-600"
+        />
+        <span>I accept the gym rules.</span>
+      </label>
+
+      <div className="text-xs leading-relaxed text-zinc-300/90 max-h-40 overflow-auto">
+        <ol className="list-decimal pl-5 space-y-1.5">
+          <li>The membership renewal must be completed before the previous one expires so the athlete can purchase credits.</li>
+          <li>Class booking is allowed up to 1 hour before class start and not more than 24 hours in advance.</li>
+          <li>To book a class, the athlete must have submitted the score of their most recent training day.</li>
+          <li>It is the athlete’s responsibility to put away their equipment before leaving.</li>
+          <li>If a class is full (14 athletes per class), the athlete may join a waiting list (2 spots). If a cancellation occurs, they will be automatically moved into a normal booking.</li>
+          <li>To avoid losing a credit, the athlete must cancel at least 1 hour before class start. After that, nothing can be changed.</li>
+          <li>The coach is present to guide and help. Ignoring instructions may lead to injury or removal from the class.</li>
+          <li>Always have fun!</li>
+        </ol>
+      </div>
+    </div>
+
     <div className="flex gap-2">
-      <button className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm">Sign in</button>
+      <button
+        disabled={!acceptRules}
+        className="rounded-md bg-white/10 px-4 py-2 text-sm disabled:opacity-50"
+      >
+        Sign in
+      </button>
       <button
         type="button"
         className="flex-1 rounded-md border border-zinc-700 px-3 py-2 text-sm"
@@ -129,19 +161,10 @@ async function onPasswordSubmit(e: React.FormEvent) {
         Back
       </button>
     </div>
-
-    {/* remember me — one line, under buttons */}
-    <label className="flex items-center justify-center gap-2 text-xs text-zinc-300">
-      <input
-        type="checkbox"
-        checked={remember}
-        onChange={(e)=>setRemember(e.target.checked)}
-        className="accent-zinc-600"
-      />
-      Remember me (30 days)
-    </label>
   </form>
 )}
+
+
 
 
       {step === 'otp' && exists === false && (

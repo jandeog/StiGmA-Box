@@ -105,7 +105,7 @@ export async function POST(req: Request) {
     sameSite: 'lax',
     secure: SECURE,
     path: '/',
-    ...(remember ? { maxAge: 60 * 60 * 24 * 30 } : {}),
+    ...(remember ? { maxAge: 60 * 60 * 24 * 365 } : {}),
   });
   // καθάρισε το signup email cookie αν υπήρχε
   res.cookies.set(SIGNUP_EMAIL_COOKIE, '', { path: '/', maxAge: 0 });

@@ -19,14 +19,14 @@ export async function signSession(payload: SessionPayload) {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('30d')
+    .setExpirationTime('365d')
     .sign(secret);
 }
 
 export async function verifySession(token?: string) {
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, secret, { clockTolerance: '5s' });
     return payload as SessionPayload;
   } catch {
     return null;

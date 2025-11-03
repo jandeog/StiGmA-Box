@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     role,
   });
 
-  const maxAge = remember ? 60 * 60 * 24 * 30 : undefined;
+  const maxAge = remember ? 60 * 60 * 24 * 365 : undefined;
   const res = NextResponse.json({ ok: true, role });
   res.cookies.set(SESSION_COOKIE, jwt, {
     httpOnly: true, sameSite: 'lax', secure: SECURE, path: '/',
