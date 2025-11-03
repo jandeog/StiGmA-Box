@@ -334,6 +334,33 @@ const r = await fetch('/api/auth/complete-signup', {
             </button>
           </div>
         </div>
+{/* Signup-only rules box */}
+{mode === 'signup' && (
+  <div className="mt-3 space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3">
+    <label className="inline-flex items-center gap-2 text-sm text-zinc-300 whitespace-nowrap">
+      <input
+        type="checkbox"
+        checked={acceptRules}
+        onChange={(e) => setAcceptRules(e.target.checked)}
+        className="accent-zinc-600"
+      />
+      <span className="whitespace-nowrap">I accept the gym rules.</span>
+    </label>
+
+    <div className="text-xs leading-relaxed text-zinc-300/90 max-h-40 overflow-auto">
+      <ol className="list-decimal pl-5 space-y-1.5">
+        <li>The membership renewal must be completed before the previous one expires so the athlete can purchase credits.</li>
+        <li>Class booking is allowed up to 1 hour before class start and not more than 24 hours in advance.</li>
+        <li>To book a class, the athlete must have submitted the score of their most recent training day.</li>
+        <li>It is the athlete’s responsibility to put away their equipment before leaving.</li>
+        <li>If a class is full (14 athletes per class), the athlete may join a waiting list (2 spots). If a cancellation occurs, they will be automatically moved into a normal booking.</li>
+        <li>To avoid losing a credit, the athlete must cancel at least 1 hour before class start. After that, nothing can be changed.</li>
+        <li>The coach is present to guide and help. Ignoring instructions may lead to injury or removal from the class.</li>
+        <li>Always have fun!</li>
+      </ol>
+    </div>
+  </div>
+)}
 
         <div>
           <label className="block text-xs mb-1 text-zinc-400">Confirm</label>
