@@ -122,15 +122,15 @@ async function onPasswordSubmit(e: React.FormEvent) {
 
     {/* Rules box + required checkbox */}
     <div className="space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3">
-      <label className="inline-flex items-start gap-2 text-sm text-zinc-300">
-        <input
-          type="checkbox"
-          checked={acceptRules}
-          onChange={(e) => setAcceptRules(e.target.checked)}
-          className="mt-0.5 accent-zinc-600"
-        />
-        <span>I accept the gym rules.</span>
-      </label>
+      <label className="inline-flex items-center gap-2 text-sm text-zinc-300 whitespace-nowrap">
+  <input
+    type="checkbox"
+    checked={acceptRules}
+    onChange={(e) => setAcceptRules(e.target.checked)}
+    className="accent-zinc-600"
+  />
+  <span className="whitespace-nowrap">I accept the gym rules.</span>
+</label>
 
       <div className="text-xs leading-relaxed text-zinc-300/90 max-h-40 overflow-auto">
         <ol className="list-decimal pl-5 space-y-1.5">
