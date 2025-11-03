@@ -30,6 +30,7 @@ export async function POST(req: Request) {
     athleteId = data?.id ?? null;
   }
   const isNewSignup = !athleteId;
+const canEditCredits = sess?.role === 'coach'; // only coaches may set credits
 
   // For first signup acceptance is mandatory
   if (isNewSignup && !acceptRules) {
@@ -53,6 +54,9 @@ export async function POST(req: Request) {
     emergency_phone: profile.emergency_phone ?? null,
     // is_coach handled elsewhere (coach can change via dedicated endpoints)
   };
+if (canEditCredits && typeof profile.credits === 'number') {
+  payload.credits = Math.max(0, Math.floor(profile.credits));
+  }
 
   if (password && password.length >= 6) {
     payload.password_hash = await bcrypt.hash(password, 10);
@@ -60,12 +64,17 @@ export async function POST(req: Request) {
 
   if (isNewSignup) {
     // INSERT with acceptance values set
-    const insertPayload = {
+    const insertPayload: any = {
       ...payload,
       email: emailFromSignup,
       terms_version: 1,
       terms_accepted_at: acceptRules ? new Date().toISOString() : null,
     };
+     // if a logged-in coach is creating their profile via this route, keep credits
+    if (!(canEditCredits && typeof profile.credits === 'number')) {
+      // ensure credits defaults to 0 on fresh signups
+      insertPayload.credits = 0;
+    }
     const { data, error } = await supabaseAdmin
       .from('athletes')
       .insert(insertPayload)

@@ -50,6 +50,8 @@ export default function AddAthletePage() {
   const [emName, setEmName] = useState('');
   const [emPhone, setEmPhone] = useState('');
   const [isCoachFlag, setIsCoachFlag] = useState(false);
+  const [credits, setCredits] = useState<string>('0');
+  
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -91,6 +93,7 @@ export default function AddAthletePage() {
       setDob(''); setPhone(''); setGender(''); setHeightCm(''); setWeightKg('');
       setYears(''); setNotes(''); setEmName(''); setEmPhone('');
       setIsCoachFlag(false);
+      setCredits('0');
       return;
     }
 
@@ -120,6 +123,7 @@ export default function AddAthletePage() {
           setEmName(athlete.emergency_name || '');
           setEmPhone(athlete.emergency_phone || '');
           setIsCoachFlag(!!athlete.is_coach);
+          setCredits(athlete.credits != null ? String(athlete.credits) : '0');
         }
       }
       return;
@@ -143,6 +147,7 @@ export default function AddAthletePage() {
       setEmName(me.emergency_name || '');
       setEmPhone(me.emergency_phone || '');
       setIsCoachFlag(!!me.is_coach);
+      setCredits(me.credits != null ? String(me.credits) : '0');
     }
   })();
 
@@ -161,6 +166,11 @@ const canSubmit = useMemo(() => {
   if (needsPassword) return pw1.length >= 6 && pw1 === pw2;
   return true;
  }, [busy, email, needsPassword, pw1, pw2, mode, acceptRules]);
+
+ function toNonNegativeInt(v: string) {
+   const n = parseInt(v, 10);
+   return Number.isFinite(n) && n >= 0 ? n : 0;
+    }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -186,11 +196,13 @@ const canSubmit = useMemo(() => {
           emergency_name: emName || null,
           emergency_phone: emPhone || null,
           is_coach: isCoachFlag,
-          acceptRules: acceptRules || undefined,
+          credits: toNonNegativeInt(credits),
+          
         };
 
         const r = await fetch(`/api/athletes/${encodeURIComponent(targetId)}`, {
           method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         const j = await r.json();
@@ -219,10 +231,12 @@ if (mode === 'coach-new') {
     emergency_name: emName || null,
     emergency_phone: emPhone || null,
     is_coach: isCoachFlag,
+    credits: toNonNegativeInt(credits),
   };
 
   const r = await fetch('/api/athletes', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const j = await r.json();
@@ -249,22 +263,25 @@ if (mode === 'coach-new') {
   notes: notes || undefined,
   emergency_name: emName || undefined,
   emergency_phone: emPhone || undefined,
+  acceptRules: mode === 'signup' ? true : undefined,
+  terms_version: 1, // bump when text changes
 };
 
 // μόνο coach επιτρέπεται να το στείλει
 if (iAmCoach) payload.is_coach = isCoachFlag || undefined;
-
+if (iAmCoach) payload.credits = toNonNegativeInt(credits);
 if (needsPassword) payload.password = pw1;
 
 const r = await fetch('/api/auth/complete-signup', {
   method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(payload),
 });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || 'Error');
 
       // redirect ανά ρόλο (όπως έχουμε ορίσει)
-      if (j.role === 'coach') router.replace('/wod');
+      if (j.role === 'coach') router.replace('/athletes');
       else router.replace(redirect || '/schedule');
     } catch (err: any) {
       setMsg(err.message);
@@ -302,15 +319,14 @@ const r = await fetch('/api/auth/complete-signup', {
   <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
     {mode === 'edit-self' && (
       <div className="md:col-span-2">
-        <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
-          <input
-            type="checkbox"
-            checked={changePassword}
-            onChange={(e) => setChangePassword(e.target.checked)}
-            className="accent-zinc-600"
-          />
-          Change password
-        </label>
+        <label className="inline-flex items-center gap-2 select-none">
+   <input
+     type="checkbox"
+     checked={changePassword}
+     onChange={(e) => setChangePassword(e.target.checked)}
+   />
+   <span className="whitespace-nowrap">Change Password</span>
+ </label>
       </div>
     )}
 
@@ -448,7 +464,27 @@ const r = await fetch('/api/auth/complete-signup', {
               <input inputMode="numeric" value={years} onChange={(e)=>setYears(e.target.value.replace(/\D/g,''))}
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
             </div>
-
+ <div>
+         <label className="block text-xs mb-1 text-zinc-400">Credits</label>
+         <input
+           type="number"
+           inputMode="numeric"
+           min={0}
+           step={1}
+           value={credits}
+          onChange={(e)=> setCredits(e.target.value.replace(/\D/g,''))}
+           disabled={!iAmCoach}
+           className={
+             "w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm " +
+             (!iAmCoach ? "opacity-80 cursor-not-allowed" : "")
+            }
+         />
+         {!iAmCoach && (
+           <p className="text-[11px] text-zinc-500 mt-1">
+              Only coaches can change credits.
+           </p>
+         )}
+       </div>
             <div className="md:col-span-2">
               <label className="block text-xs mb-1 text-zinc-400">Notes</label>
               <textarea value={notes} onChange={(e)=>setNotes(e.target.value)}

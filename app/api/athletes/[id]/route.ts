@@ -21,7 +21,8 @@ export async function GET(req: Request) {
       id, email, is_coach,
       first_name, last_name, nickname, team_name,
       dob, phone, gender, height_cm, weight_kg, years_of_experience,
-      notes, emergency_name, emergency_phone
+      notes, emergency_name, emergency_phone,
+      credits
     `)
     .eq('id', id)
     .maybeSingle();
@@ -57,6 +58,11 @@ export async function PATCH(req: Request) {
     emergency_name: body.emergency_name ?? null,
     emergency_phone: body.emergency_phone ?? null,
     is_coach: typeof body.is_coach === 'boolean' ? body.is_coach : undefined,
+    // only coaches hit this route, so allow credits here
+   credits:
+    typeof body.credits === 'number'
+      ? Math.max(0, Math.floor(body.credits))
+      : undefined,
   };
 
   // καθάρισε undefined keys
@@ -67,6 +73,7 @@ export async function PATCH(req: Request) {
     .update(allowed)
     .eq('id', id)
     .select('id')
+    .select('id, credits')
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

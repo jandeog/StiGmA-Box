@@ -147,26 +147,34 @@ export default function AthletesPage() {
       ) : (
         <ul className="space-y-2">
           {filtered.map((a) => {
+            const clickable = isCoach || (myId && a.id === myId);
             const fullName = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || a.email;
             const subtitle = [a.nickname ? `(${a.nickname})` : null, a.team_name ? `[${a.team_name}]` : null]
               .filter(Boolean)
               .join(' ');
-
-            // Coach view: item is clickable (edit); hover highlight
-            // Athlete view: plain item; no hover styling
-            const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-              isCoach ? (
-                <Link href={`/athletes/add?id=${a.id}`} prefetch={false} className="group block">{children}</Link>
-              ) : (
-                <div className="block">{children}</div>
+  // Clickable if coach OR it's me
+           const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+             clickable ? (
+                <Link
+                 href={`/athletes/add?id=${a.id}`}
+                 prefetch={false}
+                 className="group block"
+                  title={isCoach ? 'Edit athlete' : 'Edit your profile'}
+               >
+                 {children}
+               </Link>
+             ) : (
+               <div className="block" title="Only coaches can edit other athletes">{children}</div>
               );
+
 
             return (
            <li
   key={a.id}
   className={
     'rounded border p-3 ' +
-    (isCoach
+    (clickable
+      
       ? 'border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-900/10 transition-colors'
       : 'border-zinc-800')
   }
