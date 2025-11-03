@@ -1,46 +1,72 @@
-// app/api/wod/route.ts
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { cookies } from 'next/headers';
+import { SESSION_COOKIE, verifySession } from '@/lib/session';
 
-// helper: κρατάμε ημερομηνία στο 00:00:00 UTC για συνέπεια
-function todayUtcMidnight(): Date {
-  const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+// GET /api/wod?q=...&date=YYYY-MM-DD
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const q = (searchParams.get('q') || '').trim();
+  const date = searchParams.get('date') || '';
+
+  // Αν έχει δοθεί ημερομηνία, φέρε 1 row για αυτήν
+  if (date) {
+    const { data, error } = await supabaseAdmin
+      .from('Wod')
+      .select('*')
+      .eq('date', new Date(date).toISOString())
+      .maybeSingle();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ wod: data });
+  }
+
+  // Αλλιώς: search by title/strengthTitle (ilike %q%)
+  if (!q) return NextResponse.json({ items: [] });
+const like = `%${q}%`;
+const { data, error } = await supabaseAdmin
+  .from('Wod')
+  .select('date, title, description, scoring, timeCap, strengthTitle, strengthDescription, strengthScoreHint')
+  .or(`title.ilike.${like},strengthTitle.ilike.${like}`)
+  .order('date', { ascending: false })
+  .limit(20);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ items: data });
 }
 
-// GET /api/wod -> λίστα
-export async function GET() {
-  try {
-    const rows = await prisma.wod.findMany({
-      orderBy: { date: 'desc' },
-      take: 10,
-    });
-    return NextResponse.json({ ok: true, data: rows });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
-  }
-}
+// POST /api/wod  (upsert one day)  — coach only
+export async function POST(req: Request) {
+  const body = await req.json();
 
-// POST /api/wod -> εισαγωγή sample
-export async function POST() {
-  try {
-    const row = await prisma.wod.create({
-      data: {
-        id: crypto.randomUUID(),
-        date: todayUtcMidnight(),
-        title: 'Sample WOD',
-        description: 'Test insert from Vercel',
-        scoring: 'for_time',
-        timeCap: '12:00',
-        strengthTitle: 'Back Squat',
-        strengthDescription: '3x5 @70%',
-        strengthScoreHint: 'kg x reps',
-        strengthRecordScore: false,
-      },
-    });
-    return NextResponse.json({ ok: true, data: row });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
+  // Coach check
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value;
+  const sess = await verifySession(token);
+  if (!sess || sess.role !== 'coach') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+
+  // Normalize/whitelist payload
+  const payload = {
+    date: new Date(body.date).toISOString(),
+    title: body.title ?? null,
+    description: body.description ?? null,
+    scoring: body.scoring ?? 'for_time',
+    timeCap: body.timeCap ?? null,
+    strengthTitle: body.strengthTitle ?? null,
+    strengthDescription: body.strengthDescription ?? null,
+    strengthScoreHint: body.strengthScoreHint ?? null,
+    strengthRecordScore: !!body.strengthRecordScore,
+    recordMainScore: body.recordMainScore ?? true,
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('Wod')
+    .upsert(payload, { onConflict: 'date' })
+    .select('*')
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, wod: data });
 }

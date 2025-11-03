@@ -1,9 +1,7 @@
-// app/wod/page.tsx
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { ReactElement } from 'react';
 
 type ScoringType = 'for_time' | 'amrap' | 'emom';
@@ -39,7 +37,7 @@ const fmtDDMMYYYY = (iso: string) => {
   return `${d}-${m}-${y}`;
 };
 
-// 00:00:00 Europe/Athens → ISO (πρακτικά επαρκές)
+// 00:00:00 Europe/Athens → ISO
 const toAthensMidnightISO = (yyyy_mm_dd: string) =>
   new Date(`${yyyy_mm_dd}T00:00:00+03:00`).toISOString();
 
@@ -52,8 +50,57 @@ const defaultWOD = (): WOD => ({
   recordMainScore: true,
 });
 
+// API helpers
+async function fetchWodByDate(yyyy_mm_dd: string) {
+  const isoDate = toAthensMidnightISO(yyyy_mm_dd);
+  const r = await fetch(`/api/wod?date=${encodeURIComponent(isoDate)}`, { cache: 'no-store' });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j?.error || 'Failed to load WOD');
+  return j.wod as
+    | (Partial<WOD> & {
+        strengthTitle?: string | null;
+        strengthDescription?: string | null;
+        strengthScoreHint?: string | null;
+        strengthRecordScore?: boolean | null;
+        recordMainScore?: boolean | null;
+      })
+    | null;
+}
 
-// Για τα suggestions του Main WOD
+async function searchMainTitles(q: string) {
+  if (!q.trim()) return [];
+  const r = await fetch(`/api/wod?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j?.error || 'Search failed');
+  return (j.items || []) as Array<{
+    date: string;
+    title: string | null;
+    description: string | null;
+    scoring: ScoringType | null;
+    timeCap: string | null;
+    strengthTitle: string | null;
+  }>;
+}
+
+async function saveWod(payload: {
+  date: string;
+  title: string;
+  description?: string | null;
+  scoring: ScoringType;
+  timeCap?: string | null;
+  strengthTitle?: string | null;
+  strengthDescription?: string | null;
+  strengthScoreHint?: string | null;
+  strengthRecordScore: boolean;
+  recordMainScore: boolean;
+}) {
+  const r = await fetch('/api/wod', { method: 'POST', body: JSON.stringify(payload) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j?.error || 'Save failed');
+  return j.wod;
+}
+
+// ===== Component =====
 type MainSuggestion = {
   title: string;
   description: string | null;
@@ -61,7 +108,6 @@ type MainSuggestion = {
   timeCap: string | null;
 };
 
-// Για τα suggestions του Strength/Skills
 type StrengthSuggestion = {
   strengthTitle: string | null;
   strengthDescription: string | null;
@@ -69,7 +115,6 @@ type StrengthSuggestion = {
 };
 
 export default function WodPage() {
-  const supabase = createClientComponentClient();
   const [date, setDate] = useState(todayStr());
   const [wod, setWod] = useState<WOD>(defaultWOD());
   const [savedMsg, setSavedMsg] = useState('');
@@ -87,116 +132,80 @@ export default function WodPage() {
   const strInputRef = useRef<HTMLInputElement | null>(null);
   const suppressStrOpenRef = useRef(false);
 
-  // ΠΡΙΝ (αν είχες κάτι τύπου mainActive = mainOpen && ...)
-const mainActive = wod.title.trim().length > 0 && mainSugs.length > 0;
-const strActive  = wod.strength.title.trim().length > 0 && strSugs.length > 0;
+  const mainActive = wod.title.trim().length > 0 && mainSugs.length > 0;
+  const strActive = wod.strength.title.trim().length > 0 && strSugs.length > 0;
 
-  // Κοινή κλάση για inputs
+  // Common input class
   const fieldBase =
-    'w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm field-muted ' +
-    'focus:outline-none shadow-sm transition';
+    'w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm field-muted focus:outline-none shadow-sm transition';
 
-  // ===== Load από Supabase όταν αλλάζει η μέρα =====
+  // ===== Load when date changes =====
   useEffect(() => {
-    let isMounted = true;
-
+    let alive = true;
     (async () => {
       setSavedMsg('');
       setLocked(false);
 
-      const atMidnight = toAthensMidnightISO(date);
+      try {
+        const data = await fetchWodByDate(date);
+        if (!alive) return;
 
-      const { data, error } = await supabase
-        .from('Wod')
-        .select(
-          'title, description, scoring, timeCap, strengthTitle, strengthDescription, strengthScoreHint, strengthRecordScore, recordMainScore'
-        )
-        .eq('date', atMidnight)
-        .maybeSingle();
-
-      if (!isMounted) return;
-
-      if (error) {
-        console.error('[WOD load error]', error);
-        setWod(defaultWOD());
-        return;
-      }
-
-      if (data) {
-        setWod({
-          strength: {
-            title: data.strengthTitle ?? '',
-            description: data.strengthDescription ?? '',
-            scoreHint: data.strengthScoreHint ?? '',
-            recordScore: !!data.strengthRecordScore,
-          },
-          title: data.title ?? '',
-          description: data.description ?? '',
-          scoring: (data.scoring as ScoringType) ?? 'for_time',
-          timeCap: data.timeCap ?? '',
-          recordMainScore: data.recordMainScore ?? true,
-        });
-      } else {
+        if (data) {
+          setWod({
+            strength: {
+              title: (data as any).strengthTitle ?? '',
+              description: (data as any).strengthDescription ?? '',
+              scoreHint: (data as any).strengthScoreHint ?? '',
+              recordScore: !!(data as any).strengthRecordScore,
+            },
+            title: (data as any).title ?? '',
+            description: (data as any).description ?? '',
+            scoring: ((data as any).scoring as ScoringType) ?? 'for_time',
+            timeCap: (data as any).timeCap ?? '',
+            recordMainScore: (data as any).recordMainScore ?? true,
+          });
+        } else {
+          setWod(defaultWOD());
+        }
+      } catch (err) {
+        console.error('[WOD load error]', err);
         setWod(defaultWOD());
       }
     })();
-
     return () => {
-      isMounted = false;
+      alive = false;
     };
-  }, [date, supabase]);
+  }, [date]);
 
-  // ===== Save/Upsert στο Supabase =====
+  // ===== Save/Upsert via API =====
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!wod.title.trim()) {
-      setSavedMsg('⚠️ Πρόσθεσε τίτλο για το Main WOD');
+      setSavedMsg('⚠️ Please add a Main WOD title');
       return;
     }
 
-    // Auth guard
-    const {
-      data: { user },
-      error: uerr,
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setSavedMsg('⚠️ Πρέπει να είσαι συνδεδεμένος για να κάνεις Save.');
-      console.log('[AUTH USER] NULL', uerr ?? null);
-      return;
+    try {
+      await saveWod({
+        date: toAthensMidnightISO(date),
+        title: wod.title,
+        description: wod.description || null,
+        scoring: wod.scoring,
+        timeCap: wod.timeCap || null,
+        strengthTitle: wod.strength.title || null,
+        strengthDescription: wod.strength.description || null,
+        strengthScoreHint: wod.strength.scoreHint || null,
+        strengthRecordScore: wod.strength.recordScore,
+        recordMainScore: wod.recordMainScore,
+      });
+
+      setSavedMsg('✅ Saved');
+      setTimeout(() => setSavedMsg(''), 1600);
+    } catch (err: any) {
+      console.error('[WOD save error]', err);
+      setSavedMsg(`❌ Save failed: ${err?.message || 'Error'}`);
     }
-
-    const atMidnight = toAthensMidnightISO(date);
-
-    const row = {
-      date: atMidnight,
-      title: wod.title,
-      description: wod.description,
-      scoring: wod.scoring,
-      timeCap: wod.timeCap || null,
-      strengthTitle: wod.strength.title || null,
-      strengthDescription: wod.strength.description || null,
-      strengthScoreHint: wod.strength.scoreHint || null,
-      strengthRecordScore: wod.strength.recordScore,
-      recordMainScore: wod.recordMainScore,
-    };
-
-    const { error } = await supabase.from('Wod').upsert(row, {
-      onConflict: 'date',
-    });
-
-    if (error) {
-      console.error('[WOD save error]', error);
-      setSavedMsg(
-        `❌ Save failed: ${error.message}${
-          (error as any).details ? ' — ' + (error as any).details : ''
-        }`
-      );
-      return;
-    }
-
-    setSavedMsg('✅ Αποθηκεύτηκε στη βάση για αυτή την ημερομηνία');
-    setTimeout(() => setSavedMsg(''), 1600);
   };
 
   // ============ AUTOCOMPLETE LOGIC ============
@@ -210,36 +219,33 @@ const strActive  = wod.strength.title.trim().length > 0 && strSugs.length > 0;
     return debounced;
   };
 
-  // --- MAIN WOD suggestions (ψάχνει σε ΟΛΑ τα WODs, όχι μόνο benchmarks)
-  const fetchMainSuggestions = async (q: string) => {
-    const qTrim = q.trim();
-    if (!qTrim) return [];
-    const { data, error } = await supabase
-      .from('Wod')
-      .select('title, description, scoring, timeCap')
-      .not('title', 'is', null)
-      .ilike('title', `%${qTrim}%`) // prefix match
-      .order('title', { ascending: true })
-      .limit(20); // φέρνουμε λίγα και θα τα dedupe-άρουμε client-side
-
-    if (error) {
-      console.warn('[autocomplete main error]', error);
-      return [];
-    }
-
-    // dedupe by lower(title)
+  // --- MAIN WOD suggestions (search in saved titles)
+const fetchMainSuggestions = async (q: string) => {
+  const qTrim = q.trim();
+  if (!qTrim) return [];
+  try {
+    const items = await searchMainTitles(qTrim);
     const seen = new Set<string>();
     const unique: MainSuggestion[] = [];
-    for (const r of data ?? []) {
-      const key = r.title.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push(r as MainSuggestion);
-      }
+    for (const it of items) {
+      const t = it.title || '';
+      const key = t.toLowerCase();
+      if (!t || seen.has(key)) continue;
+      seen.add(key);
+      unique.push({
+        title: t,
+        description: it.description ?? null,
+        scoring: (it.scoring as ScoringType) ?? null,
+        timeCap: it.timeCap ?? null,
+      });
       if (unique.length >= 3) break;
     }
     return unique;
-  };
+  } catch (e) {
+    console.warn('[autocomplete main error]', e);
+    return [];
+  }
+};
 
   const mainQuery = useDebounced(wod.title, 180);
   useEffect(() => {
@@ -255,36 +261,30 @@ const strActive  = wod.strength.title.trim().length > 0 && strSugs.length > 0;
       setMainSugs(sugs);
       setMainOpen(sugs.length > 0);
 
-      if (suppressMainOpenRef.current) {            // ← νέο
-  setMainSugs([]);                            // κλείσε & καθάρισε
-  setMainOpen(false);
-  suppressMainOpenRef.current = false;
-  return;
-}
-
+      if (suppressMainOpenRef.current) {
+        setMainSugs([]);
+        setMainOpen(false);
+        suppressMainOpenRef.current = false;
+        return;
+      }
     })();
     return () => {
       alive = false;
     };
   }, [mainQuery]); // eslint-disable-line
 
-const hasMainMatch = useMemo(() => {
-  return wod.title.trim().length > 0 && mainSugs.length > 0;
-}, [wod.title, mainSugs]);
-
-  const applyMainSuggestion = (s: MainSuggestion) => {
-    suppressMainOpenRef.current=true;
-    setWod((prev) => ({
-      ...prev,
-      title: s.title,
-      description: s.description ?? prev.description,
-      timeCap: s.timeCap ?? prev.timeCap,
-      scoring: (s.scoring ?? prev.scoring) as ScoringType,
-    }));
-    setMainOpen(false);
-    mainInputRef.current?.blur();
-  };
-
+const applyMainSuggestion = (s: MainSuggestion) => {
+  suppressMainOpenRef.current = true;
+  setWod((prev) => ({
+    ...prev,
+    title: s.title,
+    description: s.description ?? prev.description,
+    scoring: (s.scoring ?? prev.scoring) as ScoringType,
+    timeCap: s.timeCap ?? prev.timeCap,
+  }));
+  setMainOpen(false);
+  mainInputRef.current?.blur();
+};
   const onMainKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
     if (e.key === 'Enter' && mainSugs.length > 0) {
       e.preventDefault();
@@ -292,36 +292,33 @@ const hasMainMatch = useMemo(() => {
     }
   };
 
-  // --- STRENGTH/SKILLS suggestions (ψάχνει σε ΟΛΑ τα αποθηκευμένα strengthTitle)
-  const fetchStrengthSuggestions = async (q: string) => {
-    const qTrim = q.trim();
-    if (!qTrim) return [];
-    const { data, error } = await supabase
-      .from('Wod')
-      .select('strengthTitle, strengthDescription, strengthScoreHint')
-      .not('strengthTitle', 'is', null)
-      .ilike('strengthTitle', `%${qTrim}%`) // prefix match
-      .order('strengthTitle', { ascending: true })
-      .limit(50); // θα κάνουμε dedupe client-side
-
-    if (error) {
-      console.warn('[autocomplete strength error]', error);
-      return [];
-    }
-
-    // dedupe by lower(strengthTitle)
+  // --- STRENGTH/SKILLS suggestions (reuse main search, but extract strengthTitle if present)
+const fetchStrengthSuggestions = async (q: string) => {
+  const qTrim = q.trim();
+  if (!qTrim) return [];
+  try {
+    const items = await searchMainTitles(qTrim); // ίδιο helper, τώρα επιστρέφει και strength πεδία
     const seen = new Set<string>();
     const unique: StrengthSuggestion[] = [];
-    for (const r of (data ?? []) as StrengthSuggestion[]) {
-      const t = r.strengthTitle ?? '';
+    for (const it of items) {
+      const t = it.strengthTitle ?? '';
       const key = t.toLowerCase();
       if (!t || seen.has(key)) continue;
       seen.add(key);
-      unique.push(r);
+      unique.push({
+        strengthTitle: t,
+        strengthDescription: (it as any).strengthDescription ?? null,
+        strengthScoreHint: (it as any).strengthScoreHint ?? null,
+      });
       if (unique.length >= 3) break;
     }
     return unique;
-  };
+  } catch (e) {
+    console.warn('[autocomplete strength error]', e);
+    return [];
+  }
+};
+
 
   const strQuery = useDebounced(wod.strength.title, 180);
   useEffect(() => {
@@ -336,37 +333,33 @@ const hasMainMatch = useMemo(() => {
       if (!alive) return;
       setStrSugs(sugs);
       setStrOpen(sugs.length > 0);
-      if (suppressStrOpenRef.current) {             // ← νέο
-  setStrSugs([]);
-  setStrOpen(false);
-  suppressStrOpenRef.current = false;
-  return;
-}
 
+      if (suppressStrOpenRef.current) {
+        setStrSugs([]);
+        setStrOpen(false);
+        suppressStrOpenRef.current = false;
+        return;
+      }
     })();
     return () => {
       alive = false;
     };
   }, [strQuery]); // eslint-disable-line
 
-const hasStrMatch = useMemo(() => {
-  return wod.strength.title.trim().length > 0 && strSugs.length > 0;
-}, [wod.strength.title, strSugs]);
-
-  const applyStrengthSuggestion = (s: StrengthSuggestion) => {
-    suppressStrOpenRef.current=true;
-    setWod((prev) => ({
-      ...prev,
-      strength: {
-        ...prev.strength,
-        title: s.strengthTitle ?? prev.strength.title,
-        description: s.strengthDescription ?? prev.strength.description,
-        scoreHint: s.strengthScoreHint ?? prev.strength.scoreHint,
-      },
-    }));
-    setStrOpen(false);
-    strInputRef.current?.blur();
-  };
+const applyStrengthSuggestion = (s: StrengthSuggestion) => {
+  suppressStrOpenRef.current = true;
+  setWod((prev) => ({
+    ...prev,
+    strength: {
+      ...prev.strength,
+      title: s.strengthTitle ?? prev.strength.title,
+      description: s.strengthDescription ?? prev.strength.description,
+      scoreHint: s.strengthScoreHint ?? prev.strength.scoreHint,
+    },
+  }));
+  setStrOpen(false);
+  strInputRef.current?.blur();
+};
 
   const onStrKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
     if (e.key === 'Enter' && strSugs.length > 0) {
@@ -425,8 +418,8 @@ const hasStrMatch = useMemo(() => {
                 className={
                   fieldBase +
                   (strActive
-    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
-    : ' focus:ring-2 focus:ring-zinc-700/50')
+                    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
+                    : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setStrOpen(strSugs.length > 0)}
                 onBlur={() => setTimeout(() => setStrOpen(false), 120)}
@@ -522,8 +515,8 @@ const hasStrMatch = useMemo(() => {
                 className={
                   fieldBase +
                   (mainActive
-    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
-    : ' focus:ring-2 focus:ring-zinc-700/50')
+                    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
+                    : ' focus:ring-2 focus:ring-zinc-700/50')
                 }
                 onFocus={() => setMainOpen(mainSugs.length > 0)}
                 onBlur={() => setTimeout(() => setMainOpen(false), 120)}

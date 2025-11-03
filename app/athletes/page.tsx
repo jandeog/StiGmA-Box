@@ -2,116 +2,101 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { getSupabaseBrowser } from '@/lib/supabaseClient';
 
-// --------------------------------------------------
-// Types
-// --------------------------------------------------
-
-type Session = {
-  role: 'coach' | 'athlete';
-  athleteId?: string;
-  email?: string;
-};
+type Role = 'coach' | 'athlete';
 
 interface Athlete {
   id: string;
-  first_name: string;
-  last_name: string;
-  nickname?: string;
-  team_name?: string;
-  dob: string;
+  first_name: string | null;
+  last_name: string | null;
+  nickname?: string | null;
+  team_name?: string | null;
+  dob?: string | null;
   email: string;
-  phone: string;
-  is_coach?: boolean;
-  height_cm?: number;
-  weight_kg?: number;
-  years_of_experience?: number;
-  credits?: number;
-  notes?: string;
-  emergency_name?: string;
-  emergency_phone?: string;
+  phone?: string | null;
+  is_coach?: boolean | null;
   created_at: string;
   updated_at: string;
 }
 
-// --------------------------------------------------
-// Supabase client
-// --------------------------------------------------
-const supabase = getSupabaseBrowser();
-
-// --------------------------------------------------
-// Component
-// --------------------------------------------------
+/** Small badge used for the Coach tag */
+function CoachBadge() {
+  return (
+    <span
+      className="ml-2 inline-flex items-center rounded-md border border-yellow-500/60 bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-300"
+      title="Coach"
+    >
+      Coach
+    </span>
+  );
+}
 
 export default function AthletesPage() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [q, setQ] = useState('');
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<Role>('athlete');
+  const [myId, setMyId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        // fetch role & id explicitly
+        const meRes = await fetch('/api/me', { cache: 'no-store' });
+        const meJ = await meRes.json();
+        if (meRes.ok && meJ?.me) {
+          setRole(meJ.me.is_coach ? 'coach' : 'athlete');
+          setMyId(meJ.me.id ?? null);
+        }
 
-      // 1. Get current session (user)
-      const { data: s } = await supabase.auth.getSession();
-      const user = s.session?.user;
-      if (!user) {
-        setLoading(false);
-        return;
+        const r = await fetch('/api/athletes', { cache: 'no-store' });
+        const j = await r.json();
+        if (!alive) return;
+        if (!r.ok) throw new Error(j?.error || 'Failed to load athletes');
+        setAthletes(j.items ?? []);
+      } catch (err) {
+        console.error(err);
+        setAthletes([]);
+      } finally {
+        if (alive) setLoading(false);
       }
-
-      // 2. Fetch user profile (role etc.)
-      const { data: athleteData } = await supabase
-        .from('athletes')
-        .select('id, role')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (athleteData) {
-        setSession({
-          role: athleteData.role === 'coach' ? 'coach' : 'athlete',
-          athleteId: athleteData.id,
-          email: user.email ?? undefined,
-        });
-      }
-
-      // 3. Fetch all athletes (for coach) or only self (for athlete)
-      const query = supabase
-        .from('athletes')
-        .select('*')
-        .order('last_name', { ascending: true });
-
-      if (athleteData?.role !== 'coach') {
-        query.eq('user_id', user.id);
-      }
-
-      const { data, error } = await query;
-      if (error) console.error(error);
-      setAthletes(data || []);
-      setLoading(false);
+    })();
+    return () => {
+      alive = false;
     };
-
-    fetchData();
   }, []);
 
-  const isCoach = session?.role === 'coach';
-  const myAthleteId = session?.athleteId;
+  // order: coaches first, then last_name/first_name asc
+  const ordered = useMemo(() => {
+    const cmp = (a?: string | null, b?: string | null) =>
+      (a ?? '').localeCompare(b ?? '', undefined, { sensitivity: 'base' });
 
-  // simple search by name / nickname / team
+    const copy = [...athletes];
+    copy.sort((a, b) => {
+      const coachDiff = (b.is_coach ? 1 : 0) - (a.is_coach ? 1 : 0);
+      if (coachDiff !== 0) return coachDiff;
+      const ln = cmp(a.last_name, b.last_name);
+      if (ln !== 0) return ln;
+      return cmp(a.first_name, b.first_name);
+    });
+    return copy;
+  }, [athletes]);
+
+  // search in name / nickname / team
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return athletes;
-    return athletes.filter((a) => {
-      const full = `${a.first_name} ${a.last_name}`.toLowerCase();
+    if (!needle) return ordered;
+    return ordered.filter((a) => {
+      const full = `${a.first_name ?? ''} ${a.last_name ?? ''}`.toLowerCase();
       return (
         full.includes(needle) ||
-        (a.nickname?.toLowerCase() ?? '').includes(needle) ||
-        (a.team_name?.toLowerCase() ?? '').includes(needle)
+        (a.nickname ?? '').toLowerCase().includes(needle) ||
+        (a.team_name ?? '').toLowerCase().includes(needle)
       );
     });
-  }, [q, athletes]);
+  }, [q, ordered]);
 
   if (loading) {
     return (
@@ -120,6 +105,8 @@ export default function AthletesPage() {
       </div>
     );
   }
+
+  const isCoach = role === 'coach';
 
   return (
     <div className="space-y-4">
@@ -133,21 +120,23 @@ export default function AthletesPage() {
         </div>
       </div>
 
-      {/* Search bar */}
+      {/* Search + Add */}
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search by name / nickname / team"
-          className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900/80 px-4 py-2 text-sm field-muted
+          className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900/80 px-4 py-2 text-sm
                      focus:ring-2 focus:ring-zinc-700/50 focus:outline-none shadow-sm"
         />
-        <Link
-          href="/athletes/add"
-          className="ml-auto px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm"
-        >
-          + Add athlete
-        </Link>
+        {isCoach && (
+          <Link
+            href="/athletes/add?new=1"
+            className="ml-auto px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm"
+          >
+            + Add athlete
+          </Link>
+        )}
       </div>
 
       {/* List */}
@@ -158,35 +147,48 @@ export default function AthletesPage() {
       ) : (
         <ul className="space-y-2">
           {filtered.map((a) => {
-            const canEditThis = isCoach || (session?.role === 'athlete' && myAthleteId === a.id);
-            const itemContent = (
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-x-2">
-                  <span className="font-medium">{a.first_name} {a.last_name}</span>
-                  {a.nickname ? <span className="text-zinc-400">({a.nickname})</span> : null}
-                  {a.team_name ? <span className="text-zinc-400">[{a.team_name}]</span> : null}
-                  {a.is_coach ? (
-                    <span className="ml-1 rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Coach</span>
-                  ) : null}
-                </div>
-                {isCoach && (
-                  <>
-                    <div className="text-sm text-zinc-400">
-                      {a.email} • {a.phone}
-                    </div>
-                    <div className="text-xs text-zinc-500">{a.dob}</div>
-                  </>
-                )}
-              </div>
-            );
+            const fullName = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || a.email;
+            const subtitle = [a.nickname ? `(${a.nickname})` : null, a.team_name ? `[${a.team_name}]` : null]
+              .filter(Boolean)
+              .join(' ');
+
+            // Coach view: item is clickable (edit); hover highlight
+            // Athlete view: plain item; no hover styling
+            const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+              isCoach ? (
+                <Link href={`/athletes/add?id=${a.id}`} prefetch={false} className="group block">{children}</Link>
+              ) : (
+                <div className="block">{children}</div>
+              );
 
             return (
-              <li key={a.id} className="rounded border border-zinc-800 p-3">
-                {canEditThis ? (
-                  <Link href={`/athletes/add?id=${a.id}`}>{itemContent}</Link>
-                ) : (
-                  itemContent
-                )}
+           <li
+  key={a.id}
+  className={
+    'rounded border p-3 ' +
+    (isCoach
+      ? 'border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-900/10 transition-colors'
+      : 'border-zinc-800')
+  }
+>
+                <Wrapper>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    {/* Left: name + badges */}
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{fullName}</div>
+                      {subtitle ? <div className="text-zinc-400">{subtitle}</div> : null}
+                      {a.is_coach ? <CoachBadge /> : null}
+                    </div>
+
+                    {/* Right: fields depend on role */}
+                    {isCoach ? (
+                      <div className="text-sm text-zinc-400 sm:text-right">
+                        {a.email}
+                        {a.phone ? <span className="opacity-70"> • {a.phone}</span> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </Wrapper>
               </li>
             );
           })}

@@ -1,60 +1,59 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
+// middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { SESSION_COOKIE, SIGNUP_EMAIL_COOKIE, verifySession } from './lib/session';
 
-// Διαδρομές που δεν απαιτούν auth
-const PUBLIC_PATHS = new Set<string>([
-  '/',                // η αρχική (το πραγματικό login UI)
-  '/auth/confirm',    // επιστροφή από OTP / magic link
-  '/auth/reset',      // φόρμα reset password
-  '/favicon.ico',
-])
+const AUTH_API_PREFIX = '/api/auth';
 
-// Διαδρομές που απαιτούν auth (πρόσθεσε/βγάλε ανάλογα)
-const PROTECTED_PREFIXES = [
-  '/schedule',        // αν θες να προστατεύεται όλο το schedule
-  '/score',
-  '/athletes/add',
-  '/auth/me',         // μόνο για logged-in
-]
+// Always-public stuff (static & root)
+const PUBLIC_PATHS = new Set<string>(['/','/favicon.ico']);
+const PUBLIC_DIR_PREFIXES = ['/assets', '/images', '/fonts', '/_next'];
+const PUBLIC_FILE = /\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|txt|json)$/i;
 
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl
+  const { pathname } = req.nextUrl;
 
-  // Αν είναι public route, μη κάνεις τίποτα
-  if (PUBLIC_PATHS.has(pathname)) {
-    return NextResponse.next()
+  // 1) Allow static/public assets & root
+  if (
+    PUBLIC_PATHS.has(pathname) ||
+    PUBLIC_DIR_PREFIXES.some((p) => pathname.startsWith(p)) ||
+    PUBLIC_FILE.test(pathname)
+  ) {
+    return NextResponse.next();
   }
 
-  // Αν ΔΕΝ είναι protected route, συνέχισε κανονικά
-  const needsAuth = PROTECTED_PREFIXES.some(prefix => pathname.startsWith(prefix))
-  if (!needsAuth) {
-    return NextResponse.next()
+  // 2) Allow auth API
+  if (pathname.startsWith(AUTH_API_PREFIX)) {
+    return NextResponse.next();
   }
 
-  // Protected route → έλεγχος χρήστη
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    // Στείλε κατευθείαν στην αρχική (/), ΟΧΙ στο /auth/login
-    const url = req.nextUrl.clone()
-    url.pathname = '/'
-    url.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(url)
+  // 3) OTP → /athletes/add: allow if we have session OR signup-email cookie
+  if (pathname.startsWith('/athletes/add')) {
+    const hasSession = req.cookies.get(SESSION_COOKIE)?.value;
+    const signupEmail = req.cookies.get(SIGNUP_EMAIL_COOKIE)?.value;
+    if (hasSession || signupEmail) return NextResponse.next();
+    return NextResponse.redirect(new URL('/', req.url));
   }
 
-  return res
+  // 4) Coach-only gate for /wod
+  if (pathname.startsWith('/wod')) {
+    const token = req.cookies.get(SESSION_COOKIE)?.value;
+    if (!token) return NextResponse.redirect(new URL('/', req.url));
+    const sess = await verifySession(token);
+    if (!sess || sess.role !== 'coach') {
+      // non-coach: send to schedule (or '/')
+      return NextResponse.redirect(new URL('/schedule', req.url));
+    }
+    return NextResponse.next();
+  }
+
+  // 5) Everything else requires a valid session
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return NextResponse.redirect(new URL('/', req.url));
+
+  return NextResponse.next();
 }
 
-// Εξαιρέσεις για assets + API
 export const config = {
-  matcher: [
-    // όλα εκτός από _next, static assets, images, api
-    '/((?!_next/static|_next/image|favicon.ico|api/).*)',
-  ],
-}
+  // generic matcher; filtering is done inside the middleware
+  matcher: ['/((?!api/preview).*)'],
+};

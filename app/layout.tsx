@@ -1,11 +1,14 @@
-// app/layout.tsx — cleaned
+// app/layout.tsx
 import type { Metadata } from 'next';
 import './globals.css';
 import Link from 'next/link';
-import Image from 'next/image';
+import { cookies } from 'next/headers';
+import HeaderLogoMenu from '@/components/HeaderLogoMenu';
+import { verifySession, SESSION_COOKIE } from '@/lib/session';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const metadata: Metadata = {
-  title: 'ΣtiGmA Box',
+  title: 'StiGmA Box',
   description: 'Functional fitness — WOD, schedule, scoring',
 };
 
@@ -20,7 +23,25 @@ function NavLink({ href, label }: { href: string; label: string }) {
   );
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Read session cookie and get display name
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value || '';
+  let displayName: string | undefined = undefined;
+
+  const payload = await verifySession(token);
+  if (payload?.aid) {
+    const { data } = await supabaseAdmin
+      .from('athletes')
+      .select('first_name,nickname,email')
+      .eq('id', payload.aid)
+      .maybeSingle();
+    displayName =
+      data?.nickname?.trim() ||
+      data?.first_name?.trim() ||
+      data?.email?.split('@')[0];
+  }
+
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full bg-zinc-950 text-zinc-100 antialiased">
@@ -28,18 +49,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="sticky top-0 z-50 w-full border-b border-zinc-800/70 bg-zinc-950/75 backdrop-blur">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between gap-3 py-3">
-              {/* Left: Logo */}
-              <Link href="/" className="flex items-center gap-2 shrink-0 group">
-                <Image
-                  src="/images/Stigma-Logo-white-650x705.png"
-                  alt="ΣtiGmA Box"
-                  width={48}
-                  height={52}
-                  priority
-                  className="h-7 w-auto select-none [image-rendering:crisp-edges]"
-                />
-                <span className="sr-only">Home</span>
-              </Link>
+              {/* Left: Logo + menu */}
+              <HeaderLogoMenu displayName={displayName} />
 
               {/* Center: Tabs (desktop) */}
               <nav className="hidden md:flex items-center gap-1">
@@ -75,7 +86,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </main>
 
         <footer className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 text-xs text-zinc-500">
-          © {new Date().getFullYear()} ΣtiGmA Box
+          © {new Date().getFullYear()} StiGmA Box
         </footer>
       </body>
     </html>

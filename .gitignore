@@ -1,6 +1,8 @@
 .next
 node_modules
 .env*
+.env
+.env.local
 dist
 .DS_Store
 npm-debug.log*
