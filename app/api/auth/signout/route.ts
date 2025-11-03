@@ -1,3 +1,6 @@
+export const runtime = 'nodejs';
+
+
 import { NextResponse } from 'next/server';
 import { SESSION_COOKIE, SIGNUP_EMAIL_COOKIE } from '@/lib/session';
 
