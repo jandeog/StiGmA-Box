@@ -18,6 +18,8 @@ export default function AddAthletePage() {
   const redirect = qs.get('redirect') || '';
   const targetId = qs.get('id') || null;
   const createNew = qs.get('new') === '1';
+  const [acceptRules, setAcceptRules] = useState(false);
+
 
   const [mode, setMode] = useState<Mode>('signup');
 
@@ -153,11 +155,12 @@ export default function AddAthletePage() {
   mode === 'signup' || mode === 'coach-new' || (mode === 'edit-self' && changePassword);
 
 
-  const canSubmit = useMemo(() => {
-    if (busy || !email) return false;
-    if (needsPassword) return pw1.length >= 6 && pw1 === pw2;
-    return true;
-  }, [busy, email, needsPassword, pw1, pw2]);
+const canSubmit = useMemo(() => {
+  if (busy || !email) return false;
+  if (mode === 'signup' && !acceptRules) return false; // << NEW
+  if (needsPassword) return pw1.length >= 6 && pw1 === pw2;
+  return true;
+ }, [busy, email, needsPassword, pw1, pw2, mode, acceptRules]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -183,6 +186,7 @@ export default function AddAthletePage() {
           emergency_name: emName || null,
           emergency_phone: emPhone || null,
           is_coach: isCoachFlag,
+          acceptRules: acceptRules || undefined,
         };
 
         const r = await fetch(`/api/athletes/${encodeURIComponent(targetId)}`, {
