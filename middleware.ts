@@ -20,6 +20,11 @@ export async function middleware(req: NextRequest) {
   ) {
     return NextResponse.next();
   }
+// Allow public health checks (no auth)
+const PUBLIC_API = ['/api/ping', '/api/health'];
+if (PUBLIC_API.some(p => pathname.startsWith(p))) {
+  return NextResponse.next();
+}
 
   // 2) Allow auth API
   if (pathname.startsWith(AUTH_API_PREFIX)) {
