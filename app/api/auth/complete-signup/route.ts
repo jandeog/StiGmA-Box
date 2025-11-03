@@ -10,7 +10,10 @@ export async function POST(req: Request) {
   const body = await req.json();
   const { password, ...profile } = body || {};
   const acceptRules = !!profile.acceptRules;
-
+const asInt = (v: any) => {
+    const n = typeof v === 'string' ? parseInt(v, 10) : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   const sess = await verifySession(token);
@@ -88,8 +91,16 @@ if (canEditCredits && typeof profile.credits === 'number') {
       payload.terms_version = 1;
       payload.terms_accepted_at = new Date().toISOString();
     }
-    const { error } = await supabaseAdmin.from('athletes').update(payload).eq('id', athleteId!);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    
+    // drop undefined keys, keep nulls (explicit clears)
+   Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+   const { data, error } = await supabaseAdmin
+    .from('athletes')
+     .update(payload)
+     .eq('id', athleteId!)
+     .select('id, email, is_coach, credits, height_cm, weight_kg, years_of_experience')
+     .maybeSingle();
+   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   // Read role to mint JWT

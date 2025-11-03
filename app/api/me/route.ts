@@ -13,7 +13,7 @@ export async function GET() {
 
   const { data, error } = await supabaseAdmin
     .from('athletes')
-    .select('id, email, is_coach, first_name, last_name, nickname, team_name, credits, terms_version, terms_accepted_at')
+    .select('id, email, phone, dob, notes, is_coach, first_name, gender, last_name, nickname, team_name, credits, height_cm, weight_kg, years_of_experience, terms_version, terms_accepted_at')
     .eq('id', sess.aid)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
