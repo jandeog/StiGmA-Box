@@ -16,7 +16,7 @@ export default function AddAthletePage() {
   const router = useRouter();
   const qs = useSearchParams();
   const redirect = qs.get('redirect') || '';
-  const targetId = qs.get('id') || null;
+  const targetId = qs.get('id');
   const createNew = qs.get('new') === '1';
   const [acceptRules, setAcceptRules] = useState(false);
 
@@ -315,44 +315,55 @@ const r = await fetch('/api/auth/complete-signup', {
           </div>
 
           {/* Password fields visibility */}
-{(mode === 'signup' || mode === 'edit-self' || mode === 'coach-new') && (
-  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+{(mode === 'edit-self' || mode === 'coach-new' || mode === 'coach-edit') && (
+  <div className="mt-3 flex w-full items-center justify-between gap-3">
     {mode === 'edit-self' && (
-      <div className="md:col-span-2">
-        <label className="inline-flex items-center gap-2 select-none">
-   <input
-     type="checkbox"
-     checked={changePassword}
-     onChange={(e) => setChangePassword(e.target.checked)}
-   />
-   <span className="whitespace-nowrap">Change Password</span>
- </label>
-      </div>
+      <label className="flex min-w-0 flex-1 items-center gap-2 select-none text-sm text-zinc-300">
+        <input
+          type="checkbox"
+          checked={changePassword}
+          onChange={(e) => setChangePassword(e.target.checked)}
+        />
+        <span className="break-words">Change Password</span>
+      </label>
     )}
 
-    {(mode === 'signup' || mode === 'coach-new' || changePassword) && (
-      <>
-        <div>
-          <label className="block text-xs mb-1 text-zinc-400">Password (≥6)</label>
-          <div className="relative">
-            <input
-              type={showPw1 ? 'text' : 'password'}
-              value={pw1}
-              onChange={(e) => setPw1(e.target.value)}
-              className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw1((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
-            >
-              {showPw1 ? '🙈' : '👁️'}
-            </button>
-          </div>
-        </div>
-{/* Signup-only rules box */}
+    {(mode === 'coach-new' || mode === 'coach-edit' || (mode === 'edit-self' && iAmCoach)) && (
+      <label className="ml-auto flex items-center gap-2 whitespace-nowrap text-sm text-zinc-300">
+        <input
+          type="checkbox"
+          checked={isCoachFlag}
+          onChange={(e) => setIsCoachFlag(e.target.checked)}
+          className="accent-zinc-600"
+        />
+        Coach
+      </label>
+    )}
+  </div>
+)}
+
+{(mode === 'signup' || mode === 'coach-new' || changePassword) && (
+  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Password (≥6)</label>
+      <div className="relative">
+        <input
+          type={showPw1 ? 'text' : 'password'}
+          value={pw1}
+          onChange={(e) => setPw1(e.target.value)}
+          className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
+        />
+        <button
+          type="button"
+          onClick={() => setShowPw1((v) => !v)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
+        >
+          {showPw1 ? '🙈' : '👁️'}
+        </button>
+      </div>
+    </div>
 {mode === 'signup' && (
-  <div className="mt-3 space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3">
+  <div className="mt-3 space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3 md:col-span-2">
     <label className="inline-flex items-center gap-2 text-sm text-zinc-300 whitespace-nowrap">
       <input
         type="checkbox"
@@ -378,26 +389,24 @@ const r = await fetch('/api/auth/complete-signup', {
   </div>
 )}
 
-        <div>
-          <label className="block text-xs mb-1 text-zinc-400">Confirm</label>
-          <div className="relative">
-            <input
-              type={showPw2 ? 'text' : 'password'}
-              value={pw2}
-              onChange={(e) => setPw2(e.target.value)}
-              className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw2((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
-            >
-              {showPw2 ? '🙈' : '👁️'}
-            </button>
-          </div>
-        </div>
-      </>
-    )}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Confirm</label>
+      <div className="relative">
+        <input
+          type={showPw2 ? 'text' : 'password'}
+          value={pw2}
+          onChange={(e) => setPw2(e.target.value)}
+          className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
+        />
+        <button
+          type="button"
+          onClick={() => setShowPw2((v) => !v)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
+        >
+          {showPw2 ? '🙈' : '👁️'}
+        </button>
+      </div>
+    </div>
   </div>
 )}
 
@@ -509,19 +518,6 @@ const r = await fetch('/api/auth/complete-signup', {
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
             </div>
 
-           {(mode === 'coach-new' || mode === 'coach-edit' || (mode === 'edit-self' && iAmCoach)) && (
-      <div className="md:col-span-2">
-        <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
-          <input
-            type="checkbox"
-            checked={isCoachFlag}
-            onChange={(e)=>setIsCoachFlag(e.target.checked)}
-            className="accent-zinc-600"
-          />
-          Coach
-        </label>
-      </div>
-    )}
           </div>
         </section>
 
