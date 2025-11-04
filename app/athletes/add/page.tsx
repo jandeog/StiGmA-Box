@@ -315,44 +315,56 @@ const r = await fetch('/api/auth/complete-signup', {
           </div>
 
           {/* Password fields visibility */}
-{(mode === 'signup' || mode === 'edit-self' || mode === 'coach-new') && (
-  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+{(mode === 'edit-self' || mode === 'coach-new' || mode === 'coach-edit') && (
+  <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
     {mode === 'edit-self' && (
-      <div className="md:col-span-2">
-        <label className="inline-flex items-center gap-2 select-none text-sm">
-   <input
-     type="checkbox"
-     checked={changePassword}
-     onChange={(e) => setChangePassword(e.target.checked)}
-   />
-   <span className="whitespace-nowrap">Change Password</span>
- </label>
-      </div>
+       <label className="inline-flex items-center gap-2 select-none text-sm">
+        <input
+          type="checkbox"
+          checked={changePassword}
+          onChange={(e) => setChangePassword(e.target.checked)}
+        />
+        <span className="whitespace-nowrap">Change Password</span>
+      </label>
     )}
 
-    {(mode === 'signup' || mode === 'coach-new' || changePassword) && (
-      <>
-        <div>
-          <label className="block text-xs mb-1 text-zinc-400">Password (≥6)</label>
-          <div className="relative">
-            <input
-              type={showPw1 ? 'text' : 'password'}
-              value={pw1}
-              onChange={(e) => setPw1(e.target.value)}
-              className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw1((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
-            >
-              {showPw1 ? '🙈' : '👁️'}
-            </button>
-          </div>
-        </div>
+     {(mode === 'coach-new' || mode === 'coach-edit' || (mode === 'edit-self' && iAmCoach)) && (
+      <label className="inline-flex items-center gap-2 text-sm text-zinc-300 md:ml-auto">
+        <input
+          type="checkbox"
+          checked={isCoachFlag}
+          onChange={(e) => setIsCoachFlag(e.target.checked)}
+          className="accent-zinc-600"
+        />
+        Coach
+      </label>
+    )}
+  </div>
+)}
+
+{(mode === 'signup' || mode === 'coach-new' || changePassword) && (
+  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Password (≥6)</label>
+      <div className="relative">
+        <input
+          type={showPw1 ? 'text' : 'password'}
+          value={pw1}
+          onChange={(e) => setPw1(e.target.value)}
+          className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
+        />
+        <button
+          type="button"
+          onClick={() => setShowPw1((v) => !v)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
+        >
+          {showPw1 ? '🙈' : '👁️'}
+        </button>
+      </div>
+    </div>
 {/* Signup-only rules box */}
 {mode === 'signup' && (
-  <div className="mt-3 space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3">
+  <div className="mt-3 space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3 md:col-span-2">
     <label className="inline-flex items-center gap-2 text-sm text-zinc-300 whitespace-nowrap">
       <input
         type="checkbox"
@@ -379,25 +391,23 @@ const r = await fetch('/api/auth/complete-signup', {
 )}
 
         <div>
-          <label className="block text-xs mb-1 text-zinc-400">Confirm</label>
-          <div className="relative">
-            <input
-              type={showPw2 ? 'text' : 'password'}
-              value={pw2}
-              onChange={(e) => setPw2(e.target.value)}
-              className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw2((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
-            >
-              {showPw2 ? '🙈' : '👁️'}
-            </button>
-          </div>
-        </div>
-      </>
-    )}
+      <label className="block text-xs mb-1 text-zinc-400">Confirm</label>
+      <div className="relative">
+        <input
+          type={showPw2 ? 'text' : 'password'}
+          value={pw2}
+          onChange={(e) => setPw2(e.target.value)}
+          className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
+        />
+        <button
+          type="button"
+          onClick={() => setShowPw2((v) => !v)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100"
+        >
+          {showPw2 ? '🙈' : '👁️'}
+        </button>
+      </div>
+    </div>
   </div>
 )}
 
@@ -495,33 +505,21 @@ const r = await fetch('/api/auth/complete-signup', {
 
         {/* SECTION: Emergency & Role */}
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-          <h2 className="text-sm font-medium mb-3 text-zinc-300">Emergency & role</h2>
+          <h2 className="text-sm font-medium mb-3 text-zinc-300">Emergency Contact</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs mb-1 text-zinc-400">Emergency name</label>
+              <label className="block text-xs mb-1 text-zinc-400">Contact Role</label>
               <input value={emName} onChange={(e)=>setEmName(e.target.value)}
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs mb-1 text-zinc-400">Emergency phone</label>
+              <label className="block text-xs mb-1 text-zinc-400">Emergency Phone</label>
               <input value={emPhone} onChange={(e)=>setEmPhone(e.target.value)}
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
             </div>
 
-           {(mode === 'coach-new' || mode === 'coach-edit' || (mode === 'edit-self' && iAmCoach)) && (
-      <div className="md:col-span-2">
-        <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
-          <input
-            type="checkbox"
-            checked={isCoachFlag}
-            onChange={(e)=>setIsCoachFlag(e.target.checked)}
-            className="accent-zinc-600"
-          />
-          Coach
-        </label>
-      </div>
-    )}
+          
           </div>
         </section>
 
