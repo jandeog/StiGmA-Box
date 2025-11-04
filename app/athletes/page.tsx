@@ -11,19 +11,18 @@ interface Athlete {
   last_name: string | null;
   nickname?: string | null;
   team_name?: string | null;
-  dob?: string | null;
   email: string;
   phone?: string | null;
   is_coach?: boolean | null;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
-/** Small badge used for the Coach tag */
+/** Compact coach badge */
 function CoachBadge() {
   return (
     <span
-      className="ml-2 inline-flex items-center rounded-md border border-yellow-500/60 bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-300"
+      className="ml-1 inline-flex items-center rounded border border-yellow-500/60 bg-yellow-500/10 px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-wide text-yellow-300"
       title="Coach"
     >
       Coach
@@ -31,11 +30,12 @@ function CoachBadge() {
   );
 }
 
+/** Compact green nickname badge */
 function NicknameBadge({ value, className = '' }: { value: string; className?: string }) {
   return (
     <span
       className={
-        'inline-flex items-center rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300 ' +
+        'inline-flex items-center rounded border border-emerald-500/60 bg-emerald-500/10 px-2 py-[2px] text-[11px] font-medium text-emerald-300 ' +
         className
       }
       title="Nickname"
@@ -57,14 +57,14 @@ export default function AthletesPage() {
     (async () => {
       try {
         setLoading(true);
-        // fetch role & id explicitly
+        // who am I
         const meRes = await fetch('/api/me', { cache: 'no-store' });
         const meJ = await meRes.json();
         if (meRes.ok && meJ?.me) {
           setRole(meJ.me.is_coach ? 'coach' : 'athlete');
           setMyId(meJ.me.id ?? null);
         }
-
+        // list
         const r = await fetch('/api/athletes', { cache: 'no-store' });
         const j = await r.json();
         if (!alive) return;
@@ -82,11 +82,10 @@ export default function AthletesPage() {
     };
   }, []);
 
-  // order: coaches first, then last_name/first_name asc
+  // order coaches first, then by last/first
   const ordered = useMemo(() => {
     const cmp = (a?: string | null, b?: string | null) =>
       (a ?? '').localeCompare(b ?? '', undefined, { sensitivity: 'base' });
-
     const copy = [...athletes];
     copy.sort((a, b) => {
       const coachDiff = (b.is_coach ? 1 : 0) - (a.is_coach ? 1 : 0);
@@ -98,7 +97,7 @@ export default function AthletesPage() {
     return copy;
   }, [athletes]);
 
-  // search in name / nickname / team
+  // search
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return ordered;
@@ -107,7 +106,8 @@ export default function AthletesPage() {
       return (
         full.includes(needle) ||
         (a.nickname ?? '').toLowerCase().includes(needle) ||
-        (a.team_name ?? '').toLowerCase().includes(needle)
+        (a.team_name ?? '').toLowerCase().includes(needle) ||
+        (a.email ?? '').toLowerCase().includes(needle)
       );
     });
   }, [q, ordered]);
@@ -123,43 +123,43 @@ export default function AthletesPage() {
   const isCoach = role === 'coach';
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Header */}
       <div className="flex items-end justify-between gap-3">
-        <h1 className="text-3xl font-extrabold tracking-tight leading-tight select-none">
-          <span className="inline-block border-b-2 border-zinc-700 pb-1">Athletes</span>
+        <h1 className="text-2xl font-extrabold tracking-tight leading-tight select-none">
+          <span className="inline-block border-b border-zinc-700 pb-0.5">Athletes</span>
         </h1>
-        <div className="text-sm text-zinc-400">
+        <div className="text-xs text-zinc-400">
           Total: {athletes.length} {athletes.length === 1 ? 'athlete' : 'athletes'}
         </div>
       </div>
 
       {/* Search + Add */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name / nickname / team"
-          className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900/80 px-4 py-2 text-sm
-                     focus:ring-2 focus:ring-zinc-700/50 focus:outline-none shadow-sm"
+          placeholder="Search name / nickname / team"
+          className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[13px]
+                     focus:ring-2 focus:ring-zinc-700/40 focus:outline-none shadow-sm"
         />
         {isCoach && (
           <Link
             href="/athletes/add?new=1"
-            className="ml-auto px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm"
+            className="ml-auto px-2.5 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 text-[13px]"
           >
-            + Add athlete
+            + Add
           </Link>
         )}
       </div>
 
-      {/* List */}
+      {/* Compact list */}
       {filtered.length === 0 ? (
-        <div className="rounded-md border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
+        <div className="rounded-md border border-dashed border-zinc-700 p-4 text-center text-xs text-zinc-400">
           No athletes found.
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-1.5">
           {filtered.map((a) => {
             const clickable = isCoach || (myId && a.id === myId);
             const fullName =
@@ -185,65 +185,73 @@ export default function AthletesPage() {
               <li
                 key={a.id}
                 className={
-                  'rounded border p-3 ' +
+                  'rounded border p-2 text-xs ' +
                   (clickable
                     ? 'border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-900/10 transition-colors'
                     : 'border-zinc-800')
                 }
               >
                 <Wrapper>
-                  {/* Athlete view (non-coach): Name+Coach badge (left), Nickname (center green badge), Team (right) */}
+                  {/* MOBILE-FIRST two-line layout */}
                   {!isCoach ? (
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      {/* Left */}
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="font-medium truncate">{fullName}</div>
-                        {a.is_coach ? <CoachBadge /> : null}
-                      </div>
-
-                      {/* Middle: nickname badge */}
-                      <div className="flex-1 flex justify-center">
-                        {a.nickname ? <NicknameBadge value={a.nickname} /> : null}
-                      </div>
-
-                      {/* Right: team name */}
-                      <div className="text-sm text-zinc-400 truncate">
-                        {a.team_name ?? ''}
-                      </div>
-                    </div>
-                  ) : (
-                    // Coach view: Name+Coach badge (left), Nickname badge under name (second line),
-                    // phone (top right, tel:) and email (bottom right, mailto:)
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      {/* Left block with two lines */}
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                    /* Athlete view:
+                       Line 1: Name + Coach badge (left), Team (right)
+                       Line 2: Nickname badge centered
+                    */
+                    <div className="space-y-1">
+                      {/* Line 1 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex items-center gap-1">
                           <div className="font-medium truncate">{fullName}</div>
                           {a.is_coach ? <CoachBadge /> : null}
                         </div>
-                        {a.nickname ? (
-                          <div className="mt-1">
-                            <NicknameBadge value={a.nickname} />
-                          </div>
-                        ) : null}
+                        <div className="text-[11px] text-zinc-400 truncate">
+                          {a.team_name ?? ''}
+                        </div>
                       </div>
-
-                      {/* Right block with phone top-right and email bottom-right */}
-                      <div className="text-sm flex flex-col items-start sm:items-end gap-1">
-                        {a.phone ? (
-                          <a
-                            href={`tel:${a.phone}`}
-                            className="hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {a.phone}
-                          </a>
-                        ) : (
-                          <span className="opacity-60 select-none">No phone</span>
-                        )}
+                      {/* Line 2 */}
+                      {a.nickname ? (
+                        <div className="flex justify-center">
+                          <NicknameBadge value={a.nickname} className="max-w-[80%] truncate" />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    /* Coach view:
+                       Line 1: Name + Coach badge (left), Phone (right, tel:)
+                       Line 2: Nickname badge (left), Email (right, mailto:)
+                    */
+                    <div className="space-y-1">
+                      {/* Line 1 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex items-center gap-1">
+                          <div className="font-medium truncate">{fullName}</div>
+                          {a.is_coach ? <CoachBadge /> : null}
+                        </div>
+                        <div className="text-[11px]">
+                          {a.phone ? (
+                            <a
+                              href={`tel:${a.phone}`}
+                              className="hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {a.phone}
+                            </a>
+                          ) : (
+                            <span className="opacity-60 select-none">No phone</span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Line 2 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          {a.nickname ? (
+                            <NicknameBadge value={a.nickname} className="max-w-[80%] truncate" />
+                          ) : null}
+                        </div>
                         <a
                           href={`mailto:${a.email}`}
-                          className="hover:underline break-all"
+                          className="text-[11px] hover:underline break-all"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {a.email}
