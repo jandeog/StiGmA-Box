@@ -319,7 +319,7 @@ const r = await fetch('/api/auth/complete-signup', {
   <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
     {mode === 'edit-self' && (
       <div className="md:col-span-2">
-        <label className="inline-flex items-center gap-2 select-none">
+        <label className="inline-flex items-center gap-2 select-none text-sm">
    <input
      type="checkbox"
      checked={changePassword}
