@@ -311,15 +311,14 @@ const r = await fetch('/api/auth/complete-signup', {
 
           {/* Password fields visibility */}
 {(mode === 'edit-self' || mode === 'coach-new' || mode === 'coach-edit') && (
-  <div className="mt-3 flex w-full items-start gap-3">
+  <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
     {mode === 'edit-self' && (
-      <label className="flex min-w-0 flex-1 items-center gap-2 select-none text-sm text-zinc-300">
-        <input
+ <label className="inline-flex items-center gap-2 select-none text-sm">        <input
           type="checkbox"
           checked={changePassword}
           onChange={(e) => setChangePassword(e.target.checked)}
         />
-        <span className="break-words">Change Password</span>
+         <span className="whitespace-nowrap">Change Password</span>
       </label>
     )}
 
