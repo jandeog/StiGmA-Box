@@ -313,7 +313,8 @@ const r = await fetch('/api/auth/complete-signup', {
 {(mode === 'edit-self' || mode === 'coach-new' || mode === 'coach-edit') && (
   <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
     {mode === 'edit-self' && (
- <label className="inline-flex items-center gap-2 select-none text-sm">        <input
+      <label className="ml-auto flex items-center gap-2 whitespace-nowrap text-sm text-zinc-300">
+        <input
           type="checkbox"
           checked={changePassword}
           onChange={(e) => setChangePassword(e.target.checked)}
