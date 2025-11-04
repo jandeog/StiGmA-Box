@@ -31,6 +31,20 @@ function CoachBadge() {
   );
 }
 
+function NicknameBadge({ value, className = '' }: { value: string; className?: string }) {
+  return (
+    <span
+      className={
+        'inline-flex items-center rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300 ' +
+        className
+      }
+      title="Nickname"
+    >
+      {value}
+    </span>
+  );
+}
+
 export default function AthletesPage() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [q, setQ] = useState('');
@@ -148,54 +162,95 @@ export default function AthletesPage() {
         <ul className="space-y-2">
           {filtered.map((a) => {
             const clickable = isCoach || (myId && a.id === myId);
-            const fullName = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || a.email;
-            const subtitle = [a.nickname ? `(${a.nickname})` : null, a.team_name ? `[${a.team_name}]` : null]
-              .filter(Boolean)
-              .join(' ');
-  // Clickable if coach OR it's me
-           const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-             clickable ? (
+            const fullName =
+              `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || a.email;
+
+            const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+              clickable ? (
                 <Link
-                 href={`/athletes/add?id=${a.id}`}
-                 prefetch={false}
-                 className="group block"
+                  href={`/athletes/add?id=${a.id}`}
+                  prefetch={false}
+                  className="group block"
                   title={isCoach ? 'Edit athlete' : 'Edit your profile'}
-               >
-                 {children}
-               </Link>
-             ) : (
-               <div className="block" title="Only coaches can edit other athletes">{children}</div>
+                >
+                  {children}
+                </Link>
+              ) : (
+                <div className="block" title="Only coaches can edit other athletes">
+                  {children}
+                </div>
               );
 
-
             return (
-           <li
-  key={a.id}
-  className={
-    'rounded border p-3 ' +
-    (clickable
-      
-      ? 'border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-900/10 transition-colors'
-      : 'border-zinc-800')
-  }
->
+              <li
+                key={a.id}
+                className={
+                  'rounded border p-3 ' +
+                  (clickable
+                    ? 'border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-900/10 transition-colors'
+                    : 'border-zinc-800')
+                }
+              >
                 <Wrapper>
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    {/* Left: name + badges */}
-                    <div className="flex items-center gap-2">
-                      <div className="font-medium">{fullName}</div>
-                      {subtitle ? <div className="text-zinc-400">{subtitle}</div> : null}
-                      {a.is_coach ? <CoachBadge /> : null}
-                    </div>
-
-                    {/* Right: fields depend on role */}
-                    {isCoach ? (
-                      <div className="text-sm text-zinc-400 sm:text-right">
-                        {a.email}
-                        {a.phone ? <span className="opacity-70"> • {a.phone}</span> : null}
+                  {/* Athlete view (non-coach): Name+Coach badge (left), Nickname (center green badge), Team (right) */}
+                  {!isCoach ? (
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      {/* Left */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="font-medium truncate">{fullName}</div>
+                        {a.is_coach ? <CoachBadge /> : null}
                       </div>
-                    ) : null}
-                  </div>
+
+                      {/* Middle: nickname badge */}
+                      <div className="flex-1 flex justify-center">
+                        {a.nickname ? <NicknameBadge value={a.nickname} /> : null}
+                      </div>
+
+                      {/* Right: team name */}
+                      <div className="text-sm text-zinc-400 truncate">
+                        {a.team_name ?? ''}
+                      </div>
+                    </div>
+                  ) : (
+                    // Coach view: Name+Coach badge (left), Nickname badge under name (second line),
+                    // phone (top right, tel:) and email (bottom right, mailto:)
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      {/* Left block with two lines */}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium truncate">{fullName}</div>
+                          {a.is_coach ? <CoachBadge /> : null}
+                        </div>
+                        {a.nickname ? (
+                          <div className="mt-1">
+                            <NicknameBadge value={a.nickname} />
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Right block with phone top-right and email bottom-right */}
+                      <div className="text-sm flex flex-col items-start sm:items-end gap-1">
+                        {a.phone ? (
+                          <a
+                            href={`tel:${a.phone}`}
+                            className="hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {a.phone}
+                          </a>
+                        ) : (
+                          <span className="opacity-60 select-none">No phone</span>
+                        )}
+                        <a
+                          href={`mailto:${a.email}`}
+                          className="hover:underline break-all"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {a.email}
+                        </a>
+                      </div>
+                    </div>
+                  )}
                 </Wrapper>
               </li>
             );
