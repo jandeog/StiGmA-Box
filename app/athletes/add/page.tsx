@@ -311,10 +311,10 @@ const r = await fetch('/api/auth/complete-signup', {
 
           {/* Password fields visibility */}
 {(mode === 'edit-self' || mode === 'coach-new' || mode === 'coach-edit') && (
-  <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-    {mode === 'edit-self' && (
-      <label className="ml-auto flex items-center gap-2 whitespace-nowrap text-sm text-zinc-300">
-        <input
+<div className="mt-3 flex flex-row flex-nowrap items-center justify-between gap-4">
+            {mode === 'edit-self' && (
+ <label className="flex items-center gap-2 whitespace-nowrap text-sm text-zinc-300">
+            <input
           type="checkbox"
           checked={changePassword}
           onChange={(e) => setChangePassword(e.target.checked)}
@@ -324,8 +324,8 @@ const r = await fetch('/api/auth/complete-signup', {
     )}
 
     {(mode === 'coach-new' || mode === 'coach-edit' || (mode === 'edit-self' && iAmCoach)) && (
-      <label className="ml-auto flex items-center gap-2 whitespace-nowrap text-sm text-zinc-300">
-        <input
+ <label className="flex items-center gap-2 whitespace-nowrap text-sm text-zinc-300">
+            <input
           type="checkbox"
           checked={isCoachFlag}
           onChange={(e) => setIsCoachFlag(e.target.checked)}
