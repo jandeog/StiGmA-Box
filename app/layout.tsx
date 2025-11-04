@@ -33,13 +33,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (payload?.aid) {
     const { data } = await supabaseAdmin
       .from('athletes')
-      .select('first_name,nickname,email')
+      .select('first_name,last_name,nickname,email')
       .eq('id', payload.aid)
       .maybeSingle();
-    displayName =
-      data?.nickname?.trim() ||
-      data?.first_name?.trim() ||
-      data?.email?.split('@')[0];
+const initials =
+      ((data?.first_name?.trim()?.[0] || '') + (data?.last_name?.trim()?.[0] || '')).toUpperCase()
+      || (data?.email?.split('@')[0]?.slice(0, 2)?.toUpperCase() || '');
+    displayName = data?.nickname?.trim() || initials || data?.email?.split('@')[0];
   }
 
   return (
