@@ -54,7 +54,7 @@ const initials =
 
               {/* Center: Tabs (desktop) */}
               <nav className="hidden md:flex items-center gap-1">
-                <NavLink href="/athletes" label="Athlete" />
+                <NavLink href="/athletes" label="Athletes" />
                 <NavLink href="/schedule" label="Schedule" />
                 <NavLink href="/wod" label="WOD" />
                 <NavLink href="/score" label="Scores" />
@@ -73,7 +73,7 @@ const initials =
 
             {/* Secondary row for small screens: tabs full width */}
             <nav className="md:hidden grid grid-cols-2 gap-2 pb-3">
-              <Link href="/athletes" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Athlete</Link>
+              <Link href="/athletes" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Athletes</Link>
               <Link href="/schedule" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Schedule</Link>
               <Link href="/wod" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">WOD</Link>
               <Link href="/score" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Scores</Link>

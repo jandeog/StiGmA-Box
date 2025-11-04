@@ -22,7 +22,7 @@ interface Athlete {
 function CoachBadge() {
   return (
     <span
-      className="ml-1 inline-flex items-center rounded border border-yellow-500/60 bg-yellow-500/10 px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-wide text-yellow-300"
+      className="ml-1 inline-flex items-center rounded border border-yellow-500/60 bg-yellow-500/10 py-[0px] px-1 text-[10px] font-semibold uppercase tracking-wide text-yellow-300"
       title="Coach"
     >
       Coach
@@ -35,8 +35,7 @@ function NicknameBadge({ value, className = '' }: { value: string; className?: s
   return (
     <span
       className={
-        'inline-flex items-center rounded border border-emerald-500/60 bg-emerald-500/10 px-2 py-[2px] text-[11px] font-medium text-emerald-300 ' +
-        className
+        'inline-flex items-center rounded border border-emerald-500/60 bg-emerald-500/10 px-1.5 py-[0px] text-[11px] font-medium text-emerald-300 '
       }
       title="Nickname"
     >
@@ -191,75 +190,68 @@ export default function AthletesPage() {
                     : 'border-zinc-800')
                 }
               >
-                <Wrapper>
-                  {/* MOBILE-FIRST two-line layout */}
-                  {!isCoach ? (
-                    /* Athlete view:
-                       Line 1: Name + Coach badge (left), Team (right)
-                       Line 2: Nickname badge centered
-                    */
-                    <div className="space-y-1">
-                      {/* Line 1 */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex items-center gap-1">
-                          <div className="font-medium truncate">{fullName}</div>
-                          {a.is_coach ? <CoachBadge /> : null}
-                        </div>
-                        <div className="text-[11px] text-zinc-400 truncate">
-                          {a.team_name ?? ''}
-                        </div>
-                      </div>
-                      {/* Line 2 */}
-                      {a.nickname ? (
-                        <div className="flex justify-center">
-                          <NicknameBadge value={a.nickname} className="max-w-[80%] truncate" />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    /* Coach view:
-                       Line 1: Name + Coach badge (left), Phone (right, tel:)
-                       Line 2: Nickname badge (left), Email (right, mailto:)
-                    */
-                    <div className="space-y-1">
-                      {/* Line 1 */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex items-center gap-1">
-                          <div className="font-medium truncate">{fullName}</div>
-                          {a.is_coach ? <CoachBadge /> : null}
-                        </div>
-                        <div className="text-[11px]">
-                          {a.phone ? (
-                            <a
-                              href={`tel:${a.phone}`}
-                              className="hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {a.phone}
-                            </a>
-                          ) : (
-                            <span className="opacity-60 select-none">No phone</span>
-                          )}
-                        </div>
-                      </div>
-                      {/* Line 2 */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          {a.nickname ? (
-                            <NicknameBadge value={a.nickname} className="max-w-[80%] truncate" />
-                          ) : null}
-                        </div>
-                        <a
-                          href={`mailto:${a.email}`}
-                          className="text-[11px] hover:underline break-all"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {a.email}
-                        </a>
-                      </div>
-                    </div>
-                  )}
-                </Wrapper>
+<Wrapper>
+  {/* Athlete: single line — left = Name + Nickname (+Coach), right = Team */}
+  {!isCoach ? (
+    <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+      <div className="min-w-0 flex items-center gap-1">
+        <div className="font-medium truncate">{fullName}</div>
+        {a.nickname ? (
+          <NicknameBadge
+            value={a.nickname}
+            className="shrink-0 max-w-[50vw] sm:max-w-[280px] truncate"
+          />
+        ) : null}
+        {a.is_coach ? <CoachBadge /> : null}
+      </div>
+      <div className="text-[11px] text-zinc-400 truncate justify-self-end">
+        {a.team_name ?? ''}
+      </div>
+    </div>
+  ) : (
+    /* Coach: line1 left=Name + Nickname + Coach, right=Phone
+              line2 left=Team (small), right=Email */
+    <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
+      {/* Line 1 */}
+      <div className="min-w-0 flex items-center gap-1">
+        <div className="font-medium truncate">{fullName}</div>
+        {a.nickname ? (
+          <NicknameBadge
+            value={a.nickname}
+            className="shrink-0 max-w-[40vw] sm:max-w-[220px] truncate"
+          />
+        ) : null}
+        {a.is_coach ? <CoachBadge /> : null}
+      </div>
+      <div className="text-[11px] justify-self-end">
+        {a.phone ? (
+          <a
+            href={`tel:${a.phone}`}
+            className="hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {a.phone}
+          </a>
+        ) : (
+          <span className="opacity-60 select-none">No phone</span>
+        )}
+      </div>
+      {/* Line 2 */}
+      <div className="min-w-0 text-[11px] text-zinc-400 truncate">
+        {a.team_name ?? ''}
+      </div>
+      <a
+        href={`mailto:${a.email}`}
+        className="text-[11px] hover:underline break-all justify-self-end"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {a.email}
+      </a>
+    </div>
+  )}
+</Wrapper>
+
+
               </li>
             );
           })}
