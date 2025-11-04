@@ -16,9 +16,10 @@ export default function AddAthletePage() {
   const router = useRouter();
   const qs = useSearchParams();
   const redirect = qs.get('redirect') || '';
-  const targetId = qs.get('id')
+  const targetId = qs.get('id') || null;
   const createNew = qs.get('new') === '1';
   const [acceptRules, setAcceptRules] = useState(false);
+
 
   const [mode, setMode] = useState<Mode>('signup');
 
@@ -50,6 +51,7 @@ export default function AddAthletePage() {
   const [emPhone, setEmPhone] = useState('');
   const [isCoachFlag, setIsCoachFlag] = useState(false);
   const [credits, setCredits] = useState<string>('0');
+  
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -153,8 +155,10 @@ export default function AddAthletePage() {
 // επανα-τρέχει όταν αλλάζει το URL (?id / ?new)
 }, [targetId, createNew]);
 
+
   const needsPassword =
   mode === 'signup' || mode === 'coach-new' || (mode === 'edit-self' && changePassword);
+
 
 const canSubmit = useMemo(() => {
   if (busy || !email) return false;
@@ -193,6 +197,7 @@ const canSubmit = useMemo(() => {
           emergency_phone: emPhone || null,
           is_coach: isCoachFlag,
           credits: toNonNegativeInt(credits),
+          
         };
 
         const r = await fetch(`/api/athletes/${encodeURIComponent(targetId)}`, {
@@ -305,26 +310,26 @@ const r = await fetch('/api/auth/complete-signup', {
   onChange={(e)=>setEmail(e.target.value)}
   disabled={mode !== 'coach-new'}   // ✅ μόνο στο coach-new editable
   className={"w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm " + (mode !== 'coach-new' ? "opacity-80 cursor-not-allowed" : "")}
- />
+/>
 
           </div>
 
           {/* Password fields visibility */}
 {(mode === 'edit-self' || mode === 'coach-new' || mode === 'coach-edit') && (
-  <div className="mt-3 flex w-full items-start gap-3">
+  <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
     {mode === 'edit-self' && (
-      <label className="flex min-w-0 flex-1 items-center gap-2 select-none text-sm text-zinc-300">
+       <label className="inline-flex items-center gap-2 select-none text-sm">
         <input
           type="checkbox"
           checked={changePassword}
           onChange={(e) => setChangePassword(e.target.checked)}
         />
-        <span className="break-words">Change Password</span>
+        <span className="whitespace-nowrap">Change Password</span>
       </label>
     )}
 
-    {(mode === 'coach-new' || mode === 'coach-edit' || (mode === 'edit-self' && iAmCoach)) && (
-      <label className="ml-auto flex items-center gap-2 whitespace-nowrap text-sm text-zinc-300">
+     {(mode === 'coach-new' || mode === 'coach-edit' || (mode === 'edit-self' && iAmCoach)) && (
+      <label className="inline-flex items-center gap-2 text-sm text-zinc-300 md:ml-auto">
         <input
           type="checkbox"
           checked={isCoachFlag}
@@ -357,6 +362,7 @@ const r = await fetch('/api/auth/complete-signup', {
         </button>
       </div>
     </div>
+{/* Signup-only rules box */}
 {mode === 'signup' && (
   <div className="mt-3 space-y-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-3 md:col-span-2">
     <label className="inline-flex items-center gap-2 text-sm text-zinc-300 whitespace-nowrap">
@@ -384,7 +390,7 @@ const r = await fetch('/api/auth/complete-signup', {
   </div>
 )}
 
-    <div>
+        <div>
       <label className="block text-xs mb-1 text-zinc-400">Confirm</label>
       <div className="relative">
         <input
@@ -499,20 +505,21 @@ const r = await fetch('/api/auth/complete-signup', {
 
         {/* SECTION: Emergency & Role */}
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-          <h2 className="text-sm font-medium mb-3 text-zinc-300">Emergency & role</h2>
+          <h2 className="text-sm font-medium mb-3 text-zinc-300">Emergency Contact</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs mb-1 text-zinc-400">Emergency name</label>
+              <label className="block text-xs mb-1 text-zinc-400">Contact Role</label>
               <input value={emName} onChange={(e)=>setEmName(e.target.value)}
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs mb-1 text-zinc-400">Emergency phone</label>
+              <label className="block text-xs mb-1 text-zinc-400">Emergency Phone</label>
               <input value={emPhone} onChange={(e)=>setEmPhone(e.target.value)}
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
             </div>
 
+          
           </div>
         </section>
 
