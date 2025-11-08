@@ -36,6 +36,19 @@ export default function ScheduleEditPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+useEffect(() => {
+  (async () => {
+    const res = await fetch('/api/session');
+    const { session } = await res.json();
+    if (session) {
+      const supabase = getSupabaseBrowser();
+      await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+    }
+  })();
+}, []);
 
   // 🔹 Load template or specific date slots
   useEffect(() => {
