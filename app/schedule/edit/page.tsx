@@ -43,12 +43,15 @@ export default function ScheduleEditPage() {
       setLoading(true);
       setMsg('');
       try {
+              console.log('🔍 Fetching mode:', mode, mode === 'template' ? dow : date);
         if (mode === 'template') {
           const { data, error } = await supabase
             .from('schedule_template')
             .select('*')
             .eq('day_of_week', dow)
             .order('time', { ascending: true });
+                    console.log('✅ Template data:', data, '❌ Error:', error);
+
           if (error) throw error;
           setSlots(data || []);
         } else {
@@ -57,18 +60,22 @@ export default function ScheduleEditPage() {
             .select('*')
             .eq('date', date)
             .order('time', { ascending: true });
+                    console.log('✅ Slots data:', data, '❌ Error:', error);
+
           if (error) throw error;
           if (data && data.length > 0) {
             setSlots(data);
           } else {
             // populate from template if empty
             const dow = new Date(date + 'T00:00:00').getDay();
-            const { data: tpl } = await supabase
+            const { data: tpl,error: tplErr } = await supabase
               .from('schedule_template')
               .select('*')
               .eq('day_of_week', dow)
               .eq('enabled', true)
               .order('time', { ascending: true });
+                        console.log('📦 Fallback template data:', tpl, '❌ Error:', tplErr);
+
             setSlots(
               tpl?.map((t) => ({
                 time: t.time,
@@ -81,7 +88,7 @@ export default function ScheduleEditPage() {
           }
         }
       } catch (err) {
-        console.error(err);
+              console.error('💥 Supabase load error:', err);
         setMsg('❌ Error loading data');
       } finally {
         setLoading(false);
