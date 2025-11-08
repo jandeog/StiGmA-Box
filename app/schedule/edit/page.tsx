@@ -110,8 +110,7 @@ export default function ScheduleEditPage() {
       </div>
 
       {/* TAB / CARD — κάτω από τα radios και full width */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 shadow-inner space-y-4">
-        {/* Controls row */}
+<div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900 overflow-hidden">        {/* Controls row */}
         {mode === 'template' && (
           <div className="flex flex-nowrap items-center justify-between border-b border-zinc-800 pb-3">
             <label className="inline-flex items-center gap-2">
@@ -165,10 +164,11 @@ export default function ScheduleEditPage() {
             </div>
 
             {/* Rows */}
-<div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900 overflow-hidden">              {slots.map((s, idx) => (
+<div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900 overflow-hidden">  {slots.map((s, idx) => (
                 <div
-                  key={idx}
-className="grid grid-cols-[64px,120px,220px,120px,110px,110px] gap-2 pl-2 pr-0 py-2 items-center"                >
+  key={idx}
+  className="grid grid-cols-[64px,120px,220px,120px,110px,110px] gap-2 pl-2 pr-0 py-2 items-center"
+>
                   {/* enable */}
                   <div className="flex justify-center">
                     <input
@@ -223,13 +223,14 @@ className="grid grid-cols-[64px,120px,220px,120px,110px,110px] gap-2 pl-2 pr-0 p
                   </div>
 
                   {/* remove – ίδιο ύψος με όλα τα inputs */}
-                  <div className="flex justify-center">
-                    <button
-                      onClick={() => removeSlot(idx)}
-className="w-full h-9 px-2 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"                    >
-                      Remove
-                    </button>
-                  </div>
+                  <div className="-mr-2"> {/* ακυρώνει το μικρό δεξί περιθώριο */}
+  <button
+    onClick={() => removeSlot(idx)}
+    className="w-full h-9 px-2 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
+  >
+    Remove
+  </button>
+</div>
                 </div>
               ))}
 
