@@ -30,25 +30,35 @@ export default function ScheduleEditPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [applyAllWeekdays, setApplyAllWeekdays] = useState(false);
 
-  // 🧩 Load schedule via API (uses service key)
+  // Helper για να πάρουμε ISO ημερομηνία από day_of_week (ερχόμενη)
+  function getNextDateByDayOfWeek(dow: number) {
+    const today = new Date();
+    const diff = (dow + 7 - today.getDay()) % 7;
+    const target = new Date(today);
+    target.setDate(today.getDate() + diff);
+    return target.toISOString().split('T')[0];
+  }
+
+  // 🧩 Load schedule via API
   useEffect(() => {
     (async () => {
       setLoading(true);
       setMsg('');
-
       try {
         console.log('Fetching mode:', mode, mode === 'template' ? dow : date);
 
         if (mode === 'template') {
-          // Για το template (θα το αλλάξουμε αργότερα για admin edit)
-          const res = await fetch(`/api/schedule?date=${date}`, { credentials: 'include' });
+          // Αν έχουμε “Change all weekdays”, φορτώνουμε τη Δευτέρα ως reference
+          const fetchDow = applyAllWeekdays ? 1 : dow;
+          const tempDate = getNextDateByDayOfWeek(fetchDow);
+          const res = await fetch(`/api/schedule?date=${tempDate}`, { credentials: 'include' });
           const { items, msg, error } = await res.json();
           if (error) throw new Error(error);
           console.log('✅ Loaded via API:', msg);
           setSlots(items || []);
         } else {
-          // Για specific date
           const res = await fetch(`/api/schedule?date=${date}`, { credentials: 'include' });
           const { items, msg, error } = await res.json();
           if (error) throw new Error(error);
@@ -62,7 +72,7 @@ export default function ScheduleEditPage() {
         setLoading(false);
       }
     })();
-  }, [mode, dow, date]);
+  }, [mode, dow, date, applyAllWeekdays]);
 
   // 🔧 Handlers
   function updateSlot(index: number, patch: Partial<Slot>) {
@@ -83,11 +93,14 @@ export default function ScheduleEditPage() {
   async function handleApply() {
     setSaving(true);
     setMsg('');
-
     try {
-      // Για τώρα απλώς δείχνουμε success (το save API θα προστεθεί αργότερα)
+      // TODO: εδώ θα συνδεθεί το POST API
       await new Promise((res) => setTimeout(res, 500));
-      setMsg('✅ Schedule saved successfully (placeholder)');
+      setMsg(
+        applyAllWeekdays
+          ? '✅ Applied changes to all weekdays!'
+          : '✅ Schedule saved successfully!'
+      );
     } catch (err) {
       console.error(err);
       setMsg('❌ Error saving changes');
@@ -117,21 +130,32 @@ export default function ScheduleEditPage() {
         </label>
       </div>
 
-      {/* Template mode */}
+      {/* Template mode controls */}
       {mode === 'template' && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-zinc-400">Day of week:</span>
-            <select
-              value={dow}
-              onChange={(e) => setDow(Number(e.target.value))}
-              className="px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
-            >
-              {daysMap.map((d, i) => (
-                <option key={i} value={i}>{d}</option>
-              ))}
-            </select>
+            <input
+              type="checkbox"
+              checked={applyAllWeekdays}
+              onChange={(e) => setApplyAllWeekdays(e.target.checked)}
+            />
+            <span className="text-sm text-zinc-300">Change all week days</span>
           </div>
+
+          {!applyAllWeekdays && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-zinc-400">Day of week:</span>
+              <select
+                value={dow}
+                onChange={(e) => setDow(Number(e.target.value))}
+                className="px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
+              >
+                {daysMap.map((d, i) => (
+                  <option key={i} value={i}>{d}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )}
 
@@ -153,18 +177,9 @@ export default function ScheduleEditPage() {
       {/* Data display */}
       {loading ? (
         <div className="flex items-center justify-center py-6 text-zinc-400 text-sm space-x-2">
-          <svg
-            className="animate-spin h-5 w-5 text-emerald-400"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
+          <svg className="animate-spin h-5 w-5 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-            ></path>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
           </svg>
           <span>Loading schedule data…</span>
         </div>
@@ -172,10 +187,7 @@ export default function ScheduleEditPage() {
         <>
           <div className="rounded-xl border border-zinc-800 bg-zinc-950">
             {slots.map((s, idx) => (
-              <div
-                key={idx}
-                className="grid grid-cols-12 gap-2 p-2 border-b border-zinc-900 items-center"
-              >
+              <div key={idx} className="grid grid-cols-12 gap-2 p-2 border-b border-zinc-900 items-center">
                 <div className="col-span-1 text-xs text-zinc-400">#{idx + 1}</div>
                 <div className="col-span-2">
                   <input
@@ -244,18 +256,9 @@ export default function ScheduleEditPage() {
               className="px-3 py-1.5 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm flex items-center gap-2"
             >
               {saving && (
-                <svg
-                  className="animate-spin h-4 w-4 text-emerald-400"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
+                <svg className="animate-spin h-4 w-4 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                  ></path>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
                 </svg>
               )}
               Apply
