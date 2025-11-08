@@ -72,14 +72,15 @@ export default function SchedulePage() {
           }}
         />
 
-        {isCoach && (
-          <Link
-            href="/schedule/edit"
-            className="ml-2 px-2.5 py-1.5 rounded-lg border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-xs"
-          >
-            Edit hours
-          </Link>
-        )}
+        {isCoach ? (
+  <Link
+    href="/schedule/edit"
+    prefetch={false}
+className="ml-auto px-2.5 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 text-[13px]"
+  >
+    Edit Schedule
+  </Link>
+) : null}
       </header>
 
       {/* 🌀 Working spinner */}
