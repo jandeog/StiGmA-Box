@@ -38,9 +38,12 @@ export default function ScheduleEditPage() {
   const [msg, setMsg] = useState('');
 useEffect(() => {
   (async () => {
-    const res = await fetch('/api/session');
+    const res = await fetch('/api/session', {
+      credentials: 'include', // 👈 σημαντικό: στέλνει cookies μαζί
+    });
     const { session } = await res.json();
-    if (session) {
+
+    if (session?.access_token) {
       const supabase = getSupabaseBrowser();
       await supabase.auth.setSession({
         access_token: session.access_token,
@@ -49,6 +52,8 @@ useEffect(() => {
     }
   })();
 }, []);
+
+
 
   // 🔹 Load template or specific date slots
   useEffect(() => {
