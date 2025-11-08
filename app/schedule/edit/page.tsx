@@ -110,51 +110,87 @@ export default function ScheduleEditPage() {
     setSlots((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function handleApply() {
-    setSaving(true);
-    setMsg('');
-    try {
-      if (mode === 'template') {
-        // Update main template
-        await supabase.from('schedule_template').delete().eq('day_of_week', dow);
-        if (slots.length > 0) {
-          await supabase.from('schedule_template').insert(
-            slots.map((s) => ({
-              day_of_week: dow,
-              time: s.time,
-              title: s.title,
-              capacity_main: s.capacity_main,
-              capacity_wait: s.capacity_wait,
-              enabled: s.enabled,
-            }))
-          );
-        }
-        setMsg('✅ Main schedule updated successfully!');
-      } else {
-        // Override specific date
-        await supabase.from('schedule_slots').delete().eq('date', date);
-        if (slots.length > 0) {
-          await supabase.from('schedule_slots').insert(
-            slots.map((s) => ({
-              date,
-              time: s.time,
-              title: s.title,
-              capacity_main: s.capacity_main,
-              capacity_wait: s.capacity_wait,
-            }))
-          );
-        }
-        setMsg('✅ Specific date schedule saved successfully!');
+async function handleApply() {
+  setSaving(true);
+  setMsg('');
+  try {
+    if (mode === 'template') {
+      // 🧩 1. Update main template
+      await supabase.from('schedule_template').delete().eq('day_of_week', dow);
+      if (slots.length > 0) {
+        await supabase.from('schedule_template').insert(
+          slots.map((s) => ({
+            day_of_week: dow,
+            time: s.time,
+            title: s.title,
+            capacity_main: s.capacity_main,
+            capacity_wait: s.capacity_wait,
+            enabled: s.enabled,
+          }))
+        );
       }
-    } catch (err) {
-      console.error(err);
-      setMsg('❌ Error saving changes');
-    } finally {
-      setSaving(false);
-      // Message auto-hide after 3 sec
-      setTimeout(() => setMsg(''), 3000);
+
+      // 🧩 2. Rebuild all future slots based on the new template
+      const todayIso = new Date().toISOString().split('T')[0];
+      const end = new Date();
+      end.setDate(end.getDate() + 30); // populate next 30 days
+      let allSlots: any[] = [];
+
+      for (let d = new Date(todayIso); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateIso = d.toISOString().split('T')[0];
+        const dow = d.getDay();
+
+        const { data: tpl } = await supabase
+          .from('schedule_template')
+          .select('*')
+          .eq('day_of_week', dow)
+          .eq('enabled', true);
+
+        for (const t of tpl || []) {
+          allSlots.push({
+            date: dateIso,
+            time: t.time,
+            title: t.title,
+            capacity_main: t.capacity_main,
+            capacity_wait: t.capacity_wait,
+          });
+        }
+      }
+
+      // ⚠️ Διαγραφή slots από σήμερα και μετά
+      await supabase.from('schedule_slots').delete().gte('date', todayIso);
+
+      // ➕ Εισαγωγή νέων slots
+      if (allSlots.length > 0) {
+        await supabase.from('schedule_slots').insert(allSlots);
+      }
+
+      setMsg('✅ Main schedule updated and all future slots refreshed!');
+    } else {
+      // 🧩 3. Override specific date
+      await supabase.from('schedule_slots').delete().eq('date', date);
+      if (slots.length > 0) {
+        await supabase.from('schedule_slots').insert(
+          slots.map((s) => ({
+            date,
+            time: s.time,
+            title: s.title,
+            capacity_main: s.capacity_main,
+            capacity_wait: s.capacity_wait,
+          }))
+        );
+      }
+      setMsg('✅ Specific date schedule saved successfully!');
     }
+  } catch (err) {
+    console.error(err);
+    setMsg('❌ Error saving changes');
+  } finally {
+    setSaving(false);
+    setTimeout(() => setMsg(''), 4000);
   }
+}
+
 
   function handleCancel() {
     router.push('/schedule');
