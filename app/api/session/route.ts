@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { verifySession } from '@/lib/session';
+import { verifySession, SESSION_COOKIE } from '@/lib/session';
 
 export async function GET() {
-  // ⏳ περιμένουμε πρώτα να πάρουμε τα cookies
   const cookieStore = await cookies();
-  const token = cookieStore.get('SESSION_COOKIE')?.value;
+  const token = cookieStore.get(SESSION_COOKIE)?.value;
 
   if (!token) {
     return NextResponse.json({ session: null });
