@@ -124,8 +124,8 @@ export default function ScheduleEditPage() {
             </label>
 
             {!applyAllWeekdays && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-zinc-400">Day of week:</span>
+              <div className="flex flex-nowrap items-center gap-2">
+                <span className="text-sm whitespace-nowrap text-zinc-400">Day of week:</span>
                 <select
                   value={dow}
                   onChange={(e) => setDow(Number(e.target.value))}
@@ -165,12 +165,10 @@ export default function ScheduleEditPage() {
             </div>
 
             {/* Rows */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900">
-              {slots.map((s, idx) => (
+<div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900 overflow-hidden">              {slots.map((s, idx) => (
                 <div
                   key={idx}
-                  className="grid grid-cols-[64px,120px,220px,120px,110px,110px] gap-2 p-2 items-center"
-                >
+className="grid grid-cols-[64px,120px,220px,120px,110px,110px] gap-2 pl-2 pr-0 py-2 items-center"                >
                   {/* enable */}
                   <div className="flex justify-center">
                     <input
@@ -228,8 +226,7 @@ export default function ScheduleEditPage() {
                   <div className="flex justify-center">
                     <button
                       onClick={() => removeSlot(idx)}
-                      className="w-full h-9 px-2 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"
-                    >
+className="w-full h-9 px-2 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"                    >
                       Remove
                     </button>
                   </div>
