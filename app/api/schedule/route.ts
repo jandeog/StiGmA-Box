@@ -5,18 +5,19 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const date = url.searchParams.get('date');
-  if (!date) return NextResponse.json({ error: 'Missing date' }, { status: 400 });
-
-  // ✅ Verify session
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const sess = await verifySession(token);
-  if (!sess) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
   try {
-    // 1️⃣ Έλεγχος αν υπάρχουν ήδη slots για αυτή την ημερομηνία
+    const url = new URL(req.url);
+    const dateParam = url.searchParams.get('date');
+    const date = dateParam || new Date().toISOString().split('T')[0]; // default today
+
+    // ✅ 1. Verify session
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SESSION_COOKIE)?.value;
+    const sess = await verifySession(token);
+    if (!sess)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // ✅ 2. Fetch slots for date
     const { data: existing, error: existErr } = await supabaseAdmin
       .from('schedule_slots')
       .select('*')
@@ -25,13 +26,13 @@ export async function GET(req: Request) {
 
     if (existErr) throw existErr;
 
-    if (existing && existing.length > 0) {
-      return NextResponse.json({ items: existing });
+    // If found → return them
+    if (existing?.length) {
+      return NextResponse.json({ items: existing, msg: 'Loaded from schedule_slots' });
     }
 
-    // 2️⃣ Αν δεν υπάρχουν, φόρτωσε το template ανάλογα με τη μέρα της εβδομάδας
+    // ✅ 3. Otherwise load from template
     const dow = new Date(date + 'T00:00:00').getDay();
-
     const { data: template, error: tplErr } = await supabaseAdmin
       .from('schedule_template')
       .select('*')
@@ -41,11 +42,11 @@ export async function GET(req: Request) {
 
     if (tplErr) throw tplErr;
 
-    if (!template || template.length === 0) {
+    if (!template?.length) {
       return NextResponse.json({ items: [], msg: 'No template for this day' });
     }
 
-    // 3️⃣ Δημιούργησε slots από το template
+    // ✅ 4. Insert new slots derived from template
     const newSlots = template.map((t) => ({
       date,
       time: t.time,
@@ -54,17 +55,20 @@ export async function GET(req: Request) {
       capacity_wait: t.capacity_wait,
     }));
 
-    // 4️⃣ Κάνε insert στη schedule_slots
     const { error: insertErr } = await supabaseAdmin
       .from('schedule_slots')
       .insert(newSlots);
-
     if (insertErr) throw insertErr;
 
-    // Επιστροφή των νέων slots στο frontend
-    return NextResponse.json({ items: newSlots, msg: 'Auto-populated from template' });
+    return NextResponse.json({
+      items: newSlots,
+      msg: 'Auto-populated from template',
+    });
   } catch (err: any) {
-    console.error('💥 schedule error', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('💥 schedule error:', err);
+    return NextResponse.json(
+      { error: err?.message || 'Unexpected error' },
+      { status: 500 }
+    );
   }
 }
