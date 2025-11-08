@@ -63,15 +63,13 @@ useEffect(() => {
       try {
               console.log('🔍 Fetching mode:', mode, mode === 'template' ? dow : date);
         if (mode === 'template') {
-          const { data, error } = await supabase
-            .from('schedule_template')
-            .select('*')
-            .eq('day_of_week', dow)
-            .order('time', { ascending: true });
-                    console.log('✅ Template data:', data, '❌ Error:', error);
-
-          if (error) throw error;
-          setSlots(data || []);
+const res = await fetch(`/api/schedule?date=${date}`, {
+  credentials: 'include',
+});
+const { items, error, msg } = await res.json();
+if (error) throw new Error(error);
+console.log('✅ Loaded via API:', msg);
+setSlots(items || []);
         } else {
           const { data, error } = await supabase
             .from('schedule_slots')
