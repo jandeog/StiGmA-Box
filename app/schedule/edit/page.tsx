@@ -18,13 +18,7 @@ type Slot = {
 };
 
 const daysMap = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
+  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 ];
 
 export default function ScheduleEditPage() {
@@ -36,75 +30,33 @@ export default function ScheduleEditPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-useEffect(() => {
-  (async () => {
-    const res = await fetch('/api/session', {
-      credentials: 'include', // 👈 σημαντικό: στέλνει cookies μαζί
-    });
-    const { session } = await res.json();
 
-    if (session?.access_token) {
-      const supabase = getSupabaseBrowser();
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-      });
-    }
-  })();
-}, []);
-
-
-
-  // 🔹 Load template or specific date slots
+  // 🧩 Load schedule via API (uses service key)
   useEffect(() => {
     (async () => {
       setLoading(true);
       setMsg('');
+
       try {
-              console.log('🔍 Fetching mode:', mode, mode === 'template' ? dow : date);
+        console.log('Fetching mode:', mode, mode === 'template' ? dow : date);
+
         if (mode === 'template') {
-const res = await fetch(`/api/schedule?date=${date}`, {
-  credentials: 'include',
-});
-const { items, error, msg } = await res.json();
-if (error) throw new Error(error);
-console.log('✅ Loaded via API:', msg);
-setSlots(items || []);
+          // Για το template (θα το αλλάξουμε αργότερα για admin edit)
+          const res = await fetch(`/api/schedule?date=${date}`, { credentials: 'include' });
+          const { items, msg, error } = await res.json();
+          if (error) throw new Error(error);
+          console.log('✅ Loaded via API:', msg);
+          setSlots(items || []);
         } else {
-          const { data, error } = await supabase
-            .from('schedule_slots')
-            .select('*')
-            .eq('date', date)
-            .order('time', { ascending: true });
-                    console.log('✅ Slots data:', data, '❌ Error:', error);
-
-          if (error) throw error;
-          if (data && data.length > 0) {
-            setSlots(data);
-          } else {
-            // populate from template if empty
-            const dow = new Date(date + 'T00:00:00').getDay();
-            const { data: tpl,error: tplErr } = await supabase
-              .from('schedule_template')
-              .select('*')
-              .eq('day_of_week', dow)
-              .eq('enabled', true)
-              .order('time', { ascending: true });
-                        console.log('📦 Fallback template data:', tpl, '❌ Error:', tplErr);
-
-            setSlots(
-              tpl?.map((t) => ({
-                time: t.time,
-                title: t.title,
-                capacity_main: t.capacity_main,
-                capacity_wait: t.capacity_wait,
-                enabled: true,
-              })) || []
-            );
-          }
+          // Για specific date
+          const res = await fetch(`/api/schedule?date=${date}`, { credentials: 'include' });
+          const { items, msg, error } = await res.json();
+          if (error) throw new Error(error);
+          console.log('✅ Loaded via API:', msg);
+          setSlots(items || []);
         }
       } catch (err) {
-              console.error('💥 Supabase load error:', err);
+        console.error('💥 Schedule load error:', err);
         setMsg('❌ Error loading data');
       } finally {
         setLoading(false);
@@ -112,6 +64,7 @@ setSlots(items || []);
     })();
   }, [mode, dow, date]);
 
+  // 🔧 Handlers
   function updateSlot(index: number, patch: Partial<Slot>) {
     setSlots((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   }
@@ -119,13 +72,7 @@ setSlots(items || []);
   function addSlot() {
     setSlots((prev) => [
       ...prev,
-      {
-        time: '07:00',
-        title: 'Class',
-        capacity_main: 14,
-        capacity_wait: 2,
-        enabled: true,
-      },
+      { time: '07:00', title: 'Class', capacity_main: 14, capacity_wait: 2, enabled: true },
     ]);
   }
 
@@ -133,87 +80,22 @@ setSlots(items || []);
     setSlots((prev) => prev.filter((_, i) => i !== index));
   }
 
-async function handleApply() {
-  setSaving(true);
-  setMsg('');
-  try {
-    if (mode === 'template') {
-      // 🧩 1. Update main template
-      await supabase.from('schedule_template').delete().eq('day_of_week', dow);
-      if (slots.length > 0) {
-        await supabase.from('schedule_template').insert(
-          slots.map((s) => ({
-            day_of_week: dow,
-            time: s.time,
-            title: s.title,
-            capacity_main: s.capacity_main,
-            capacity_wait: s.capacity_wait,
-            enabled: s.enabled,
-          }))
-        );
-      }
+  async function handleApply() {
+    setSaving(true);
+    setMsg('');
 
-      // 🧩 2. Rebuild all future slots based on the new template
-      const todayIso = new Date().toISOString().split('T')[0];
-      const end = new Date();
-      end.setDate(end.getDate() + 30); // populate next 30 days
-      let allSlots: any[] = [];
-
-      for (let d = new Date(todayIso); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateIso = d.toISOString().split('T')[0];
-        const dow = d.getDay();
-
-        const { data: tpl } = await supabase
-          .from('schedule_template')
-          .select('*')
-          .eq('day_of_week', dow)
-          .eq('enabled', true);
-
-        for (const t of tpl || []) {
-          allSlots.push({
-            date: dateIso,
-            time: t.time,
-            title: t.title,
-            capacity_main: t.capacity_main,
-            capacity_wait: t.capacity_wait,
-          });
-        }
-      }
-
-      // ⚠️ Διαγραφή slots από σήμερα και μετά
-      await supabase.from('schedule_slots').delete().gte('date', todayIso);
-
-      // ➕ Εισαγωγή νέων slots
-      if (allSlots.length > 0) {
-        await supabase.from('schedule_slots').insert(allSlots);
-      }
-
-      setMsg('✅ Main schedule updated and all future slots refreshed!');
-    } else {
-      // 🧩 3. Override specific date
-      await supabase.from('schedule_slots').delete().eq('date', date);
-      if (slots.length > 0) {
-        await supabase.from('schedule_slots').insert(
-          slots.map((s) => ({
-            date,
-            time: s.time,
-            title: s.title,
-            capacity_main: s.capacity_main,
-            capacity_wait: s.capacity_wait,
-          }))
-        );
-      }
-      setMsg('✅ Specific date schedule saved successfully!');
+    try {
+      // Για τώρα απλώς δείχνουμε success (το save API θα προστεθεί αργότερα)
+      await new Promise((res) => setTimeout(res, 500));
+      setMsg('✅ Schedule saved successfully (placeholder)');
+    } catch (err) {
+      console.error(err);
+      setMsg('❌ Error saving changes');
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(''), 3000);
     }
-  } catch (err) {
-    console.error(err);
-    setMsg('❌ Error saving changes');
-  } finally {
-    setSaving(false);
-    setTimeout(() => setMsg(''), 4000);
   }
-}
-
 
   function handleCancel() {
     router.push('/schedule');
@@ -223,27 +105,19 @@ async function handleApply() {
     <section className="max-w-4xl mx-auto p-4 space-y-4">
       <h1 className="text-2xl font-semibold mb-2">Change Schedule</h1>
 
-      {/* 🔘 Mode Selector */}
+      {/* Mode Selection */}
       <div className="flex items-center gap-6 mb-4">
         <label className="flex items-center gap-2">
-          <input
-            type="radio"
-            checked={mode === 'template'}
-            onChange={() => setMode('template')}
-          />
+          <input type="radio" checked={mode === 'template'} onChange={() => setMode('template')} />
           <span>Change Main Schedule</span>
         </label>
         <label className="flex items-center gap-2">
-          <input
-            type="radio"
-            checked={mode === 'specific'}
-            onChange={() => setMode('specific')}
-          />
+          <input type="radio" checked={mode === 'specific'} onChange={() => setMode('specific')} />
           <span>Change Specific Date</span>
         </label>
       </div>
 
-      {/* 🔹 Template Mode */}
+      {/* Template mode */}
       {mode === 'template' && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
@@ -254,16 +128,14 @@ async function handleApply() {
               className="px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
             >
               {daysMap.map((d, i) => (
-                <option key={i} value={i}>
-                  {d}
-                </option>
+                <option key={i} value={i}>{d}</option>
               ))}
             </select>
           </div>
         </div>
       )}
 
-      {/* 🔹 Specific Date Mode */}
+      {/* Specific date mode */}
       {mode === 'specific' && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
@@ -278,7 +150,7 @@ async function handleApply() {
         </div>
       )}
 
-      {/* 🌀 Loading */}
+      {/* Data display */}
       {loading ? (
         <div className="flex items-center justify-center py-6 text-zinc-400 text-sm space-x-2">
           <svg
@@ -287,14 +159,7 @@ async function handleApply() {
             fill="none"
             viewBox="0 0 24 24"
           >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            ></circle>
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path
               className="opacity-75"
               fill="currentColor"
@@ -305,7 +170,6 @@ async function handleApply() {
         </div>
       ) : (
         <>
-          {/* Editable slots */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-950">
             {slots.map((s, idx) => (
               <div
@@ -342,9 +206,7 @@ async function handleApply() {
                   <input
                     type="number"
                     value={s.capacity_main}
-                    onChange={(e) =>
-                      updateSlot(idx, { capacity_main: Number(e.target.value) })
-                    }
+                    onChange={(e) => updateSlot(idx, { capacity_main: Number(e.target.value) })}
                     className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
                   />
                 </div>
@@ -352,9 +214,7 @@ async function handleApply() {
                   <input
                     type="number"
                     value={s.capacity_wait}
-                    onChange={(e) =>
-                      updateSlot(idx, { capacity_wait: Number(e.target.value) })
-                    }
+                    onChange={(e) => updateSlot(idx, { capacity_wait: Number(e.target.value) })}
                     className="w-full px-2 py-1 rounded border border-zinc-700 bg-zinc-950 text-sm"
                   />
                   <button
@@ -390,14 +250,7 @@ async function handleApply() {
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  ></circle>
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path
                     className="opacity-75"
                     fill="currentColor"
@@ -407,19 +260,13 @@ async function handleApply() {
               )}
               Apply
             </button>
-
             <button
               onClick={handleCancel}
               className="px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-sm"
             >
               Cancel
             </button>
-
-            {msg && (
-              <div className="text-sm text-zinc-400 transition-opacity duration-500">
-                {msg}
-              </div>
-            )}
+            {msg && <div className="text-sm text-zinc-400">{msg}</div>}
           </div>
         </>
       )}
