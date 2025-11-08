@@ -90,14 +90,14 @@ export default function ScheduleEditPage() {
       <h1 className="text-2xl font-semibold mb-4">Change Schedule</h1>
 
       {/* Radios σε μία οριζόντια γραμμή, μικρό font, text δίπλα */}
-      <div className="flex items-center gap-6 mb-4 text-sm text-zinc-300">
+      <div className="flex flex-nowrap items-center gap-6 mb-4 text-sm text-zinc-300">
         <label className="inline-flex items-center gap-2">
           <input
             type="radio"
             checked={mode === 'template'}
             onChange={() => setMode('template')}
           />
-          <span>Change Main Schedule</span>
+          <span className="whitespace-nowrap">Change Main Schedule</span>
         </label>
         <label className="inline-flex items-center gap-2">
           <input
@@ -105,7 +105,7 @@ export default function ScheduleEditPage() {
             checked={mode === 'specific'}
             onChange={() => setMode('specific')}
           />
-          <span>Change Specific Date</span>
+          <span className="whitespace-nowrap">Change Specific Date</span>
         </label>
       </div>
 
@@ -113,14 +113,14 @@ export default function ScheduleEditPage() {
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 shadow-inner space-y-4">
         {/* Controls row */}
         {mode === 'template' && (
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+          <div className="flex flex-nowrap items-center justify-between border-b border-zinc-800 pb-3">
             <label className="inline-flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={applyAllWeekdays}
                 onChange={(e) => setApplyAllWeekdays(e.target.checked)}
               />
-              <span className="text-sm text-zinc-300">Change all week days</span>
+              <span className="text-sm whitespace-nowrap text-zinc-300">Change all week days</span>
             </label>
 
             {!applyAllWeekdays && (
