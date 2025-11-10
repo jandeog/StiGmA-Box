@@ -14,6 +14,10 @@ type Slot = {
   enabled: boolean;
 };
 
+const GRID = "grid grid-cols-[64px,140px,260px,140px,120px,1fr]";
+const CTRL =
+  "h-10 box-border px-2 rounded-md border border-zinc-700 bg-zinc-950 text-sm leading-none w-full";
+
 const daysMap = [
   'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 ];
@@ -155,7 +159,7 @@ export default function ScheduleEditPage() {
         ) : (
           <>
             {/* Headers – compact */}
-            <div className="grid grid-cols-[64px,120px,220px,120px,110px,110px] text-xs text-zinc-500 border-b border-zinc-800 pb-1">
+            <div className={`${GRID} gap-2 pl-2 pr-2 pb-1 text-xs text-zinc-500 border-b border-zinc-800`}>
               <div className="text-center">Enable</div>
               <div className="text-center">Start</div>
               <div className="text-center">Type</div>
@@ -165,34 +169,37 @@ export default function ScheduleEditPage() {
             </div>
 
             {/* Rows */}
-<div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900 overflow-hidden">              {slots.map((s, idx) => (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900 overflow-hidden">
+              {slots.map((s, idx) => (
                 <div
                   key={idx}
-className="grid grid-cols-[64px,120px,220px,120px,110px,110px] gap-2 pl-2 pr-0 py-2 items-center"                >
+                  className={`${GRID} gap-2 pl-2 pr-2 py-2 items-stretch`}
+                >
                   {/* enable */}
                   <div className="flex justify-center">
                     <input
                       type="checkbox"
                       checked={s.enabled}
                       onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
+                      className="h-4 w-4"
                     />
                   </div>
 
-                  {/* time */}
-                  <div>
+                  {/* start time */}
+                  <div className="flex">
                     <input
                       value={s.time}
                       onChange={(e) => updateSlot(idx, { time: e.target.value })}
-                      className="w-full h-9 px-2 rounded border border-zinc-700 bg-zinc-950 text-sm"
+                      className={`${CTRL} h-full`}
                     />
                   </div>
 
-                  {/* type – αρκετό πλάτος για “Competitive” */}
-                  <div>
+                  {/* type */}
+                  <div className="flex">
                     <select
                       value={s.title}
                       onChange={(e) => updateSlot(idx, { title: e.target.value })}
-                      className="w-full h-9 px-2 rounded border border-zinc-700 bg-zinc-950 text-sm"
+                      className={`${CTRL} h-full`}
                     >
                       <option value="Rookie / Advanced">Rookie / Advanced</option>
                       <option value="Competitive">Competitive</option>
@@ -200,33 +207,32 @@ className="grid grid-cols-[64px,120px,220px,120px,110px,110px] gap-2 pl-2 pr-0 p
                     </select>
                   </div>
 
-                  {/* capacities */}
-                  <div>
+                  {/* main cap */}
+                  <div className="flex">
                     <input
                       type="number"
                       value={s.capacity_main}
-                      onChange={(e) =>
-                        updateSlot(idx, { capacity_main: Number(e.target.value) })
-                      }
-                      className="w-full h-9 px-2 rounded border border-zinc-700 bg-zinc-950 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <input
-                      type="number"
-                      value={s.capacity_wait}
-                      onChange={(e) =>
-                        updateSlot(idx, { capacity_wait: Number(e.target.value) })
-                      }
-                      className="w-full h-9 px-2 rounded border border-zinc-700 bg-zinc-950 text-sm"
+                      onChange={(e) => updateSlot(idx, { capacity_main: Number(e.target.value) })}
+                      className={`${CTRL} h-full`}
                     />
                   </div>
 
-                  {/* remove – ίδιο ύψος με όλα τα inputs */}
-                  <div className="flex justify-center">
+                  {/* wait cap */}
+                  <div className="flex">
+                    <input
+                      type="number"
+                      value={s.capacity_wait}
+                      onChange={(e) => updateSlot(idx, { capacity_wait: Number(e.target.value) })}
+                      className={`${CTRL} h-full`}
+                    />
+                  </div>
+
+                  {/* remove – flush δεξιά & ίδιο ύψος */}
+                  <div className="flex -mr-2">
                     <button
                       onClick={() => removeSlot(idx)}
-className="w-full h-9 px-2 rounded border border-red-800 text-red-300 hover:bg-red-900/20 text-xs"                    >
+                      className="inline-flex items-center justify-center w-full h-full box-border px-2 rounded-md border border-red-800 text-red-300 hover:bg-red-900/20 text-xs leading-none"
+                    >
                       Remove
                     </button>
                   </div>
