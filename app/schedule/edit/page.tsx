@@ -70,27 +70,73 @@ export default function ScheduleEditPage() {
   function addSlot() {
     setSlots((prev) => [
       ...prev,
-      { time: '07:00', title: 'Class', capacity_main: 14, capacity_wait: 2, enabled: true },
+      { time: '07:00', title: 'Rookie / Advanced', capacity_main: 14, capacity_wait: 2, enabled: true },
     ]);
   }
   function removeSlot(index: number) {
     setSlots((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function handleApply() {
-    setSaving(true);
-    setMsg('');
-    try {
-      // TODO: POST /api/schedule (template/specific/applyAllWeekdays)
-      await new Promise((r) => setTimeout(r, 350));
-      setMsg('✅ Schedule saved successfully!');
-    } catch {
-      setMsg('❌ Error saving changes');
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMsg(''), 2200);
+ async function handleApply() {
+  setSaving(true);
+  setMsg('');
+  try {
+    const payload =
+      mode === 'template'
+        ? {
+            mode: 'template' as const,
+            applyAllWeekdays,
+            dow, // used only when applyAllWeekdays === false
+            slots: slots.map(s => ({
+              time: s.time,
+              title: s.title,                 // 'Rookie / Advanced' / 'Competitive' / 'Teams'
+              capacity_main: Number(s.capacity_main),
+              capacity_wait: Number(s.capacity_wait),
+              enabled: !!s.enabled,
+            })),
+          }
+        : {
+            mode: 'specific' as const,
+            date,
+            slots: slots.map(s => ({
+              time: s.time,
+              title: s.title,
+              capacity_main: Number(s.capacity_main),
+              capacity_wait: Number(s.capacity_wait),
+              enabled: !!s.enabled,
+            })),
+          };
+
+    const res = await fetch('/api/schedule', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const out = await res.json();
+    if (!res.ok) throw new Error(out?.error || 'Save failed');
+
+    setMsg('✅ Saved!');
+    // Optional: refresh view after save (re-run GET)
+    if (mode === 'template') {
+      const iso = getNextDateByDayOfWeek(applyAllWeekdays ? 1 : dow);
+      const ref = await fetch(`/api/schedule?date=${iso}`, { credentials: 'include' });
+      const j = await ref.json();
+      setSlots(j.items || []);
+    } else {
+      const ref = await fetch(`/api/schedule?date=${date}`, { credentials: 'include' });
+      const j = await ref.json();
+      setSlots(j.items || []);
     }
+  } catch (e: any) {
+    setMsg(`❌ ${e.message}`);
+  } finally {
+    setSaving(false);
+    setTimeout(() => setMsg(''), 2500);
   }
+}
+
 
   return (
     <section className="max-w-6xl mx-auto p-4 sm:p-6">
