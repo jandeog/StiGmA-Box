@@ -32,12 +32,22 @@ export default function SchedulePage() {
         setIsCoach(!!meJ.me.is_coach);
         setOk(true);
 
-        // 2️⃣ Fetch schedule slots for this date
-        const r = await fetch(`/api/schedule?date=${date}`, { cache: 'no-store' });
-        const j = await r.json();
-        if (!alive) return;
-        if (!r.ok) throw new Error(j?.error || 'Failed to load schedule');
-        setSlots(j.items ?? []);
+       // 2️⃣ Fetch schedule slots for this date
+const r = await fetch(`/api/schedule?date=${date}`, { cache: 'no-store' });
+
+let j: any = null;
+const raw = await r.text();
+try { j = raw ? JSON.parse(raw) : {}; } catch { j = {}; }
+
+if (!r.ok) {
+  throw new Error(j?.error || `Failed to load schedule (HTTP ${r.status})`);
+}
+
+// Just use the items; schedule_slots has no 'enabled'
+const items = Array.isArray(j?.items) ? j.items : [];
+setSlots(items);
+
+
       } catch (err) {
         console.error('💥 Schedule load failed', err);
         setSlots([]);

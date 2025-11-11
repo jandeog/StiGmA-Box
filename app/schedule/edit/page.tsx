@@ -232,7 +232,7 @@ export default function ScheduleEditPage() {
                     <input
                       aria-label={`Enable slot ${idx + 1}`}
                       type="checkbox"
-                      checked={s.enabled}
+                      checked={!!s.enabled}
                       onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
                       className="h-4 w-4"
                     />
@@ -272,7 +272,7 @@ export default function ScheduleEditPage() {
                       <label className="inline-flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
-                          checked={s.enabled}
+                          checked={!!s.enabled}
                           onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
                         />
                         <span>Enable</span>

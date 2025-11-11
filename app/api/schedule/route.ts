@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   if (!sess) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    // 1) Existing slots for the date?
+    // 1) If the day already has slots, just return them (no 'enabled' filtering)
     const { data: existing, error: existErr } = await supabaseAdmin
       .from('schedule_slots')
       .select('*')
@@ -25,11 +25,11 @@ export async function GET(req: Request) {
       .order('time', { ascending: true });
 
     if (existErr) throw existErr;
-    if (existing && existing.length > 0) {
-      return NextResponse.json({ items: existing, msg: 'Loaded from schedule_slots' });
+    if ((existing ?? []).length > 0) {
+      return NextResponse.json({ items: existing, source: 'slots' });
     }
 
-    // 2) Else read template by DOW
+    // 2) Materialize from template (only enabled rows in the template)
     const dow = new Date(date + 'T00:00:00').getDay();
     const { data: template, error: tplErr } = await supabaseAdmin
       .from('schedule_template')
@@ -39,29 +39,32 @@ export async function GET(req: Request) {
       .order('time', { ascending: true });
 
     if (tplErr) throw tplErr;
+
     if (!template || template.length === 0) {
       return NextResponse.json({ items: [], msg: 'No template for this day' });
     }
 
-    // 3) Materialize into schedule_slots
-    const newSlots = template.map((t) => ({
+    const newSlots = template.map((t: any) => ({
       date,
       time: t.time,
       title: t.title,
       capacity_main: t.capacity_main,
       capacity_wait: t.capacity_wait,
-      enabled: t.enabled,
+      // ⚠️ no 'enabled' column in schedule_slots
     }));
 
-    const { error: insertErr } = await supabaseAdmin.from('schedule_slots').insert(newSlots);
+    const { error: insertErr } = await supabaseAdmin
+      .from('schedule_slots')
+      .insert(newSlots);
     if (insertErr) throw insertErr;
 
-    return NextResponse.json({ items: newSlots, msg: 'Auto-populated from template' });
+    return NextResponse.json({ items: newSlots, source: 'template' });
   } catch (err: any) {
-    console.error('💥 schedule GET error', err);
-    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
+    console.error('schedule GET error', err);
+    return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
   }
 }
+
 
 // ----------------------------- POST --------------------------------------
 // Saves edits from /schedule/edit
@@ -143,24 +146,25 @@ export async function POST(req: Request) {
       }
 
       // Replace schedule_slots for the specific date
-      const { error: delErr } = await supabaseAdmin
-        .from('schedule_slots')
-        .delete()
-        .eq('date', date);
-      if (delErr) throw delErr;
+const { error: delErr } = await supabaseAdmin
+  .from('schedule_slots')
+  .delete()
+  .eq('date', date);
+if (delErr) throw delErr;
 
-      if (slots?.length) {
-        const rows = slots.map((s) => ({
-          date,
-          time: s.time,
-          title: s.title,
-          capacity_main: s.capacity_main,
-          capacity_wait: s.capacity_wait,
-          enabled: !!s.enabled,
-        }));
-        const { error: insErr } = await supabaseAdmin.from('schedule_slots').insert(rows);
-        if (insErr) throw insErr;
-      }
+if (slots?.length) {
+  const rows = slots.map((s: any) => ({
+    date,
+    time: s.time,
+    title: s.title,
+    capacity_main: Number(s.capacity_main),
+    capacity_wait: Number(s.capacity_wait),
+    // ⚠️ no 'enabled' here
+  }));
+  const { error: insErr } = await supabaseAdmin.from('schedule_slots').insert(rows);
+  if (insErr) throw insErr;
+}
+
 
       return NextResponse.json({ ok: true, mode: 'specific', date });
     }
