@@ -1,177 +1,144 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
+import { cookies } from 'next/headers';
 
-// ---- GET already exists in your project; keep it as-is if you prefer ----
-// Here we keep the same GET you were using so the file is drop-in.
-
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const date = url.searchParams.get('date');
-  if (!date) return NextResponse.json({ error: 'Missing date' }, { status: 400 });
-
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const sess = await verifySession(token);
-  if (!sess) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export async function GET(req: NextRequest) {
   try {
-    // 1) If the day already has slots, just return them (no 'enabled' filtering)
-    const { data: existing, error: existErr } = await supabaseAdmin
+    const { searchParams } = new URL(req.url);
+    const date = searchParams.get('date');
+    if (!date) return NextResponse.json({ error: 'Missing date' }, { status: 400 });
+
+    // ✅ Auth via project session cookie
+    const jar = await cookies();
+    const token = jar.get(SESSION_COOKIE)?.value;
+    const sess = await verifySession(token);
+    if (!sess?.aid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const athleteId = sess.aid;
+
+    // Load me (credits & name if you want to render them)
+    const { data: meRow, error: meErr } = await supabaseAdmin
+      .from('athletes')
+      .select('id, credits, first_name, last_name, is_coach')
+      .eq('id', athleteId)
+      .maybeSingle();
+    if (meErr) return NextResponse.json({ error: meErr.message }, { status: 500 });
+    if (!meRow) return NextResponse.json({ error: 'No athlete' }, { status: 403 });
+
+    // Fetch slots for the day
+    const { data: slots, error: sErr } = await supabaseAdmin
       .from('schedule_slots')
-      .select('*')
+      .select('id, date, time, title, capacity_main, capacity_wait')
       .eq('date', date)
       .order('time', { ascending: true });
+    if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
 
-    if (existErr) throw existErr;
-    if ((existing ?? []).length > 0) {
-      return NextResponse.json({ items: existing, source: 'slots' });
+    if (!slots || slots.length === 0) {
+      return noStore({ items: [] });
     }
 
-    // 2) Materialize from template (only enabled rows in the template)
-    const dow = new Date(date + 'T00:00:00').getDay();
-    const { data: template, error: tplErr } = await supabaseAdmin
-      .from('schedule_template')
-      .select('*')
-      .eq('day_of_week', dow)
-      .eq('enabled', true)
-      .order('time', { ascending: true });
+    const slotIds = slots.map(s => s.id);
 
-    if (tplErr) throw tplErr;
+    // Live counts (main/wait) per slot
+    const { data: counts, error: cErr } = await supabaseAdmin
+      .from('schedule_participants')
+      .select('slot_id, list_type')
+      .in('slot_id', slotIds);
+    if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
 
-    if (!template || template.length === 0) {
-      return NextResponse.json({ items: [], msg: 'No template for this day' });
+    const mainCounts = new Map<string, number>();
+    const waitCounts = new Map<string, number>();
+    for (const p of counts ?? []) {
+      if (p.list_type === 'main') {
+        mainCounts.set(p.slot_id, (mainCounts.get(p.slot_id) ?? 0) + 1);
+      } else if (p.list_type === 'wait') {
+        waitCounts.set(p.slot_id, (waitCounts.get(p.slot_id) ?? 0) + 1);
+      }
     }
 
-    const newSlots = template.map((t: any) => ({
-      date,
-      time: t.time,
-      title: t.title,
-      capacity_main: t.capacity_main,
-      capacity_wait: t.capacity_wait,
-      // ⚠️ no 'enabled' column in schedule_slots
-    }));
+    // Main names per slot (comma-delimited)
+    const { data: nameRows, error: nErr } = await supabaseAdmin
+      .from('schedule_participants')
+      .select('slot_id, list_type, athletes!inner(first_name, last_name)')
+      .in('slot_id', slotIds)
+      .eq('list_type', 'main');
+    if (nErr) return NextResponse.json({ error: nErr.message }, { status: 500 });
 
-    const { error: insertErr } = await supabaseAdmin
-      .from('schedule_slots')
-      .insert(newSlots);
-    if (insertErr) throw insertErr;
+    const namesMap = new Map<string, string[]>();
+    for (const r of nameRows ?? []) {
+      const a = (r as any).athletes;
+      const full = [a?.first_name, a?.last_name].filter(Boolean).join(' ').trim();
+      if (!full) continue;
+      const arr = namesMap.get(r.slot_id) ?? [];
+      arr.push(full);
+      namesMap.set(r.slot_id, arr);
+    }
 
-    return NextResponse.json({ items: newSlots, source: 'template' });
-  } catch (err: any) {
-    console.error('schedule GET error', err);
-    return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
+    // Which slot (if any) is mine this day?
+    const { data: mineRows, error: mErr } = await supabaseAdmin
+      .from('schedule_participants')
+      .select('slot_id, list_type')
+      .in('slot_id', slotIds)
+      .eq('athlete_id', athleteId);
+    if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
+
+    const mySlotIds = new Set<string>((mineRows ?? []).map(r => r.slot_id));
+
+    // Build response with flags for the UI
+    const now = new Date();
+    const items = slots.map(s => {
+      const start = new Date(`${s.date}T${s.time}:00+02:00`); // Europe/Athens
+      const h = (+start - +now) / 36e5;
+
+      const booked_main = mainCounts.get(s.id) ?? 0;
+      const booked_wait = waitCounts.get(s.id) ?? 0;
+      const main_names = (namesMap.get(s.id) ?? []).sort((a, b) => a.localeCompare(b)).join(', ');
+
+      const withinWindow = h <= 23 && h >= 1;
+      const hasMainSpace = booked_main < (s.capacity_main ?? 0);
+      const isMine = mySlotIds.has(s.id);
+      const canCancel = isMine && h >= 2;
+
+      // If I'm already booked in ANY slot that day, I can't book another
+      const alreadyBookedThatDay = mySlotIds.size > 0;
+
+      const canBookMain =
+        withinWindow &&
+        hasMainSpace &&
+        !alreadyBookedThatDay &&
+        !isMine &&
+        (meRow.credits ?? 0) > 0;
+
+      const canWait =
+        withinWindow &&
+        !hasMainSpace &&
+        !alreadyBookedThatDay &&
+        !isMine;
+
+      return {
+        ...s,
+        booked_main,
+        booked_wait,
+        main_names,
+        me: { id: meRow.id, credits: meRow.credits },
+        flags: { withinWindow, hasMainSpace, isMine, canCancel, canBookMain, canWait },
+      };
+    });
+
+    return noStore({ items });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? 'Failed' }, { status: 500 });
   }
 }
 
-
-// ----------------------------- POST --------------------------------------
-// Saves edits from /schedule/edit
-// Payload:
-// {
-//   mode: 'template' | 'specific',
-//   applyAllWeekdays?: boolean,
-//   dow?: number,         // 0..6 when mode='template' and not applyAllWeekdays
-//   date?: string,        // 'YYYY-MM-DD' when mode='specific'
-//   slots: Array<{ time, title, capacity_main, capacity_wait, enabled }>
-// }
-// Titles can be: 'Rookie / Advanced', 'Competitive', 'Teams', 'Rest' (etc)
-
-export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const sess = await verifySession(token);
-
-  if (!sess) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (sess.role !== 'coach') {
-    return NextResponse.json({ error: 'Forbidden (coach only)' }, { status: 403 });
-  }
-
-  const body = await req.json().catch(() => null);
-  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-
-  const { mode, applyAllWeekdays, dow, date, slots } = body as {
-    mode: 'template' | 'specific',
-    applyAllWeekdays?: boolean,
-    dow?: number,
-    date?: string,
-    slots: Array<{
-      time: string;
-      title: string;
-      capacity_main: number;
-      capacity_wait: number;
-      enabled: boolean;
-    }>;
-  };
-
-  try {
-    if (mode === 'template') {
-      // Replace schedule_template for one DOW or all Mon..Fri
-      const days = applyAllWeekdays ? [1, 2, 3, 4, 5] : (typeof dow === 'number' ? [dow] : []);
-      if (days.length === 0) {
-        return NextResponse.json({ error: 'Missing day_of_week' }, { status: 400 });
-      }
-
-      // For each target DOW: delete + insert new rows
-      for (const d of days) {
-        const { error: delErr } = await supabaseAdmin
-          .from('schedule_template')
-          .delete()
-          .eq('day_of_week', d);
-        if (delErr) throw delErr;
-
-        if (slots?.length) {
-          const rows = slots.map((s) => ({
-            day_of_week: d,
-            time: s.time,
-            title: s.title,               // e.g. 'Rookie / Advanced'
-            capacity_main: s.capacity_main,
-            capacity_wait: s.capacity_wait,
-            enabled: !!s.enabled,
-          }));
-          const { error: insErr } = await supabaseAdmin
-            .from('schedule_template')
-            .insert(rows);
-          if (insErr) throw insErr;
-        }
-      }
-
-      return NextResponse.json({ ok: true, mode: 'template', days });
-    }
-
-    if (mode === 'specific') {
-      if (!date) {
-        return NextResponse.json({ error: 'Missing date' }, { status: 400 });
-      }
-
-      // Replace schedule_slots for the specific date
-const { error: delErr } = await supabaseAdmin
-  .from('schedule_slots')
-  .delete()
-  .eq('date', date);
-if (delErr) throw delErr;
-
-if (slots?.length) {
-  const rows = slots.map((s: any) => ({
-    date,
-    time: s.time,
-    title: s.title,
-    capacity_main: Number(s.capacity_main),
-    capacity_wait: Number(s.capacity_wait),
-    // ⚠️ no 'enabled' here
-  }));
-  const { error: insErr } = await supabaseAdmin.from('schedule_slots').insert(rows);
-  if (insErr) throw insErr;
-}
-
-
-      return NextResponse.json({ ok: true, mode: 'specific', date });
-    }
-
-    return NextResponse.json({ error: 'Unknown mode' }, { status: 400 });
-  } catch (err: any) {
-    console.error('💥 schedule POST error', err);
-    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
-  }
+// Utility to disable caching for this endpoint
+function noStore(payload: any, status = 200) {
+  return new NextResponse(JSON.stringify(payload), {
+    status,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store, no-cache, must-revalidate',
+      pragma: 'no-cache',
+    },
+  });
 }
