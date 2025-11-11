@@ -120,31 +120,32 @@ export default function ScheduleEditPage() {
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 sm:p-5 shadow-inner space-y-4">
         {/* Controls */}
         {mode === 'template' ? (
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-zinc-800 pb-3">
-            <label className="inline-flex items-center gap-2">
+  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between border-b border-zinc-800 pb-3">
+    <label className="inline-flex items-center gap-2 flex-row-reverse md:flex-row self-start">
               <input
                 type="checkbox"
                 checked={applyAllWeekdays}
                 onChange={(e) => setApplyAllWeekdays(e.target.checked)}
+                        className="h-5 w-5"
+
               />
-              <span className="text-sm whitespace-nowrap text-zinc-300">
-                Change all week days
-              </span>
+      <span className="text-sm text-zinc-300">Change all week days</span>
             </label>
 
             {!applyAllWeekdays && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-zinc-400">Day of week:</span>
-                <select
-                  value={dow}
-                  onChange={(e) => setDow(Number(e.target.value))}
-                  className="h-10 px-2 rounded-md border border-zinc-700 bg-zinc-950 text-sm"
-                >
-                  {daysMap.map((d, i) => (
-                    <option key={i} value={i}>{d}</option>
-                  ))}
-                </select>
-              </div>
+      <div className="flex items-center gap-2 w-full md:w-auto">
+        <span className="text-sm text-zinc-400 whitespace-nowrap">Day of week:</span>
+        <select
+          value={dow}
+          onChange={(e) => setDow(Number(e.target.value))}
+          className="h-10 px-2 rounded-md border border-zinc-700 bg-zinc-950 text-sm w-full md:w-[220px]"
+        >
+          {daysMap.map((d, i) => (
+            <option key={i} value={i}>{d}</option>
+          ))}
+        </select>
+      </div>
+
             )}
           </div>
         ) : (
