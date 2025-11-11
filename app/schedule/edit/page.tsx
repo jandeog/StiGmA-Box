@@ -199,7 +199,7 @@ export default function ScheduleEditPage() {
                       onChange={(e) => updateSlot(idx, { title: e.target.value })}
                       className={`${CTRL} h-full`}
                     >
-                      <option value="Class">Class</option>
+                      <option value="Rookie / Advanced">Rookie / Advanced</option>
                       <option value="Competitive">Competitive</option>
                       <option value="Teams">Teams</option>
                     </select>
@@ -256,7 +256,7 @@ export default function ScheduleEditPage() {
                           onChange={(e) => updateSlot(idx, { title: e.target.value })}
                           className={CTRL}
                         >
-                          <option value="Class">Class</option>
+                          <option value="Rookie / Advanced">Rookie / Advanced</option>
                           <option value="Competitive">Competitive</option>
                           <option value="Teams">Teams</option>
                         </select>
