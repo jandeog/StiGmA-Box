@@ -14,10 +14,13 @@ type Slot = {
   enabled: boolean;
 };
 
-const GRID = "grid grid-cols-[64px,140px,260px,140px,120px,1fr]";
+const GRID_MD = 'grid grid-cols-[64px,120px,260px,140px,120px,1fr]';
 const CTRL =
-  "h-10 box-border px-2 rounded-md border border-zinc-700 bg-zinc-950 text-sm leading-none w-full";
+  'h-10 box-border px-3 rounded-md border border-zinc-700 bg-zinc-950 text-sm leading-none w-full';
+const BTN =
+  'inline-flex items-center justify-center h-10 box-border px-3 rounded-md text-sm leading-none';
 
+// Days map
 const daysMap = [
   'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 ];
@@ -40,12 +43,12 @@ export default function ScheduleEditPage() {
     return target.toISOString().split('T')[0];
   }
 
+  // Load data via API (server-side service key)
   useEffect(() => {
     (async () => {
       setLoading(true);
       setMsg('');
       try {
-        // φορτώνουμε slots μέσω του API (service key) – ποτέ direct supabase από browser
         const fetchDow = applyAllWeekdays ? 1 : dow;
         const iso = mode === 'template' ? getNextDateByDayOfWeek(fetchDow) : date;
         const res = await fetch(`/api/schedule?date=${iso}`, { credentials: 'include' });
@@ -78,23 +81,23 @@ export default function ScheduleEditPage() {
     setSaving(true);
     setMsg('');
     try {
-      // TODO: POST /api/schedule για αποθήκευση (template ή specific / applyAllWeekdays)
-      await new Promise((r) => setTimeout(r, 400));
+      // TODO: POST /api/schedule (template/specific/applyAllWeekdays)
+      await new Promise((r) => setTimeout(r, 350));
       setMsg('✅ Schedule saved successfully!');
     } catch {
       setMsg('❌ Error saving changes');
     } finally {
       setSaving(false);
-      setTimeout(() => setMsg(''), 2500);
+      setTimeout(() => setMsg(''), 2200);
     }
   }
 
   return (
-    <section className="max-w-6xl mx-auto p-6">
+    <section className="max-w-6xl mx-auto p-4 sm:p-6">
       <h1 className="text-2xl font-semibold mb-4">Change Schedule</h1>
 
-      {/* Radios σε μία οριζόντια γραμμή, μικρό font, text δίπλα */}
-      <div className="flex flex-nowrap items-center gap-6 mb-4 text-sm text-zinc-300">
+      {/* Radios row */}
+      <div className="flex flex-wrap items-center gap-6 mb-4 text-sm text-zinc-300">
         <label className="inline-flex items-center gap-2">
           <input
             type="radio"
@@ -113,27 +116,29 @@ export default function ScheduleEditPage() {
         </label>
       </div>
 
-      {/* TAB / CARD — κάτω από τα radios και full width */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 shadow-inner space-y-4">
-        {/* Controls row */}
-        {mode === 'template' && (
-          <div className="flex flex-nowrap items-center justify-between border-b border-zinc-800 pb-3">
+      {/* Card / Tab */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 sm:p-5 shadow-inner space-y-4">
+        {/* Controls */}
+        {mode === 'template' ? (
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-zinc-800 pb-3">
             <label className="inline-flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={applyAllWeekdays}
                 onChange={(e) => setApplyAllWeekdays(e.target.checked)}
               />
-              <span className="text-sm whitespace-nowrap text-zinc-300">Change all week days</span>
+              <span className="text-sm whitespace-nowrap text-zinc-300">
+                Change all week days
+              </span>
             </label>
 
             {!applyAllWeekdays && (
-              <div className="flex flex-nowrap items-center gap-2">
-                <span className="text-sm whitespace-nowrap text-zinc-400">Day of week:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-zinc-400">Day of week:</span>
                 <select
                   value={dow}
                   onChange={(e) => setDow(Number(e.target.value))}
-                  className="h-9 px-2 rounded border border-zinc-700 bg-zinc-950 text-sm"
+                  className="h-10 px-2 rounded-md border border-zinc-700 bg-zinc-950 text-sm"
                 >
                   {daysMap.map((d, i) => (
                     <option key={i} value={i}>{d}</option>
@@ -142,9 +147,7 @@ export default function ScheduleEditPage() {
               </div>
             )}
           </div>
-        )}
-
-        {mode === 'specific' && (
+        ) : (
           <div className="flex items-center gap-3 border-b border-zinc-800 pb-3">
             <span className="text-sm text-zinc-400">Select date:</span>
             <DateStepper value={date} onChange={setDate} />
@@ -158,8 +161,8 @@ export default function ScheduleEditPage() {
           </div>
         ) : (
           <>
-            {/* Headers – compact */}
-            <div className={`${GRID} gap-2 pl-2 pr-2 pb-1 text-xs text-zinc-500 border-b border-zinc-800`}>
+            {/* Desktop header */}
+            <div className={`${GRID_MD} gap-2 pl-2 pr-2 pb-1 text-xs text-zinc-500 border-b border-zinc-800 hidden md:grid`}>
               <div className="text-center">Enable</div>
               <div className="text-center">Start</div>
               <div className="text-center">Type</div>
@@ -173,11 +176,14 @@ export default function ScheduleEditPage() {
               {slots.map((s, idx) => (
                 <div
                   key={idx}
-                  className={`${GRID} gap-2 pl-2 pr-2 py-2 items-stretch`}
+                  className={`${GRID_MD} gap-2 pl-2 pr-2 py-2 items-stretch
+                              md:grid
+                              hidden`}
                 >
-                  {/* enable */}
-                  <div className="flex justify-center">
+                  {/* Desktop row */}
+                  <div className="flex items-center justify-center">
                     <input
+                      aria-label={`Enable slot ${idx + 1}`}
                       type="checkbox"
                       checked={s.enabled}
                       onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
@@ -185,53 +191,25 @@ export default function ScheduleEditPage() {
                     />
                   </div>
 
-                  {/* start time */}
-                  <div className="flex">
-                    <input
-                      value={s.time}
-                      onChange={(e) => updateSlot(idx, { time: e.target.value })}
-                      className={`${CTRL} h-full`}
-                    />
-                  </div>
-
-                  {/* type */}
+                  <div className="flex"><input value={s.time} onChange={(e) => updateSlot(idx, { time: e.target.value })} className={`${CTRL} h-full`} /></div>
                   <div className="flex">
                     <select
                       value={s.title}
                       onChange={(e) => updateSlot(idx, { title: e.target.value })}
                       className={`${CTRL} h-full`}
                     >
-                      <option value="Rookie / Advanced">Rookie / Advanced</option>
+                      <option value="Class">Class</option>
                       <option value="Competitive">Competitive</option>
                       <option value="Teams">Teams</option>
                     </select>
                   </div>
+                  <div className="flex"><input type="number" value={s.capacity_main} onChange={(e) => updateSlot(idx, { capacity_main: Number(e.target.value) })} className={`${CTRL} h-full`} /></div>
+                  <div className="flex"><input type="number" value={s.capacity_wait} onChange={(e) => updateSlot(idx, { capacity_wait: Number(e.target.value) })} className={`${CTRL} h-full`} /></div>
 
-                  {/* main cap */}
-                  <div className="flex">
-                    <input
-                      type="number"
-                      value={s.capacity_main}
-                      onChange={(e) => updateSlot(idx, { capacity_main: Number(e.target.value) })}
-                      className={`${CTRL} h-full`}
-                    />
-                  </div>
-
-                  {/* wait cap */}
-                  <div className="flex">
-                    <input
-                      type="number"
-                      value={s.capacity_wait}
-                      onChange={(e) => updateSlot(idx, { capacity_wait: Number(e.target.value) })}
-                      className={`${CTRL} h-full`}
-                    />
-                  </div>
-
-                  {/* remove – flush δεξιά & ίδιο ύψος */}
                   <div className="flex -mr-2">
                     <button
                       onClick={() => removeSlot(idx)}
-                      className="inline-flex items-center justify-center w-full h-full box-border px-2 rounded-md border border-red-800 text-red-300 hover:bg-red-900/20 text-xs leading-none"
+                      className={`${BTN} w-full border border-red-800 text-red-300 hover:bg-red-900/20`}
                     >
                       Remove
                     </button>
@@ -239,47 +217,101 @@ export default function ScheduleEditPage() {
                 </div>
               ))}
 
-              <div className="p-2">
-                <button
-                  onClick={addSlot}
-                  className="px-3 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-                >
-                  + Add slot
-                </button>
+              {/* Mobile cards */}
+              <div className="md:hidden divide-y divide-zinc-900">
+                {slots.map((s, idx) => (
+                  <div key={`m-${idx}`} className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="inline-flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={s.enabled}
+                          onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
+                        />
+                        <span>Enable</span>
+                      </label>
+                      <button
+                        onClick={() => removeSlot(idx)}
+                        className="border border-red-800 text-red-300 px-3 py-1.5 rounded-md text-xs"
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-xs text-zinc-500 mb-1">Start</div>
+                        <input
+                          value={s.time}
+                          onChange={(e) => updateSlot(idx, { time: e.target.value })}
+                          className={CTRL}
+                        />
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-zinc-500 mb-1">Type</div>
+                        <select
+                          value={s.title}
+                          onChange={(e) => updateSlot(idx, { title: e.target.value })}
+                          className={CTRL}
+                        >
+                          <option value="Class">Class</option>
+                          <option value="Competitive">Competitive</option>
+                          <option value="Teams">Teams</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="text-xs text-zinc-500 mb-1">Main cap.</div>
+                          <input
+                            type="number"
+                            value={s.capacity_main}
+                            onChange={(e) => updateSlot(idx, { capacity_main: Number(e.target.value) })}
+                            className={CTRL}
+                          />
+                        </div>
+                        <div>
+                          <div className="text-xs text-zinc-500 mb-1">Wait cap.</div>
+                          <input
+                            type="number"
+                            value={s.capacity_wait}
+                            onChange={(e) => updateSlot(idx, { capacity_wait: Number(e.target.value) })}
+                            className={CTRL}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="p-3">
+                  <button
+                    onClick={addSlot}
+                    className="px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm w-full"
+                  >
+                    + Add slot
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Actions – ΜΕΣΑ στο tab */}
-            <div className="flex items-center gap-3 justify-end pt-2">
+            {/* Actions inside the card */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-end pt-2">
               <button
                 onClick={handleApply}
                 disabled={saving}
-                className="px-3 h-9 rounded border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20 text-sm flex items-center gap-2"
+                className={`${BTN} px-4 border border-emerald-700 text-emerald-300 hover:bg-emerald-900/20`}
               >
-                {saving && (
-                  <svg
-                    className="animate-spin h-4 w-4 text-emerald-400"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                    ></path>
-                  </svg>
-                )}
-                Apply
+                {saving ? 'Saving…' : 'Apply'}
               </button>
               <button
                 onClick={() => history.back()}
-                className="px-3 h-9 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-sm"
+                className={`${BTN} px-4 border border-zinc-700 text-zinc-300 hover:bg-zinc-800`}
               >
                 Cancel
               </button>
-              {msg && <div className="text-sm text-zinc-400">{msg}</div>}
+              {msg && <div className="text-sm text-zinc-400 self-center sm:self-end">{msg}</div>}
             </div>
           </>
         )}
