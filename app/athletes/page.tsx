@@ -284,7 +284,7 @@ className="inline-flex h-8 items-center appearance-none rounded-md border border
                 className={
                   'rounded border p-2 text-xs ' +
                   (clickable
-                    ? 'border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-900/10 transition-colors'
+                    ? 'border-zinc-800 hover:border-emerald-500/10 hover:bg-emerald-900/10 transition-colors'
                     : 'border-zinc-800')
                 }
               >
