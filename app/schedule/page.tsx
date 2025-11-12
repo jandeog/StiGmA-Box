@@ -225,28 +225,28 @@ export default function SchedulePage() {
 
   return (
     <section className="max-w-4xl mx-auto p-3">
-      <header className="flex items-center justify-between mb-3">
-        <h1 className="text-xl font-semibold">Schedule</h1>
+<header className="flex items-center justify-center mb-3 gap-x-6 relative">
+  <h1 className="text-xl font-semibold absolute left-0">Schedule</h1>
 
-        {/* @ts-ignore */}
-        <DateStepper
-          value={date}
-          onChange={(v: string) => {
-            setLoading(true);
-            setDate(v);
-          }}
-        />
+  {/* @ts-ignore */}
+  <DateStepper
+    value={date}
+    onChange={(v: string) => {
+      setLoading(true);
+      setDate(v);
+    }}
+  />
 
-        {isCoach ? (
-          <Link
-            href="/schedule/edit"
-            prefetch={false}
-            className="ml-auto px-2.5 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 text-[13px]"
-          >
-            Edit Schedule
-          </Link>
-        ) : null}
-      </header>
+  {isCoach ? (
+    <Link
+      href="/schedule/edit"
+      prefetch={false}
+      className="absolute right-0 px-2.5 py-1.5 rounded-md border border-zinc-700 hover:border-emerald-500 hover:bg-emerald-950/40 text-[13px]"
+    >
+      Edit Schedule
+    </Link>
+  ) : null}
+</header>
 
       {loading && (
         <div className="flex items-center justify-center py-10 text-zinc-400 text-sm space-x-2">
@@ -285,7 +285,7 @@ const isCancel = f.isMine && f.canCancel;
 
 // replace the existing btnClass with:
 const btnClass =
-  'px-2.5 py-1.5 rounded-lg border text-[12px] ' +
+  'px-2 py-[2px] rounded-md border text-[12px] leading-none appearance-none min-h-0 h-auto ' +
   (isCancel
     ? 'border-red-600 text-red-300 hover:bg-red-950/30'
     : f.isMine
