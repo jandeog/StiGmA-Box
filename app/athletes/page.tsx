@@ -171,6 +171,7 @@ export default function AthletesPage() {
 
       await Promise.all(updates);
       await refreshList();
+      window.dispatchEvent(new CustomEvent('credits:refresh'));
       setCreditsMode(false);
     } catch (err) {
       console.error(err);
@@ -394,7 +395,9 @@ className="inline-flex h-8 items-center appearance-none rounded-md border border
                       )}
                     </div>
                   )}
+                  
                 </Wrapper>
+                
               </li>
             );
           })}
