@@ -39,17 +39,10 @@ if (PUBLIC_API.some(p => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL('/', req.url));
   }
 
-  // 4) Coach-only gate for /wod
-  if (pathname.startsWith('/wod')) {
-    const token = req.cookies.get(SESSION_COOKIE)?.value;
-    if (!token) return NextResponse.redirect(new URL('/', req.url));
-    const sess = await verifySession(token);
-    if (!sess || sess.role !== 'coach') {
-      // non-coach: send to schedule (or '/')
-      return NextResponse.redirect(new URL('/schedule', req.url));
-    }
-    return NextResponse.next();
-  }
+// 4) WOD is accessible to any signed-in user; RLS enforces per-role read/write.
+if (pathname.startsWith('/wod')) {
+  return NextResponse.next();
+}
 
   // 5) Everything else requires a valid session
   const token = req.cookies.get(SESSION_COOKIE)?.value;

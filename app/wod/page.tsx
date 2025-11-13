@@ -2,19 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
-import type { ReactElement } from 'react';
 
-type ScoringType = 'for_time' | 'amrap' | 'emom';
+type ScoringType = 'for_time' | 'amrap' | 'emom' | 'max_load' | 'other';
 
-type StrengthPart = {
-  title: string;
-  description: string;
-  scoreHint: string;
-  recordScore: boolean;
-};
-
-type WOD = {
-  strength: StrengthPart;
+type WodState = {
+  dateISO: string;                // YYYY-MM-DD (local)
+  // Strength / Skills
+  strength: {
+    title: string;
+    description: string;
+    scoreHint: string;
+    recordScore: boolean;
+  };
+  // Main WOD
   title: string;
   description: string;
   scoring: ScoringType;
@@ -22,636 +22,447 @@ type WOD = {
   recordMainScore: boolean;
 };
 
-// ===== Helpers =====
-const todayStr = () => {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-};
-
-const fmtDDMMYYYY = (iso: string) => {
-  if (!iso) return '';
-  const [y, m, d] = iso.split('-');
-  return `${d}-${m}-${y}`;
-};
-
-// 00:00:00 Europe/Athens → ISO
-const toAthensMidnightISO = (yyyy_mm_dd: string) =>
-  new Date(`${yyyy_mm_dd}T00:00:00+03:00`).toISOString();
-
-const defaultWOD = (): WOD => ({
-  strength: { title: '', description: '', scoreHint: '', recordScore: false },
-  title: '',
-  description: '',
-  scoring: 'for_time',
-  timeCap: '',
-  recordMainScore: true,
-});
-
-// API helpers
-async function fetchWodByDate(yyyy_mm_dd: string) {
-  const isoDate = toAthensMidnightISO(yyyy_mm_dd);
-  const r = await fetch(`/api/wod?date=${encodeURIComponent(isoDate)}`, { cache: 'no-store' });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j?.error || 'Failed to load WOD');
-  return j.wod as
-    | (Partial<WOD> & {
-        strengthTitle?: string | null;
-        strengthDescription?: string | null;
-        strengthScoreHint?: string | null;
-        strengthRecordScore?: boolean | null;
-        recordMainScore?: boolean | null;
-      })
-    | null;
-}
-
-async function searchMainTitles(q: string) {
-  if (!q.trim()) return [];
-  const r = await fetch(`/api/wod?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j?.error || 'Search failed');
-  return (j.items || []) as Array<{
-    date: string;
-    title: string | null;
-    description: string | null;
-    scoring: ScoringType | null;
-    timeCap: string | null;
-    strengthTitle: string | null;
-  }>;
-}
-
-async function saveWod(payload: {
-  date: string;
-  title: string;
-  description?: string | null;
-  scoring: ScoringType;
-  timeCap?: string | null;
-  strengthTitle?: string | null;
-  strengthDescription?: string | null;
-  strengthScoreHint?: string | null;
-  strengthRecordScore: boolean;
-  recordMainScore: boolean;
-}) {
-  const r = await fetch('/api/wod', { method: 'POST', body: JSON.stringify(payload) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j?.error || 'Save failed');
-  return j.wod;
-}
-
-// ===== Component =====
 type MainSuggestion = {
   title: string;
-  description: string | null;
-  scoring: ScoringType | null;
-  timeCap: string | null;
+  description?: string | null;
+  scoring?: ScoringType | null;
+  timeCap?: string | null;
 };
 
 type StrengthSuggestion = {
-  strengthTitle: string | null;
-  strengthDescription: string | null;
-  strengthScoreHint: string | null;
+  strengthTitle?: string | null;
+  strengthDescription?: string | null;
+  strengthScoreHint?: string | null;
 };
 
-export default function WodPage() {
-  const [date, setDate] = useState(todayStr());
-  const [wod, setWod] = useState<WOD>(defaultWOD());
-  const [savedMsg, setSavedMsg] = useState('');
-  const [locked, setLocked] = useState(false);
+const scoringOptions: { value: ScoringType; label: string }[] = [
+  { value: 'for_time', label: 'For time' },
+  { value: 'amrap', label: 'AMRAP' },
+  { value: 'emom', label: 'EMOM' },
+  { value: 'max_load', label: 'Max load' },
+  { value: 'other', label: 'Other' },
+];
 
-  // Autocomplete state (Main)
+async function getJSON<T = any>(url: string) {
+  const r = await fetch(url, { cache: 'no-store' });
+  const raw = await r.text();
+  const j = raw ? JSON.parse(raw) : {};
+  if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+  return j as T;
+}
+async function postJSON<T = any>(url: string, body: any) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const raw = await r.text();
+  const j = raw ? JSON.parse(raw) : {};
+  if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+  return j as T;
+}
+
+export default function WodPage() {
+  // Date
+  const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+
+  // WOD state
+  const [wod, setWod] = useState<WodState>(() => ({
+    dateISO: date,
+    strength: { title: '', description: '', scoreHint: '', recordScore: false },
+    title: '',
+    description: '',
+    scoring: 'for_time',
+    timeCap: '',
+    recordMainScore: true,
+  }));
+
+  // Busy / lock
+  const [locked, setLocked] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // MAIN suggestions
+  const mainInputRef = useRef<HTMLInputElement | null>(null);
+  const [mainQuery, setMainQuery] = useState('');
   const [mainSugs, setMainSugs] = useState<MainSuggestion[]>([]);
   const [mainOpen, setMainOpen] = useState(false);
-  const mainInputRef = useRef<HTMLInputElement | null>(null);
+  const [mainSearching, setMainSearching] = useState(false);
   const suppressMainOpenRef = useRef(false);
 
-  // Autocomplete state (Strength)
+  // STRENGTH suggestions
+  const strInputRef = useRef<HTMLInputElement | null>(null);
+  const [strQuery, setStrQuery] = useState('');
   const [strSugs, setStrSugs] = useState<StrengthSuggestion[]>([]);
   const [strOpen, setStrOpen] = useState(false);
-  const strInputRef = useRef<HTMLInputElement | null>(null);
+  const [strSearching, setStrSearching] = useState(false);
   const suppressStrOpenRef = useRef(false);
 
-  const mainActive = wod.title.trim().length > 0 && mainSugs.length > 0;
-  const strActive = wod.strength.title.trim().length > 0 && strSugs.length > 0;
+  // Active rings only when *actively* searching AND there are matches
+  const mainActive = mainSearching && wod.title.trim().length > 0 && mainSugs.length > 0;
+  const strActive  = strSearching  && wod.strength.title.trim().length > 0 && strSugs.length > 0;
 
-  // Common input class
+  // Base input classes
   const fieldBase =
-    'w-full rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm field-muted focus:outline-none shadow-sm transition';
+    'w-full rounded-md border bg-transparent px-2 py-2 text-sm outline-none ' +
+    'border-zinc-800 focus:ring-2 focus:ring-zinc-700/50';
 
-  // ===== Load when date changes =====
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setSavedMsg('');
-      setLocked(false);
-
-      try {
-        const data = await fetchWodByDate(date);
-        if (!alive) return;
-
-        if (data) {
-          setWod({
-            strength: {
-              title: (data as any).strengthTitle ?? '',
-              description: (data as any).strengthDescription ?? '',
-              scoreHint: (data as any).strengthScoreHint ?? '',
-              recordScore: !!(data as any).strengthRecordScore,
-            },
-            title: (data as any).title ?? '',
-            description: (data as any).description ?? '',
-            scoring: ((data as any).scoring as ScoringType) ?? 'for_time',
-            timeCap: (data as any).timeCap ?? '',
-            recordMainScore: (data as any).recordMainScore ?? true,
-          });
-        } else {
-          setWod(defaultWOD());
-        }
-      } catch (err) {
-        console.error('[WOD load error]', err);
-        setWod(defaultWOD());
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [date]);
-
-  // ===== Save/Upsert via API =====
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!wod.title.trim()) {
-      setSavedMsg('⚠️ Please add a Main WOD title');
-      return;
-    }
-
+  // Load WOD for a date (expects your API to accept ?date=YYYY-MM-DD and return a WOD or null)
+  async function load(dateISO: string) {
+    setLoading(true);
     try {
-      await saveWod({
-        date: toAthensMidnightISO(date),
-        title: wod.title,
+      const j = await getJSON<any>(`/api/wod?date=${dateISO}`);
+      if (!j || !j.wod) {
+        // blank
+        setWod({
+          dateISO,
+          strength: { title: '', description: '', scoreHint: '', recordScore: false },
+          title: '',
+          description: '',
+          scoring: 'for_time',
+          timeCap: '',
+          recordMainScore: true,
+        });
+        setLocked(false);
+      } else {
+        setWod({
+          dateISO,
+          strength: {
+            title: j.wod.strengthTitle || '',
+            description: j.wod.strengthDescription || '',
+            scoreHint: j.wod.strengthScoreHint || '',
+            recordScore: !!j.wod.strengthRecordScore,
+          },
+          title: j.wod.title || '',
+          description: j.wod.description || '',
+          scoring: (j.wod.scoring || 'for_time') as ScoringType,
+          timeCap: j.wod.timeCap || '',
+          recordMainScore: !!j.wod.recordMainScore,
+        });
+        setLocked(!!j.locked); // if your API sets locked per role
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || 'Failed to load WOD');
+    } finally {
+      // Reset *search* state so past navigation never shows green borders
+      setMainSearching(false);
+      setStrSearching(false);
+      setMainSugs([]); setMainOpen(false);
+      setStrSugs([]);  setStrOpen(false);
+      setLoading(false);
+    }
+  }
+
+  // Save
+  async function save() {
+    try {
+      setSaving(true);
+      await postJSON('/api/wod', {
+        date: wod.dateISO,
+        title: wod.title || null,
         description: wod.description || null,
         scoring: wod.scoring,
         timeCap: wod.timeCap || null,
         strengthTitle: wod.strength.title || null,
         strengthDescription: wod.strength.description || null,
         strengthScoreHint: wod.strength.scoreHint || null,
-        strengthRecordScore: wod.strength.recordScore,
-        recordMainScore: wod.recordMainScore,
+        strengthRecordScore: !!wod.strength.recordScore,
+        recordMainScore: !!wod.recordMainScore,
       });
-
-      setSavedMsg('✅ Saved');
-      setTimeout(() => setSavedMsg(''), 1600);
-    } catch (err: any) {
-      console.error('[WOD save error]', err);
-      setSavedMsg(`❌ Save failed: ${err?.message || 'Error'}`);
+      // optional toast…
+    } catch (e: any) {
+      alert(e?.message || 'Save failed');
+    } finally {
+      setSaving(false);
     }
-  };
-
-  // ============ AUTOCOMPLETE LOGIC ============
-  // Debounce helper
-  const useDebounced = (value: string, delay = 180) => {
-    const [debounced, setDebounced] = useState(value);
-    useEffect(() => {
-      const id = setTimeout(() => setDebounced(value), delay);
-      return () => clearTimeout(id);
-    }, [value, delay]);
-    return debounced;
-  };
-
-  // --- MAIN WOD suggestions (search in saved titles)
-const fetchMainSuggestions = async (q: string) => {
-  const qTrim = q.trim();
-  if (!qTrim) return [];
-  try {
-    const items = await searchMainTitles(qTrim);
-    const seen = new Set<string>();
-    const unique: MainSuggestion[] = [];
-    for (const it of items) {
-      const t = it.title || '';
-      const key = t.toLowerCase();
-      if (!t || seen.has(key)) continue;
-      seen.add(key);
-      unique.push({
-        title: t,
-        description: it.description ?? null,
-        scoring: (it.scoring as ScoringType) ?? null,
-        timeCap: it.timeCap ?? null,
-      });
-      if (unique.length >= 3) break;
-    }
-    return unique;
-  } catch (e) {
-    console.warn('[autocomplete main error]', e);
-    return [];
   }
-};
 
-  const mainQuery = useDebounced(wod.title, 180);
+  // Load on date change
+  useEffect(() => {
+    load(date);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
+
+  // Fetch MAIN suggestions (only when actively searching)
   useEffect(() => {
     let alive = true;
     (async () => {
-      if (!mainQuery) {
-        setMainSugs([]);
-        setMainOpen(false);
+      if (!mainSearching || !mainQuery) {
+        setMainSugs([]); setMainOpen(false);
         return;
       }
-      const sugs = await fetchMainSuggestions(mainQuery);
-      if (!alive) return;
-      setMainSugs(sugs);
-      setMainOpen(sugs.length > 0);
+      try {
+        // your API: returns array of { title, description?, scoring?, timeCap? }
+        const sugs: MainSuggestion[] = await getJSON(`/api/wod?suggest=main&q=${encodeURIComponent(mainQuery)}`);
+        if (!alive) return;
+        setMainSugs(sugs);
+        setMainOpen(sugs.length > 0);
 
-      if (suppressMainOpenRef.current) {
-        setMainSugs([]);
-        setMainOpen(false);
-        suppressMainOpenRef.current = false;
-        return;
+        if (suppressMainOpenRef.current) {
+          setMainSugs([]); setMainOpen(false);
+          suppressMainOpenRef.current = false;
+        }
+      } catch {
+        if (!alive) return;
+        setMainSugs([]); setMainOpen(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
-  }, [mainQuery]); // eslint-disable-line
+    return () => { alive = false; };
+  }, [mainQuery, mainSearching]);
 
-const applyMainSuggestion = (s: MainSuggestion) => {
+  // Fetch STRENGTH suggestions (only when actively searching)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!strSearching || !strQuery) {
+        setStrSugs([]); setStrOpen(false);
+        return;
+      }
+      try {
+        // your API: returns array of { strengthTitle, strengthDescription, strengthScoreHint }
+        const sugs: StrengthSuggestion[] = await getJSON(`/api/wod?suggest=strength&q=${encodeURIComponent(strQuery)}`);
+        if (!alive) return;
+        setStrSugs(sugs);
+        setStrOpen(sugs.length > 0);
+
+        if (suppressStrOpenRef.current) {
+          setStrSugs([]); setStrOpen(false);
+          suppressStrOpenRef.current = false;
+        }
+      } catch {
+        if (!alive) return;
+        setStrSugs([]); setStrOpen(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [strQuery, strSearching]);
+
+  // Apply a MAIN suggestion
+function applyMainSuggestion(s: MainSuggestion) {
   suppressMainOpenRef.current = true;
-  setWod((prev) => ({
+  setMainSearching(false);
+  setWod(prev => ({
     ...prev,
-    title: s.title,
-    description: s.description ?? prev.description,
-    scoring: (s.scoring ?? prev.scoring) as ScoringType,
-    timeCap: s.timeCap ?? prev.timeCap,
+    title: s.title ?? prev.title,
+    description: s.description ?? prev.description ?? '',
+    scoring: (s.scoring ?? prev.scoring ?? 'for_time') as ScoringType,
+    timeCap: s.timeCap ?? prev.timeCap ?? '',
   }));
   setMainOpen(false);
   mainInputRef.current?.blur();
-};
-  const onMainKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
-    if (e.key === 'Enter' && mainSugs.length > 0) {
-      e.preventDefault();
-      applyMainSuggestion(mainSugs[0]);
-    }
-  };
-
-  // --- STRENGTH/SKILLS suggestions (reuse main search, but extract strengthTitle if present)
-const fetchStrengthSuggestions = async (q: string) => {
-  const qTrim = q.trim();
-  if (!qTrim) return [];
-  try {
-    const items = await searchMainTitles(qTrim); // ίδιο helper, τώρα επιστρέφει και strength πεδία
-    const seen = new Set<string>();
-    const unique: StrengthSuggestion[] = [];
-    for (const it of items) {
-      const t = it.strengthTitle ?? '';
-      const key = t.toLowerCase();
-      if (!t || seen.has(key)) continue;
-      seen.add(key);
-      unique.push({
-        strengthTitle: t,
-        strengthDescription: (it as any).strengthDescription ?? null,
-        strengthScoreHint: (it as any).strengthScoreHint ?? null,
-      });
-      if (unique.length >= 3) break;
-    }
-    return unique;
-  } catch (e) {
-    console.warn('[autocomplete strength error]', e);
-    return [];
-  }
-};
+}
 
 
-  const strQuery = useDebounced(wod.strength.title, 180);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (!strQuery) {
-        setStrSugs([]);
-        setStrOpen(false);
-        return;
-      }
-      const sugs = await fetchStrengthSuggestions(strQuery);
-      if (!alive) return;
-      setStrSugs(sugs);
-      setStrOpen(sugs.length > 0);
-
-      if (suppressStrOpenRef.current) {
-        setStrSugs([]);
-        setStrOpen(false);
-        suppressStrOpenRef.current = false;
-        return;
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [strQuery]); // eslint-disable-line
-
-const applyStrengthSuggestion = (s: StrengthSuggestion) => {
+  // Apply a STRENGTH suggestion
+function applyStrengthSuggestion(s: StrengthSuggestion) {
   suppressStrOpenRef.current = true;
-  setWod((prev) => ({
+  setStrSearching(false);
+  setWod(prev => ({
     ...prev,
     strength: {
       ...prev.strength,
-      title: s.strengthTitle ?? prev.strength.title,
-      description: s.strengthDescription ?? prev.strength.description,
-      scoreHint: s.strengthScoreHint ?? prev.strength.scoreHint,
+      title: s.strengthTitle ?? prev.strength.title ?? '',
+      description: s.strengthDescription ?? prev.strength.description ?? '',
+      scoreHint: s.strengthScoreHint ?? prev.strength.scoreHint ?? '',
     },
   }));
   setStrOpen(false);
   strInputRef.current?.blur();
-};
+}
 
-  const onStrKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
-    if (e.key === 'Enter' && strSugs.length > 0) {
-      e.preventDefault();
-      applyStrengthSuggestion(strSugs[0]);
-    }
-  };
 
-  // Common dropdown UI
-  const Dropdown = <T extends {}>({
-    open,
-    items,
-    render,
-  }: {
-    open: boolean;
-    items: T[];
-    render: (item: T) => ReactElement;
-  }) => {
-    if (!open || items.length === 0) return null;
-    return (
-      <div className="absolute z-20 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900/95 shadow-lg backdrop-blur">
-        <ul className="max-h-56 overflow-auto text-sm">{items.map(render)}</ul>
-      </div>
-    );
-  };
-
+  // UI
   return (
-    <section className="max-w-3xl mx-auto p-4 space-y-4">
-      <h1 className="text-2xl font-bold">WOD</h1>
+    <section className="max-w-3xl mx-auto p-3">
+      <header className="flex items-center justify-center mb-3 relative">
+        <h1 className="text-xl font-semibold absolute left-0">WOD</h1>
+        {/* @ts-ignore */}
+        <DateStepper value={date} onChange={(v: string) => setDate(v)} />
+      </header>
 
-      {/* Date */}
-      <div className="flex items-center gap-3">
-        <div className="text-sm text-zinc-400">Date</div>
-        <DateStepper value={date} onChange={setDate} />
-      </div>
+      {loading ? (
+        <div className="text-sm text-zinc-400 py-8">Loading WOD…</div>
+      ) : (
+        <>
+          {/* Strength / Skills */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 mb-4">
+            <div className="text-sm font-semibold mb-2">Strength / Skills</div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Strength / Skills */}
-        <h2 className="text-lg font-semibold">Strength / Skills</h2>
-        <div className="border border-zinc-800 rounded p-3 bg-zinc-900">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="block text-[12px] text-zinc-400">Title</label>
             <div className="relative">
-              <label className="block text-sm mb-1 text-zinc-300">Title</label>
               <input
                 ref={strInputRef}
                 disabled={locked}
                 value={wod.strength.title}
-                onChange={(e) =>
-                  setWod((s) => ({
-                    ...s,
-                    strength: { ...s.strength, title: e.target.value },
-                  }))
-                }
-                onKeyDown={onStrKeyDown}
+                onChange={(e) => {
+                  setStrSearching(true);
+                  setWod(s => ({ ...s, strength: { ...s.strength, title: e.target.value } }));
+                  setStrQuery(e.target.value.trim());
+                }}
+                onFocus={() => { setStrSearching(true); setStrOpen(strSugs.length > 0); }}
+                onBlur={() => { setTimeout(() => setStrOpen(false), 120); setStrSearching(false); }}
                 placeholder="e.g. Back Squat"
                 className={
                   fieldBase +
-                  (strActive
-                    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
-                    : ' focus:ring-2 focus:ring-zinc-700/50')
+                  (strActive ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
+                             : '')
                 }
-                onFocus={() => setStrOpen(strSugs.length > 0)}
-                onBlur={() => setTimeout(() => setStrOpen(false), 120)}
               />
-              <Dropdown
-                open={strOpen}
-                items={strSugs}
-                render={(it) => (
-                  <li
-                    key={it.strengthTitle ?? Math.random().toString(36)}
-                    className="px-3 py-2 hover:bg-zinc-800 cursor-pointer"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      applyStrengthSuggestion(it);
-                    }}
-                  >
-                    <div className="font-medium">{it.strengthTitle}</div>
-                    {it.strengthDescription ? (
-                      <div className="text-zinc-400 line-clamp-1">{it.strengthDescription}</div>
-                    ) : null}
-                  </li>
-                )}
-              />
+              {strOpen && strSugs.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 shadow-lg">
+                  <ul className="max-h-60 overflow-auto text-sm">
+                    {strSugs.map((s, i) => (
+                      <li
+                        key={i}
+                        className="p-2 hover:bg-emerald-950/20 cursor-pointer"
+                        onMouseDown={(e) => { e.preventDefault(); applyStrengthSuggestion(s); }}
+                      >
+                        <div className="font-medium">{s.strengthTitle}</div>
+                        {s.strengthDescription ? (
+                          <div className="text-xs text-zinc-400 line-clamp-2">{s.strengthDescription}</div>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">Score (hint)</label>
+
+            <div className="mt-3 grid gap-2">
+              <label className="block text-[12px] text-zinc-400">Score (hint)</label>
               <input
                 disabled={locked}
                 value={wod.strength.scoreHint}
-                onChange={(e) =>
-                  setWod((s) => ({
-                    ...s,
-                    strength: { ...s.strength, scoreHint: e.target.value },
-                  }))
-                }
-                placeholder="e.g. 5x5 @kg or EMOM 10’"
-                className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
+                onChange={(e) => setWod(s => ({ ...s, strength: { ...s.strength, scoreHint: e.target.value } }))}
+                placeholder="e.g. 3RM, Max Reps, Best unbroken, etc."
+                className={fieldBase}
               />
+
+              <label className="block text-[12px] text-zinc-400">Description</label>
+              <textarea
+                disabled={locked}
+                value={wod.strength.description}
+                onChange={(e) => setWod(s => ({ ...s, strength: { ...s.strength, description: e.target.value } }))}
+                rows={4}
+                className={fieldBase}
+              />
+
+              <label className="mt-2 inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-emerald-500"
+                  disabled={locked}
+                  checked={wod.strength.recordScore}
+                  onChange={(e) => setWod(s => ({ ...s, strength: { ...s.strength, recordScore: e.target.checked } }))}
+                />
+                <span>Record score for Strength / Skills</span>
+              </label>
             </div>
           </div>
 
-          <div className="mt-3">
-            <label className="block text-sm mb-1 text-zinc-300">Description</label>
-            <textarea
-              disabled={locked}
-              rows={5}
-              value={wod.strength.description}
-              onChange={(e) =>
-                setWod((s) => ({
-                  ...s,
-                  strength: { ...s.strength, description: e.target.value },
-                }))
-              }
-              placeholder="Sets, reps, tempo, rest, cues…"
-              className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
-            />
-          </div>
+          {/* Main WOD */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+            <div className="text-sm font-semibold mb-2">Main WOD</div>
 
-          <div className="mt-3 inline-flex items-center gap-2">
-            <input
-              disabled={locked}
-              id="strength-record"
-              type="checkbox"
-              checked={wod.strength.recordScore}
-              onChange={(e) =>
-                setWod((s) => ({
-                  ...s,
-                  strength: { ...s.strength, recordScore: e.target.checked },
-                }))
-              }
-              className="h-4 w-4 accent-zinc-200"
-            />
-            <label htmlFor="strength-record" className="text-sm text-zinc-300 whitespace-nowrap">
-              Record score for Strength / Skills
-            </label>
-          </div>
-        </div>
-
-        {/* Main WOD */}
-        <h2 className="text-lg font-semibold">Main WOD</h2>
-        <div className="border border-zinc-800 rounded p-3 bg-zinc-900">
-          {/* Title + Scoring */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="block text-[12px] text-zinc-400">Title</label>
             <div className="relative">
-              <label className="block text-sm mb-1 text-zinc-300">Title</label>
               <input
                 ref={mainInputRef}
                 disabled={locked}
                 placeholder="e.g. Fran / EMOM 12’ / 5 Rounds …"
                 value={wod.title}
-                onChange={(e) => setWod((s) => ({ ...s, title: e.target.value }))}
-                onKeyDown={onMainKeyDown}
+                onChange={(e) => {
+                  setMainSearching(true);
+                  setWod(s => ({ ...s, title: e.target.value }));
+                  setMainQuery(e.target.value.trim());
+                }}
+                onFocus={() => { setMainSearching(true); setMainOpen(mainSugs.length > 0); }}
+                onBlur={() => { setTimeout(() => setMainOpen(false), 120); setMainSearching(false); }}
                 className={
                   fieldBase +
-                  (mainActive
-                    ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
-                    : ' focus:ring-2 focus:ring-zinc-700/50')
+                  (mainActive ? ' border-emerald-500 bg-emerald-900/20 ring-2 ring-emerald-500'
+                              : '')
                 }
-                onFocus={() => setMainOpen(mainSugs.length > 0)}
-                onBlur={() => setTimeout(() => setMainOpen(false), 120)}
               />
-              <Dropdown
-                open={mainOpen}
-                items={mainSugs}
-                render={(it) => (
-                  <li
-                    key={it.title}
-                    className="px-3 py-2 hover:bg-zinc-800 cursor-pointer"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      applyMainSuggestion(it);
-                    }}
-                  >
-                    <div className="font-medium">{it.title}</div>
-                    {it.description ? (
-                      <div className="text-zinc-400 line-clamp-1">{it.description}</div>
-                    ) : null}
-                  </li>
-                )}
-              />
+              {mainOpen && mainSugs.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 shadow-lg">
+                  <ul className="max-h-60 overflow-auto text-sm">
+                    {mainSugs.map((s, i) => (
+                      <li
+                        key={i}
+                        className="p-2 hover:bg-emerald-950/20 cursor-pointer"
+                        onMouseDown={(e) => { e.preventDefault(); applyMainSuggestion(s); }}
+                      >
+                        <div className="font-medium">{s.title}</div>
+                        {s.description ? (
+                          <div className="text-xs text-zinc-400 line-clamp-2">{s.description}</div>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">Scoring</label>
-              <select
+            <div className="mt-3 grid gap-2">
+              <div>
+                <label className="block text-[12px] text-zinc-400 mb-1">Scoring</label>
+                <select
+                  disabled={locked}
+                  value={wod.scoring}
+                  onChange={(e) => setWod(s => ({ ...s, scoring: e.target.value as ScoringType }))}
+                  className={fieldBase}
+                >
+                  {scoringOptions.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <label className="block text-[12px] text-zinc-400">Description</label>
+              <textarea
                 disabled={locked}
-                value={wod.scoring}
-                onChange={(e) =>
-                  setWod((s) => ({
-                    ...s,
-                    scoring: e.target.value as ScoringType,
-                  }))
-                }
-                className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
-              >
-                <option value="for_time">For Time</option>
-                <option value="amrap">AMRAP</option>
-                <option value="emom">EMOM</option>
-              </select>
-            </div>
-          </div>
+                value={wod.description}
+                onChange={(e) => setWod(s => ({ ...s, description: e.target.value }))}
+                rows={6}
+                className={fieldBase}
+              />
 
-          <div className="mt-3">
-            <label className="block text-sm mb-1 text-zinc-300">Description / Rep scheme</label>
-            <textarea
-              disabled={locked}
-              rows={6}
-              placeholder={`e.g.
-21-15-9 Thrusters (42.5/30) & Pull-ups
-Time cap: 8:00`}
-              value={wod.description}
-              onChange={(e) => setWod((s) => ({ ...s, description: e.target.value }))}
-              className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
-            />
-          </div>
-
-          {/* Time cap + checkbox */}
-          <div className="mt-3">
-            <label className="block text-sm mb-1 text-zinc-300">Time cap</label>
-            <input
-              disabled={locked}
-              placeholder="e.g. 12:00"
-              value={wod.timeCap}
-              onChange={(e) => setWod((s) => ({ ...s, timeCap: e.target.value }))}
-              className={fieldBase + ' focus:ring-2 focus:ring-zinc-700/50'}
-            />
-
-            <div className="mt-3 inline-flex items-center gap-2">
+              <label className="block text-[12px] text-zinc-400">Time cap</label>
               <input
                 disabled={locked}
-                id="main-record"
-                type="checkbox"
-                checked={wod.recordMainScore}
-                onChange={(e) => setWod((s) => ({ ...s, recordMainScore: e.target.checked }))}
-                className="h-4 w-4 accent-zinc-200"
+                value={wod.timeCap}
+                onChange={(e) => setWod(s => ({ ...s, timeCap: e.target.value }))}
+                placeholder="e.g. 16:00"
+                className={fieldBase}
               />
-              <label htmlFor="main-record" className="text-sm text-zinc-300 whitespace-nowrap">
-                Record score for Main WOD
+
+              <label className="mt-2 inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-emerald-500"
+                  disabled={locked}
+                  checked={wod.recordMainScore}
+                  onChange={(e) => setWod(s => ({ ...s, recordMainScore: e.target.checked }))}
+                />
+                <span>Record score for Main WOD</span>
               </label>
             </div>
           </div>
-        </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          <button
-            type="submit"
-            className={`px-4 py-2 rounded border border-zinc-700 text-sm ${
-              locked ? 'opacity-60 cursor-not-allowed' : 'hover:bg-zinc-800'
-            }`}
-            disabled={locked}
-            title={locked ? 'This date already has a saved WOD (locked)' : 'Save WOD for this date'}
-          >
-            Save
-          </button>
-          {savedMsg && <span className="text-sm text-zinc-300">{savedMsg}</span>}
-        </div>
-      </form>
-
-      {/* Preview */}
-      <hr className="my-6 border-zinc-800" />
-      <h2 className="text-lg font-semibold mb-2">Preview</h2>
-      <div className="border border-zinc-800 rounded p-3 bg-zinc-900 space-y-4">
-        <div className="text-sm text-zinc-400">{fmtDDMMYYYY(date)}</div>
-
-        {/* Strength / Skills preview */}
-        <div>
-          <div className="text-sm text-zinc-400">Strength / Skills</div>
-          <div className="font-semibold">{wod.strength.title || '—'}</div>
-          <div className="text-sm text-zinc-300 whitespace-pre-wrap">
-            {wod.strength.description || '—'}
+          {/* Footer actions */}
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              disabled={saving || locked}
+              onClick={save}
+              className="px-3 py-2 rounded-md border border-emerald-700 text-emerald-300 hover:bg-emerald-950/30 text-sm"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
           </div>
-          <div className="text-sm text-zinc-400 mt-1">
-            {wod.strength.scoreHint ? `Score: ${wod.strength.scoreHint} • ` : ''}
-            Record score: {wod.strength.recordScore ? 'Yes' : 'No'}
-          </div>
-        </div>
-
-        {/* Main WOD preview */}
-        <div className="pt-2 border-t border-zinc-800">
-          <div className="text-sm text-zinc-400">Main WOD</div>
-          <div className="text-xl font-bold">{wod.title || '—'}</div>
-          <div className="text-sm text-zinc-300 whitespace-pre-wrap mt-1">
-            {wod.description || '—'}
-          </div>
-          <div className="text-sm text-zinc-400 mt-1">
-            Scoring: {wod.scoring.toUpperCase()}
-            {wod.timeCap ? ` • Time cap: ${wod.timeCap}` : ''} • Record score:{' '}
-            {wod.recordMainScore ? 'Yes' : 'No'}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </section>
   );
 }
