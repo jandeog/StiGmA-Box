@@ -30,7 +30,7 @@ type Athlete = {
   dob: string;
 };
 
-type ScoringType = 'for_time' | 'amrap' | 'emom';
+type ScoringType = 'for_time' | 'amrap' | 'emom' | 'max_load' | 'other';
 
 type StrengthPart = {
   title: string;
@@ -47,6 +47,22 @@ type WOD = {
   timeCap: string;
   strength?: StrengthPart;
   recordMainScore?: boolean;
+};
+
+type WodApi = {
+  wod: {
+    date: string;
+    title?: string | null;
+    description?: string | null;
+    scoring?: ScoringType | null;
+    timeCap?: string | null;
+    strengthTitle?: string | null;
+    strengthDescription?: string | null;
+    strengthScoreHint?: string | null;
+    strengthRecordScore?: boolean | null;
+    recordMainScore?: boolean | null;
+  } | null;
+  locked?: boolean;
 };
 
 type Score = {
@@ -68,10 +84,17 @@ const fmt = (iso: string) => {
   return `${d}-${m}-${y}`;
 };
 
-const wodKey = (d: string) => `wod:${d}`;
 const scoresKey = (d: string) => `scores:${d}`; // main WOD
 const strengthScoresKey = (d: string) => `scores_strength:${d}`; // strength
 const submittedKey = (d: string) => `submitted:${d}`; // per-day submissions
+
+async function getJSON<T>(url: string): Promise<T> {
+  const r = await fetch(url, { cache: 'no-store' });
+  const raw = await r.text();
+  const j = raw ? JSON.parse(raw) : {};
+  if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+  return j as T;
+}
 
 // ---------- Component ----------
 
@@ -79,6 +102,7 @@ export default function ScorePage() {
   // Date / WOD
   const [date, setDate] = useState(todayStr());
   const [wod, setWod] = useState<WOD | null>(null);
+  const [loadingWod, setLoadingWod] = useState(false);
 
   // Athletes / session
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -171,16 +195,17 @@ export default function ScorePage() {
     };
   }, []);
 
-  // ---------- Keep athleteInput in sync with athleteId ----------
+  // ---------- Keep athleteInput in sync with athleteId (unless coach clears it manually) ----------
 
   useEffect(() => {
     const a = athletes.find((x) => x.id === athleteId);
     if (a) {
       setAthleteInput(`${a.firstName} ${a.lastName}`.trim());
-    } else {
+    } else if (!isCoach) {
+      // athletes: no selection => clear
       setAthleteInput('');
     }
-  }, [athleteId, athletes]);
+  }, [athleteId, athletes, isCoach]);
 
   // ---------- Sync team with selected athlete, wipe if null ----------
 
@@ -193,28 +218,70 @@ export default function ScorePage() {
     setTeam(a?.teamName ?? '');
   }, [athleteId, athletes]);
 
-  // ---------- Load data from localStorage when date changes ----------
+  // ---------- Load WOD + scores on date change ----------
 
   useEffect(() => {
-    // WOD
-    const w = localStorage.getItem(wodKey(date));
-    setWod(w ? (JSON.parse(w) as WOD) : null);
+    let alive = true;
 
-    // Scores
+    // Load WOD from Supabase via /api/wod
+    (async () => {
+      try {
+        setLoadingWod(true);
+        const j = await getJSON<WodApi>(`/api/wod?date=${date}`);
+        if (!alive) return;
+
+        if (!j || !j.wod) {
+          setWod(null);
+        } else {
+          const w = j.wod;
+          setWod({
+            date,
+            title: w.title ?? '',
+            description: w.description ?? '',
+            scoring: (w.scoring ?? 'for_time') as ScoringType,
+            timeCap: w.timeCap ?? '',
+            recordMainScore: !!w.recordMainScore,
+            strength:
+              w.strengthTitle ||
+              w.strengthDescription ||
+              w.strengthScoreHint
+                ? {
+                    title: w.strengthTitle ?? '',
+                    description: w.strengthDescription ?? '',
+                    scoreHint: w.strengthScoreHint ?? '',
+                    recordScore: !!w.strengthRecordScore,
+                  }
+                : undefined,
+          });
+        }
+      } catch (e) {
+        if (alive) {
+          console.error('score: failed to load WOD', e);
+          setWod(null);
+        }
+      } finally {
+        if (alive) setLoadingWod(false);
+      }
+    })();
+
+    // Load scores / submissions from localStorage
     const sMain = localStorage.getItem(scoresKey(date));
     setScoresMain(sMain ? (JSON.parse(sMain) as Score[]) : []);
 
     const sStr = localStorage.getItem(strengthScoresKey(date));
     setScoresStrength(sStr ? (JSON.parse(sStr) as Score[]) : []);
 
-    // Submissions
     const subs = localStorage.getItem(submittedKey(date));
     setSubmittedNames(subs ? (JSON.parse(subs) as string[]) : []);
 
-    // Clear inputs but keep selected athlete
+    // Reset inputs when date changes (but keep selected athlete)
     setValueStrength('');
     setRxScaled('RX');
     setValueMain('');
+
+    return () => {
+      alive = false;
+    };
   }, [date]);
 
   // ---------- Persist helpers ----------
@@ -242,7 +309,7 @@ export default function ScorePage() {
       : athletes.filter((a) => a.id === myId); // athletes see only themselves
 
     const needle = athleteInput.trim().toLowerCase();
-    if (!needle) return base;
+    if (!needle || !isCoach) return base;
 
     return base.filter((a) => {
       const full = `${a.firstName} ${a.lastName}`.toLowerCase();
@@ -303,7 +370,7 @@ export default function ScorePage() {
       );
     }
 
-    // AMRAP / EMOM → RX first, then reps ↓ (bigger is better)
+    // Others (AMRAP, EMOM, max_load, other) → RX first, value ↓ (bigger is better)
     return s.sort(
       (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
     );
@@ -448,7 +515,11 @@ export default function ScorePage() {
                 {isCoach && (
                   <button
                     type="button"
-                    onClick={() => setAthleteOpen((v) => !v)}
+                    onClick={() => {
+                      // Clear input and show full list
+                      setAthleteInput('');
+                      setAthleteOpen(true);
+                    }}
                     className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
                                hover:border-emerald-500/70 hover:bg-zinc-900
                                focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
@@ -492,18 +563,11 @@ export default function ScorePage() {
                         <span className="text-zinc-100">
                           {a.lastName}, {a.firstName}
                         </span>
-                        <span className="text-[11px] flex gap-2">
-                          {a.nickname && (
-                            <span className="text-emerald-400">
-                              {a.nickname}
-                            </span>
-                          )}
-                          {a.teamName && (
-                            <span className="text-amber-300">
-                              {a.teamName}
-                            </span>
-                          )}
-                        </span>
+                        {a.nickname && (
+                          <span className="text-[11px] text-emerald-400">
+                            {a.nickname}
+                          </span>
+                        )}
                       </button>
                     ))}
                 </div>
@@ -550,6 +614,8 @@ export default function ScorePage() {
           <div className="text-sm text-zinc-300">
             {wod?.strength?.title
               ? `Part: ${wod.strength.title}`
+              : loadingWod
+              ? 'Loading Strength / Skills part…'
               : 'No Strength/Skills part set'}
             {wod?.strength?.scoreHint
               ? ` • Hint: ${wod.strength.scoreHint}`
@@ -584,12 +650,16 @@ export default function ScorePage() {
         <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-3">
           {/* WOD info */}
           <div className="text-sm text-zinc-300">
-            {wod?.title ? `WOD: ${wod.title}` : 'No Main WOD set'}
+            {loadingWod
+              ? 'Loading Main WOD…'
+              : wod?.title
+              ? `WOD: ${wod.title}`
+              : 'No Main WOD set'}
             {wod ? ` • Scoring: ${wod.scoring.toUpperCase()}` : ''}
             {wod?.timeCap ? ` • Time cap: ${wod.timeCap}` : ''}
           </div>
           <div className="text-xs text-zinc-400">
-            {wod?.description || '—'}
+            {loadingWod ? '' : wod?.description || '—'}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
