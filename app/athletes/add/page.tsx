@@ -202,6 +202,7 @@ const canSubmit = useMemo(() => {
         });
         const j = await r.json();
         if (!r.ok) throw new Error(j?.error || 'Error');
+        window.dispatchEvent(new CustomEvent('credits:refresh'));
         router.replace('/athletes');
         return;
       }
@@ -239,6 +240,7 @@ if (mode === 'coach-new') {
 
   // μετά τη δημιουργία, γύρνα στη λίστα (ή αν θέλεις πήγαινε στο /athletes/add?id=j.id)
   router.replace('/athletes');
+  window.dispatchEvent(new CustomEvent('credits:refresh'));
   return;
 }
 
@@ -274,9 +276,10 @@ const r = await fetch('/api/auth/complete-signup', {
 });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || 'Error');
-
+window.dispatchEvent(new CustomEvent('credits:refresh'));
       // redirect ανά ρόλο (όπως έχουμε ορίσει)
       if (j.role === 'coach') router.replace('/athletes');
+      
       else router.replace(redirect || '/schedule');
     } catch (err: any) {
       setMsg(err.message);

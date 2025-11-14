@@ -1,4 +1,3 @@
-// app/layout.tsx
 import type { Metadata } from 'next';
 import './globals.css';
 import Link from 'next/link';
@@ -6,6 +5,7 @@ import { cookies } from 'next/headers';
 import HeaderLogoMenu from '@/components/HeaderLogoMenu';
 import { verifySession, SESSION_COOKIE } from '@/lib/session';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import HeaderCredits from '@/components/HeaderCredits'; // NEW
 
 export const metadata: Metadata = {
   title: 'StiGmA Box',
@@ -24,22 +24,31 @@ function NavLink({ href, label }: { href: string; label: string }) {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Read session cookie and get display name
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value || '';
   let displayName: string | undefined = undefined;
 
+  // session + initial user snapshot for first render
   const payload = await verifySession(token);
+  let isCoach = false;
+  let credits = 0;
+  let signedIn = false;
+
   if (payload?.aid) {
+    signedIn = true;
     const { data } = await supabaseAdmin
       .from('athletes')
-      .select('first_name,last_name,nickname,email')
+      .select('first_name,last_name,nickname,email,credits,is_coach')
       .eq('id', payload.aid)
       .maybeSingle();
-const initials =
+
+    const initials =
       ((data?.first_name?.trim()?.[0] || '') + (data?.last_name?.trim()?.[0] || '')).toUpperCase()
       || (data?.email?.split('@')[0]?.slice(0, 2)?.toUpperCase() || '');
     displayName = data?.nickname?.trim() || initials || data?.email?.split('@')[0];
+
+    isCoach = !!data?.is_coach;
+    credits = data?.credits ?? 0;
   }
 
   return (
@@ -60,15 +69,12 @@ const initials =
                 <NavLink href="/score" label="Scores" />
               </nav>
 
-              {/* Right: Actions */}
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/display"
-                  className="px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800/80 text-sm font-medium"
-                >
-                  TV Display
-                </Link>
-              </div>
+              {/* Right: LIVE credits */}
+              <HeaderCredits
+                initialCredits={credits}
+                initialIsCoach={isCoach}
+                signedIn={signedIn}
+              />
             </div>
 
             {/* Secondary row for small screens: tabs full width */}
