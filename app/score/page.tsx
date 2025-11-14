@@ -4,6 +4,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
 
+// ---------- Types ----------
+
+type Role = 'coach' | 'athlete';
+
+type AthleteRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  nickname?: string | null;
+  team_name?: string | null;
+  email: string;
+  phone?: string | null;
+  dob?: string | null;
+};
+
 type Athlete = {
   id: string;
   firstName: string;
@@ -14,15 +29,15 @@ type Athlete = {
   phone: string;
   dob: string;
 };
-const keyAthletes = 'athletes';
-
-
-
-
 
 type ScoringType = 'for_time' | 'amrap' | 'emom';
 
-type StrengthPart = { title: string; description: string; scoreHint: string; recordScore?: boolean };
+type StrengthPart = {
+  title: string;
+  description: string;
+  scoreHint: string;
+  recordScore?: boolean;
+};
 
 type WOD = {
   date: string; // ISO YYYY-MM-DD
@@ -44,32 +59,41 @@ type Score = {
   part: 'main' | 'strength';
 };
 
+// ---------- Helpers ----------
+
 const todayStr = () => new Date().toISOString().slice(0, 10);
+
 const fmt = (iso: string) => {
   const [y, m, d] = iso.split('-');
   return `${d}-${m}-${y}`;
 };
 
 const wodKey = (d: string) => `wod:${d}`;
-const scoresKey = (d: string) => `scores:${d}`;                      // main WOD
-const strengthScoresKey = (d: string) => `scores_strength:${d}`;     // strength
-const submittedKey = (d: string) => `submitted:${d}`;                // per-day submissions
+const scoresKey = (d: string) => `scores:${d}`; // main WOD
+const strengthScoresKey = (d: string) => `scores_strength:${d}`; // strength
+const submittedKey = (d: string) => `submitted:${d}`; // per-day submissions
+
+// ---------- Component ----------
 
 export default function ScorePage() {
-  // Selection
-  const [date, setDate] = useState<string>(todayStr());
+  // Date / WOD
+  const [date, setDate] = useState(todayStr());
   const [wod, setWod] = useState<WOD | null>(null);
 
+  // Athletes / session
   const [athletes, setAthletes] = useState<Athlete[]>([]);
-const [athleteId, setAthleteId] = useState<string>(''); // αντί για free-text name
+  const [athleteId, setAthleteId] = useState<string>('');
+  const [role, setRole] = useState<Role>('athlete');
+  const [myId, setMyId] = useState<string | null>(null);
+  const [loadingAthletes, setLoadingAthletes] = useState(true);
 
-useEffect(() => {
-  const raw = localStorage.getItem(keyAthletes);
-  setAthletes(raw ? (JSON.parse(raw) as Athlete[]) : []);
-}, []); // μία φορά
+  const isCoach = role === 'coach';
 
-  // Athlete (shared)
-  const [athlete, setAthlete] = useState('');
+  // Combo box state
+  const [athleteInput, setAthleteInput] = useState('');
+  const [athleteOpen, setAthleteOpen] = useState(false);
+
+  // Athlete extra info
   const [team, setTeam] = useState('');
 
   // Strength
@@ -85,370 +109,612 @@ useEffect(() => {
   const [submittedNames, setSubmittedNames] = useState<string[]>([]); // normalized lowercased names
 
   // Flags from WOD config
-  const canRecordMain = (wod?.recordMainScore ?? true);
-  const canRecordStrength = (wod?.strength?.recordScore ?? false);
-  
-useEffect(() => {
-  if (!athleteId) return;
-  const a = athletes.find(x => x.id === athleteId);
-  // Αν υπάρχει teamName, βάλε το στο πεδίο Team — overwrite
-  if (a?.teamName) setTeam(a.teamName);
-}, [athleteId, athletes]);
+  const canRecordMain = wod?.recordMainScore ?? true;
+  const canRecordStrength = wod?.strength?.recordScore ?? false;
 
-useEffect(() => {
-  if (!athleteId) {
-    // Καμία επιλογή -> καθάρισε team
-    setTeam('');
-    return;
-  }
-  const a = athletes.find(x => x.id === athleteId);
-  // Αν έχει teamName -> βάλε το. Αλλιώς καθάρισε.
-  setTeam(a?.teamName ?? '');
-}, [athleteId, athletes]);
+  // ---------- Load current user + athletes ----------
 
-  // Load data for date
   useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoadingAthletes(true);
+
+        // who am I
+        const meRes = await fetch('/api/me', { cache: 'no-store' });
+        const meJ = await meRes.json().catch(() => ({} as any));
+
+        if (meRes.ok && meJ?.me) {
+          const r: Role = meJ.me.is_coach ? 'coach' : 'athlete';
+          setRole(r);
+          setMyId(meJ.me.id ?? null);
+        }
+
+        // list of athletes
+        const r = await fetch('/api/athletes', { cache: 'no-store' });
+        const j = await r.json().catch(() => ({} as any));
+
+        if (!alive) return;
+        if (!r.ok) throw new Error(j?.error || 'Failed to load athletes');
+
+        const rows = (j.items ?? []) as AthleteRow[];
+
+        const mapped: Athlete[] =
+          rows.map((a) => ({
+            id: a.id,
+            firstName: (a.first_name ?? '').trim() || a.email,
+            lastName: (a.last_name ?? '').trim() || '',
+            nickname: a.nickname ?? undefined,
+            teamName: a.team_name ?? undefined,
+            email: a.email,
+            phone: a.phone ?? '',
+            dob: a.dob ?? '',
+          })) ?? [];
+
+        setAthletes(mapped);
+
+        // If user is a regular athlete → auto-select themselves
+        if (meJ?.me && !meJ.me.is_coach && meJ.me.id) {
+          setAthleteId(meJ.me.id);
+        }
+      } catch (err) {
+        console.error('score: failed to load athletes', err);
+        if (alive) setAthletes([]);
+      } finally {
+        if (alive) setLoadingAthletes(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // ---------- Keep athleteInput in sync with athleteId ----------
+
+  useEffect(() => {
+    const a = athletes.find((x) => x.id === athleteId);
+    if (a) {
+      setAthleteInput(`${a.firstName} ${a.lastName}`.trim());
+    } else {
+      setAthleteInput('');
+    }
+  }, [athleteId, athletes]);
+
+  // ---------- Sync team with selected athlete, wipe if null ----------
+
+  useEffect(() => {
+    if (!athleteId) {
+      setTeam('');
+      return;
+    }
+    const a = athletes.find((x) => x.id === athleteId);
+    setTeam(a?.teamName ?? '');
+  }, [athleteId, athletes]);
+
+  // ---------- Load data from localStorage when date changes ----------
+
+  useEffect(() => {
+    // WOD
     const w = localStorage.getItem(wodKey(date));
     setWod(w ? (JSON.parse(w) as WOD) : null);
 
+    // Scores
     const sMain = localStorage.getItem(scoresKey(date));
     setScoresMain(sMain ? (JSON.parse(sMain) as Score[]) : []);
 
     const sStr = localStorage.getItem(strengthScoresKey(date));
     setScoresStrength(sStr ? (JSON.parse(sStr) as Score[]) : []);
 
+    // Submissions
     const subs = localStorage.getItem(submittedKey(date));
     setSubmittedNames(subs ? (JSON.parse(subs) as string[]) : []);
 
-    // clear inputs on date change
-    setAthlete('');
-    setTeam('');
+    // Clear inputs but keep selected athlete
     setValueStrength('');
     setRxScaled('RX');
     setValueMain('');
   }, [date]);
 
-  // Helpers to persist
+  // ---------- Persist helpers ----------
+
   const saveScoresMain = (list: Score[]) => {
     setScoresMain(list);
     localStorage.setItem(scoresKey(date), JSON.stringify(list));
   };
+
   const saveScoresStrength = (list: Score[]) => {
     setScoresStrength(list);
     localStorage.setItem(strengthScoresKey(date), JSON.stringify(list));
   };
+
   const saveSubmitted = (names: string[]) => {
     setSubmittedNames(names);
     localStorage.setItem(submittedKey(date), JSON.stringify(names));
   };
 
+  // ---------- Derived values ----------
 
+  const filteredAthletes = useMemo(() => {
+    const base = isCoach
+      ? athletes
+      : athletes.filter((a) => a.id === myId); // athletes see only themselves
 
-  // Derived: one-submit-per-day check
-const selectedAthlete = athletes.find(a => a.id === athleteId);
-const normalizedName = (selectedAthlete ? `${selectedAthlete.firstName} ${selectedAthlete.lastName}` : '')
-  .trim()
-  .toLowerCase();
-const alreadySubmitted: boolean = normalizedName ? submittedNames.includes(normalizedName) : false;
+    const needle = athleteInput.trim().toLowerCase();
+    if (!needle) return base;
 
-// RX πρώτα, μετά Scaled
-const rxRank = (s: Score) => (s.rxScaled === 'RX' ? 0 : 1);
+    return base.filter((a) => {
+      const full = `${a.firstName} ${a.lastName}`.toLowerCase();
+      return (
+        full.includes(needle) ||
+        (a.nickname ?? '').toLowerCase().includes(needle) ||
+        (a.teamName ?? '').toLowerCase().includes(needle)
+      );
+    });
+  }, [athletes, isCoach, myId, athleteInput]);
 
-// "mm:ss" -> seconds (ή απλά "ss")
-const toSec = (v: string) => {
-  const parts = v.split(':').map((n) => parseInt(n || '0', 10));
-  if (parts.length === 1) return parts[0] || 0;
-  return (parts[0] || 0) * 60 + (parts[1] || 0);
-};
+  const selectedAthlete = athletes.find((a) => a.id === athleteId);
+  const normalizedName = (
+    selectedAthlete ? `${selectedAthlete.firstName} ${selectedAthlete.lastName}` : ''
+  )
+    .trim()
+    .toLowerCase();
 
-// AMRAP/EMOM reps: "rounds+reps" → rounds*1000 + reps, αλλιώς σκέτο ακέραιο
-const toRepKey = (v: string) => {
-  if (v.includes('+')) {
-    const [r, reps] = v.split('+').map((x) => parseInt(x || '0', 10));
-    return r * 1000 + (reps || 0);
-  }
-  return parseInt(v || '0', 10);
-};
+  const alreadySubmitted: boolean = normalizedName
+    ? submittedNames.includes(normalizedName)
+    : false;
 
-// Strength: πάρε το ΜΕΓΙΣΤΟν ακέραιο από το string (kg ή reps) — μεγαλύτερο = καλύτερο
-const toNumberMax = (v: string) => {
-  const m = v.match(/-?\d+/g);
-  if (!m) return 0;
-  return Math.max(...m.map((n) => parseInt(n, 10)));
-};
+  // RX first, then Scaled
+  const rxRank = (s: Score) => (s.rxScaled === 'RX' ? 0 : 1);
 
-  // Sorting for Main WOD leaderboard
-const sortedMain = useMemo(() => {
-  const s = [...scoresMain];
-  if (!wod) return s;
+  // "mm:ss" -> seconds (or just "ss")
+  const toSec = (v: string) => {
+    const parts = v.split(':').map((n) => parseInt(n || '0', 10));
+    if (parts.length === 1) return parts[0] || 0;
+    return (parts[0] || 0) * 60 + (parts[1] || 0);
+  };
 
-  if (wod.scoring === 'for_time') {
-    // RX πρώτα, μετά χρόνος ↑ (μικρότερος καλύτερος)
-    return s.sort((a, b) => rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value));
-  }
+  // AMRAP/EMOM reps: "rounds+reps" → rounds*1000 + reps, else plain integer
+  const toRepKey = (v: string) => {
+    if (v.includes('+')) {
+      const [r, reps] = v.split('+').map((x) => parseInt(x || '0', 10));
+      return r * 1000 + (reps || 0);
+    }
+    return parseInt(v || '0', 10);
+  };
 
-  // AMRAP / EMOM → RX πρώτα, μετά reps ↓ (μεγαλύτερο καλύτερο)
-  return s.sort((a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value));
-}, [scoresMain, wod]);
+  // Strength: take MAX integer from string (kg or reps) — bigger is better
+  const toNumberMax = (v: string) => {
+    const m = v.match(/-?\d+/g);
+    if (!m) return 0;
+    return Math.max(...m.map((n) => parseInt(n, 10)));
+  };
 
+  // Main WOD leaderboard
+  const sortedMain = useMemo(() => {
+    const s = [...scoresMain];
+    if (!wod) return s;
 
-  // Strength leaderboard (simple: newest first)
-const sortedStrength = useMemo(() => {
-  // Μετριέται σε κιλά ή επαναλήψεις → μεγαλύτερος ακέραιος καλύτερα
-  const s = [...scoresStrength];
-  return s.sort((a, b) => toNumberMax(b.value) - toNumberMax(a.value));
-}, [scoresStrength]);
+    if (wod.scoring === 'for_time') {
+      // RX first, then time ↑ (smaller is better)
+      return s.sort(
+        (a, b) => rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value),
+      );
+    }
 
+    // AMRAP / EMOM → RX first, then reps ↓ (bigger is better)
+    return s.sort(
+      (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
+    );
+  }, [scoresMain, wod]);
 
-  // Single submit handler (no overwrite)
- const onSubmit = (e: React.FormEvent) => {
-  e.preventDefault();
+  // Strength leaderboard: higher number wins
+  const sortedStrength = useMemo(() => {
+    const s = [...scoresStrength];
+    return s.sort((a, b) => toNumberMax(b.value) - toNumberMax(a.value));
+  }, [scoresStrength]);
 
-  // από το dropdown
-  const selected = athletes.find(a => a.id === athleteId);
-  const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
-  const teamName = team.trim() || undefined;
+  // ---------- Submit ----------
 
-  const wantStrength = canRecordStrength && valueStrength.trim();
-  const wantMain = canRecordMain && valueMain.trim();
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
 
-  if (!name) return;
-  if (!wantStrength && !wantMain) return;
+    const selected = athletes.find((a) => a.id === athleteId);
+    const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
+    const teamName = team.trim() || undefined;
 
-  // block αν έχει ήδη κάνει submit σήμερα
-  const keyName = name.toLowerCase();
-  if (submittedNames.includes(keyName)) {
-    alert(`You have already submitted for ${fmt(date)}.`);
-    return;
-  }
+    const wantStrength = canRecordStrength && valueStrength.trim();
+    const wantMain = canRecordMain && valueMain.trim();
 
-  // Confirm
-  if (!window.confirm(`Submit scores for ${name} on ${fmt(date)}?\nThis cannot be changed later.`)) {
-    return;
-  }
+    if (!name) return;
+    if (!wantStrength && !wantMain) return;
 
-  if (wantStrength) {
-    const newScoreS: Score = {
-      id: crypto.randomUUID(),
-      athlete: name,
-      team: teamName,
-      rxScaled: 'RX',
-      value: valueStrength.trim(),
-      date,
-      part: 'strength',
-    };
-    saveScoresStrength([newScoreS, ...scoresStrength]);
-    setValueStrength('');
-  }
+    const keyName = name.toLowerCase();
+    if (submittedNames.includes(keyName)) {
+      alert(`You have already submitted for ${fmt(date)}.`);
+      return;
+    }
 
-  if (wantMain) {
-    const newScoreM: Score = {
-      id: crypto.randomUUID(),
-      athlete: name,
-      team: teamName,
-      rxScaled,
-      value: valueMain.trim(),
-      date,
-      part: 'main',
-    };
-    saveScoresMain([newScoreM, ...scoresMain]);
-    setValueMain('');
-  }
+    if (
+      !window.confirm(
+        `Submit scores for ${name} on ${fmt(date)}?\nThis cannot be changed later.`,
+      )
+    ) {
+      return;
+    }
 
-  // μαρκάρισμα “έκανε submit σήμερα”
-  const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
-  saveSubmitted(nextSubmitted);
-};
+    if (wantStrength) {
+      const newScoreS: Score = {
+        id: crypto.randomUUID(),
+        athlete: name,
+        team: teamName,
+        rxScaled: 'RX', // Strength is RX-only
+        value: valueStrength.trim(),
+        date,
+        part: 'strength',
+      };
+      saveScoresStrength([newScoreS, ...scoresStrength]);
+      setValueStrength('');
+    }
 
-const nameWithNick = (fullName: string) => {
-  const [fn, ...rest] = fullName.split(' ');
-  const ln = rest.join(' ');
-  const m = athletes.find(a => a.firstName === fn && a.lastName === ln);
-  return m?.nickname ? `${fullName} (${m.nickname})` : fullName;
-};
+    if (wantMain) {
+      const newScoreM: Score = {
+        id: crypto.randomUUID(),
+        athlete: name,
+        team: teamName,
+        rxScaled,
+        value: valueMain.trim(),
+        date,
+        part: 'main',
+      };
+      saveScoresMain([newScoreM, ...scoresMain]);
+      setValueMain('');
+    }
+
+    const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
+    saveSubmitted(nextSubmitted);
+  };
+
+  const nameWithNick = (fullName: string) => {
+    const [fn, ...rest] = fullName.split(' ');
+    const ln = rest.join(' ');
+    const m = athletes.find(
+      (a) => a.firstName === fn && a.lastName === ln,
+    );
+    return m?.nickname ? `${fullName} (${m.nickname})` : fullName;
+  };
+
+  // ---------- UI ----------
 
   return (
-    <section className="max-w-4xl">
+    <section className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       {/* Title */}
-      <h1 className="text-2xl font-bold mb-4">Scores</h1>
+      <header className="flex flex-col gap-2">
+        <h1 className="text-2xl font-semibold">Scores</h1>
 
-      {/* Date (standalone) */}
-      <div className="mb-4">
-        <label className="block text-sm mb-1 text-zinc-300">Date</label>
-<DateStepper value={date} onChange={setDate} />
+        {/* Date */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <span className="text-sm text-zinc-400">Date</span>
+          {/* @ts-ignore – DateStepper is JS-only */}
+          <DateStepper
+            value={date}
+            onChange={(v: string) => setDate(v)}
+          />
+        </div>
+      </header>
+
+      {/* Athlete */}
+      <div>
+        <h2 className="text-lg font-semibold">Athlete</h2>
+        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Combo box: search + select */}
+            <div className="relative">
+              <label className="block text-sm mb-1 text-zinc-300">
+                Athlete <span className="text-red-400">*</span>
+              </label>
+
+              <div className="flex items-center gap-1">
+                <input
+                  value={athleteInput}
+                  onChange={(e) => {
+                    if (!isCoach) return; // athletes cannot change themselves
+                    setAthleteInput(e.target.value);
+                    setAthleteOpen(true);
+                  }}
+                  onFocus={() => {
+                    if (isCoach) setAthleteOpen(true);
+                  }}
+                  onBlur={() => {
+                    // delay so click on option can fire
+                    setTimeout(() => setAthleteOpen(false), 120);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setAthleteOpen(false);
+                    }
+                  }}
+                  placeholder={
+                    isCoach ? 'Search/select athlete' : 'Your profile'
+                  }
+                  readOnly={!isCoach}
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm shadow-sm
+                             hover:border-emerald-500/70
+                             focus:outline-none focus:ring-2 focus:ring-emerald-600/50 focus:border-emerald-500
+                             transition-colors"
+                />
+
+                {isCoach && (
+                  <button
+                    type="button"
+                    onClick={() => setAthleteOpen((v) => !v)}
+                    className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
+                               hover:border-emerald-500/70 hover:bg-zinc-900
+                               focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
+                    aria-label="Toggle athlete list"
+                  >
+                    ▾
+                  </button>
+                )}
+              </div>
+
+              {/* Dropdown */}
+              {isCoach && athleteOpen && (
+                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900 shadow-lg">
+                  {loadingAthletes && (
+                    <div className="px-3 py-2 text-xs text-zinc-400">
+                      Loading athletes…
+                    </div>
+                  )}
+
+                  {!loadingAthletes && filteredAthletes.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-zinc-400">
+                      No athletes found.
+                    </div>
+                  )}
+
+                  {!loadingAthletes &&
+                    filteredAthletes.map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setAthleteId(a.id);
+                          setAthleteInput(
+                            `${a.firstName} ${a.lastName}`.trim(),
+                          );
+                          setAthleteOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80 flex flex-col gap-0.5"
+                      >
+                        <span className="text-zinc-100">
+                          {a.lastName}, {a.firstName}
+                        </span>
+                        <span className="text-[11px] flex gap-2">
+                          {a.nickname && (
+                            <span className="text-emerald-400">
+                              {a.nickname}
+                            </span>
+                          )}
+                          {a.teamName && (
+                            <span className="text-amber-300">
+                              {a.teamName}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              )}
+
+              {!isCoach && (
+                <p className="mt-1 text-xs text-zinc-500">
+                  As an athlete you can only submit scores for your own
+                  profile.
+                </p>
+              )}
+            </div>
+
+            {/* Team */}
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">
+                Team
+              </label>
+              <input
+                value={team}
+                onChange={(e) => setTeam(e.target.value)}
+                className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-emerald-600/40 focus:border-emerald-500
+                           transition"
+                placeholder="e.g. Red"
+                readOnly={!isCoach}
+              />
+            </div>
+          </div>
+
+          {alreadySubmitted && (
+            <div className="mt-2 text-xs text-amber-400">
+              This athlete has already submitted for {fmt(date)}. New
+              submissions are blocked.
+            </div>
+          )}
+        </div>
       </div>
-
-{/* Athlete */}
-<h2 className="text-lg font-semibold">Athlete</h2>
-<div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-    <div>
-      <label className="block text-sm mb-1 text-zinc-300">
-        Athlete <span className="text-red-400">*</span>
-      </label>
-      <select
-        value={athleteId}
-        onChange={(e) => setAthleteId(e.target.value)}
-        className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-      >
-        <option value="">— Select athlete —</option>
-        {athletes.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.lastName}, {a.firstName}
-          </option>
-        ))}
-      </select>
-    </div>
-
-    <div>
-      <label className="block text-sm mb-1 text-zinc-300">Team (optional)</label>
-      <input
-        value={team}
-        onChange={(e) => setTeam(e.target.value)}
-        className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-        placeholder="e.g. Red"
-      />
-    </div>
-  </div>
-
-  {alreadySubmitted && (
-    <div className="mt-2 text-xs text-amber-400">
-      This athlete has already submitted for {fmt(date)}. New submissions are blocked.
-    </div>
-  )}
-</div>
-
 
       {/* Strength / Skills — Score */}
-      <h2 className="text-lg font-semibold">Strength / Skills — Score</h2>
-      <div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
-        <div className="text-sm text-zinc-400 mb-2">
-          {wod?.strength?.title ? `Part: ${wod.strength.title}` : 'No Strength/Skills part set'}
-          {wod?.strength?.scoreHint ? ` • Hint: ${wod.strength.scoreHint}` : ''}
-        </div>
-        {!canRecordStrength ? (
-          <div className="p-3 border border-zinc-800 bg-zinc-900 rounded text-sm text-zinc-300">
-            Score recording for <span className="font-semibold">Strength / Skills</span> is <span className="font-semibold">disabled</span> for {fmt(date)}.
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Strength / Skills — Score</h2>
+        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-2">
+          <div className="text-sm text-zinc-300">
+            {wod?.strength?.title
+              ? `Part: ${wod.strength.title}`
+              : 'No Strength/Skills part set'}
+            {wod?.strength?.scoreHint
+              ? ` • Hint: ${wod.strength.scoreHint}`
+              : ''}
           </div>
-        ) : (
-          <div>
-            <label className="block text-sm mb-1 text-zinc-300">Score (Strength / Skills)</label>
-            <input
-              value={valueStrength}
-              onChange={(e) => setValueStrength(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-              placeholder="e.g. 5x5 @80kg • EMOM 10’ @ bodyweight"
-              disabled={!!alreadySubmitted}
-            />
-          </div>
-        )}
-      </div>
 
-      {/* Main WOD — Score */}
-      <h2 className="text-lg font-semibold">WOD — Score</h2>
-      <div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
-
-        {/* WOD info (title / scoring / timecap / description) */}
-<div className="text-sm text-zinc-400 mb-2">
-  {wod?.title ? `WOD: ${wod.title}` : 'No Main WOD set'}
-  {wod ? ` • Scoring: ${wod.scoring.toUpperCase()}` : ''}
-  {wod?.timeCap ? ` • Time cap: ${wod.timeCap}` : ''}
-</div>
-<div className="text-sm text-zinc-300 whitespace-pre-wrap mb-3">
-  {wod?.description || '—'}
-</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="md:col-span-1">
-            <label className="block text-sm mb-1 text-zinc-300">RX/Scaled</label>
-            <select
-              value={rxScaled}
-              onChange={(e) => setRxScaled(e.target.value as 'RX' | 'Scaled')}
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-              disabled={!canRecordMain || !!alreadySubmitted}
-            >
-              <option>RX</option>
-              <option>Scaled</option>
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm mb-1 text-zinc-300">Score (Main WOD)</label>
-            {!canRecordMain ? (
-              <div className="p-3 border border-zinc-800 bg-zinc-900 rounded text-sm text-zinc-300">
-                Score recording for the <span className="font-semibold">Main WOD</span> is <span className="font-semibold">disabled</span> for {fmt(date)}.
-              </div>
-            ) : (
+          {!canRecordStrength ? (
+            <p className="text-xs text-zinc-400">
+              Score recording for <span className="font-semibold">Strength /
+              Skills</span> is disabled for {fmt(date)}.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              <label className="block text-sm mb-1 text-zinc-300">
+                Score (Strength / Skills)
+              </label>
               <input
-                value={valueMain}
-                onChange={(e) => setValueMain(e.target.value)}
+                value={valueStrength}
+                onChange={(e) => setValueStrength(e.target.value)}
                 className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-                placeholder="FOR TIME: mm:ss • AMRAP/EMOM: rounds+reps (e.g. 7+12)"
+                placeholder="e.g. 5x5 @80kg • EMOM 10’ @ bodyweight"
                 disabled={!!alreadySubmitted}
               />
-            )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Main WOD — Score */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">WOD — Score</h2>
+        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-3">
+          {/* WOD info */}
+          <div className="text-sm text-zinc-300">
+            {wod?.title ? `WOD: ${wod.title}` : 'No Main WOD set'}
+            {wod ? ` • Scoring: ${wod.scoring.toUpperCase()}` : ''}
+            {wod?.timeCap ? ` • Time cap: ${wod.timeCap}` : ''}
+          </div>
+          <div className="text-xs text-zinc-400">
+            {wod?.description || '—'}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">
+                RX/Scaled
+              </label>
+              <select
+                value={rxScaled}
+                onChange={(e) =>
+                  setRxScaled(e.target.value as 'RX' | 'Scaled')
+                }
+                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                disabled={!canRecordMain || !!alreadySubmitted}
+              >
+                <option value="RX">RX</option>
+                <option value="Scaled">Scaled</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm mb-1 text-zinc-300">
+                Score (Main WOD)
+              </label>
+              {!canRecordMain ? (
+                <p className="text-xs text-zinc-400">
+                  Score recording for the Main WOD is disabled for{' '}
+                  {fmt(date)}.
+                </p>
+              ) : (
+                <input
+                  value={valueMain}
+                  onChange={(e) => setValueMain(e.target.value)}
+                  className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                  placeholder="FOR TIME: mm:ss • AMRAP/EMOM: rounds+reps (e.g. 7+12)"
+                  disabled={!!alreadySubmitted}
+                />
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Single Submit */}
-      <form onSubmit={onSubmit} className="mb-6">
+      {/* Submit */}
+      <div>
         <button
-          className="px-4 py-2 rounded border border-zinc-700 hover:bg-zinc-800 text-sm"
-          disabled={!!alreadySubmitted}
-          title={alreadySubmitted ? `Already submitted for ${fmt(date)}` : 'Submit'}
+          type="button"
+          onClick={onSubmit}
+          className="px-4 py-2 rounded-md border border-emerald-700 text-emerald-300 hover:bg-emerald-950/30 text-sm"
         >
           Submit
         </button>
-      </form>
-
-      {/* Leaderboard title */}
-      <h2 className="text-lg font-semibold text-center mb-3">Leaderboard</h2>
-
-      {/* Two columns: Strength (left) / WOD (right) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Strength column */}
-        <div className="border border-zinc-800 rounded">
-          <div className="px-3 py-2 border-b border-zinc-800 font-semibold">Strength</div>
-          {scoresStrength.length === 0 ? (
-            <div className="p-3 text-sm text-zinc-400">No scores for {fmt(date)}.</div>
-          ) : (
-            <ul className="divide-y divide-zinc-800">
-              {sortedStrength.map((s, i) => (
-                <li key={s.id} className="p-3 flex items-center gap-3">
-                  <div className="w-8 text-zinc-400">#{i + 1}</div>
-                  <div className="flex-1">
-                    <div className="font-medium">{nameWithNick(s.athlete)}</div>
-                    <div className="text-xs text-zinc-400">{s.team || ''}</div>
-                  </div>
-                  <div className="text-sm font-semibold">{s.value}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Main WOD column */}
-        <div className="border border-zinc-800 rounded">
-          <div className="px-3 py-2 border-b border-zinc-800 font-semibold">WOD</div>
-          {sortedMain.length === 0 ? (
-            <div className="p-3 text-sm text-zinc-400">No scores for {fmt(date)}.</div>
-          ) : (
-            <ul className="divide-y divide-zinc-800">
-              {sortedMain.map((s, i) => (
-                <li key={s.id} className="p-3 flex items-center gap-3">
-                  <div className="w-8 text-zinc-400">#{i + 1}</div>
-                  <div className="flex-1">
-                    <div className="font-medium">{nameWithNick(s.athlete)}</div>
-                    <div className="text-xs text-zinc-400">
-                      {s.team ? `${s.team} • ` : ''}{s.rxScaled}
-                    </div>
-                  </div>
-                  <div className="text-sm font-semibold">{s.value}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
       </div>
+
+      {/* Leaderboard */}
+      <section className="mt-4 space-y-3">
+        <h2 className="text-lg font-semibold text-center">Leaderboard</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Strength */}
+          <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
+            <div className="text-sm font-semibold mb-2">Strength</div>
+            {scoresStrength.length === 0 ? (
+              <p className="text-xs text-zinc-400">
+                No scores for {fmt(date)}.
+              </p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {sortedStrength.map((s, i) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <div className="flex-1">
+                      <div className="text-xs text-zinc-500">
+                        #{i + 1}
+                      </div>
+                      <div className="font-medium">
+                        {nameWithNick(s.athlete)}
+                      </div>
+                      <div className="text-xs text-zinc-400">
+                        {s.team || ''}
+                      </div>
+                    </div>
+                    <div className="text-sm font-semibold">{s.value}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Main WOD */}
+          <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
+            <div className="text-sm font-semibold mb-2">WOD</div>
+            {sortedMain.length === 0 ? (
+              <p className="text-xs text-zinc-400">
+                No scores for {fmt(date)}.
+              </p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {sortedMain.map((s, i) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <div className="flex-1">
+                      <div className="text-xs text-zinc-500">
+                        #{i + 1}
+                      </div>
+                      <div className="font-medium">
+                        {nameWithNick(s.athlete)}
+                      </div>
+                      <div className="text-xs text-zinc-400">
+                        {s.team ? `${s.team} • ` : ''}
+                        {s.rxScaled}
+                      </div>
+                    </div>
+                    <div className="text-sm font-semibold">{s.value}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
     </section>
   );
 }
