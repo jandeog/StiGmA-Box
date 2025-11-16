@@ -64,6 +64,91 @@ type WodApi = {
   } | null;
   locked?: boolean;
 };
+type StrengthScoreKind = 'weight' | 'reps' | 'time' | 'other';
+
+function inferStrengthScoreKind(str?: StrengthPart): StrengthScoreKind {
+  if (!str) return 'other';
+  const blob = `${str.title} ${str.description} ${str.scoreHint}`.toLowerCase();
+
+  // Typical CF strength cues → weight (kg)
+  if (
+    /rm\b|1rm|2rm|3rm|5rm|heavy|max load|load|kg|barbell|snatch|clean|jerk|deadlift|back squat|front squat|press|ohs/.test(
+      blob,
+    )
+  ) {
+    return 'weight';
+  }
+
+  // Max reps / bodyweight tests → reps
+  if (
+    /max reps|reps|pull[- ]?ups|push[- ]?ups|burpees|wall balls|double unders|sit[- ]?ups|row|calories/.test(
+      blob,
+    )
+  ) {
+    return 'reps';
+  }
+
+  // Strength “for time” intervals
+  if (
+    /for time|time cap|min|sec|second|minute|tempo|emom|on the minute/.test(
+      blob,
+    )
+  ) {
+    return 'time';
+  }
+
+  return 'other';
+}
+
+function getMainScoreMeta(wod: WOD | null): {
+  label: string;
+  placeholder: string;
+  help: string;
+} {
+  if (!wod) {
+    return {
+      label: 'Score (Main WOD)',
+      placeholder: 'Enter score',
+      help: '',
+    };
+  }
+
+  switch (wod.scoring) {
+    case 'for_time':
+      return {
+        label: 'Time (FOR TIME)',
+        placeholder: 'mm:ss (if capped: rounds+reps, e.g. 7+15)',
+        help:
+          'If you finish under the cap, record your time (mm:ss). If you are time-capped, record rounds+reps.',
+      };
+    case 'amrap':
+      return {
+        label: 'Reps / Rounds+Reps (AMRAP)',
+        placeholder: 'rounds+reps (e.g. 7+12)',
+        help: 'Record total completed rounds and extra reps, e.g. 7+12.',
+      };
+    case 'emom':
+      return {
+        label: 'Reps per minute / total reps (EMOM)',
+        placeholder: 'total reps or best unbroken set (e.g. 85)',
+        help:
+          'Common options: total reps across all minutes, or best unbroken set. Pick one method and keep it consistent.',
+      };
+    case 'max_load':
+      return {
+        label: 'Load (MAX LOAD)',
+        placeholder: 'heaviest successful lift in kg (e.g. 120)',
+        help: 'Record your heaviest successful lift in kilograms.',
+      };
+    case 'other':
+    default:
+      return {
+        label: 'Score (Main WOD)',
+        placeholder: 'Enter score (time, reps or load)',
+        help: 'Use the score format described in the workout notes.',
+      };
+  }
+}
 
 type Score = {
   id: string;
@@ -382,6 +467,34 @@ export default function ScorePage() {
     return s.sort((a, b) => toNumberMax(b.value) - toNumberMax(a.value));
   }, [scoresStrength]);
 
+  // Score meta based on WOD / strength configuration
+  const strengthKind = useMemo(
+    () => inferStrengthScoreKind(wod?.strength),
+    [wod],
+  );
+
+  const strengthLabel =
+    strengthKind === 'weight'
+      ? 'Score (kg / load)'
+      : strengthKind === 'reps'
+      ? 'Score (reps)'
+      : strengthKind === 'time'
+      ? 'Score (time, mm:ss)'
+      : 'Score (Strength / Skills)';
+
+  const strengthPlaceholder =
+    strengthKind === 'weight'
+      ? 'Heaviest successful load in kg (e.g. 120)'
+      : strengthKind === 'reps'
+      ? 'Max reps or total reps (e.g. 45)'
+      : strengthKind === 'time'
+      ? 'Time in mm:ss (e.g. 02:30)'
+      : 'e.g. 5x5 @80kg • EMOM 10’ @ bodyweight';
+
+  const mainScoreMeta = useMemo(() => getMainScoreMeta(wod), [wod]);
+
+  // ---------- Submit ----------
+
   // ---------- Submit ----------
 
   const onSubmit = (e: React.FormEvent) => {
@@ -490,18 +603,15 @@ export default function ScorePage() {
                     setAthleteInput(e.target.value);
                     setAthleteOpen(true);
                   }}
-                  onFocus={() => {
-                    if (isCoach) setAthleteOpen(true);
-                  }}
-                  onBlur={() => {
-                    // delay so click on option can fire
-                    setTimeout(() => setAthleteOpen(false), 120);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setAthleteOpen(false);
-                    }
-                  }}
+                    onFocus={() => {
+    if (isCoach) setAthleteOpen(true);
+  }}
+  // removed onBlur – dropdown will stay open until user picks / changes
+  onKeyDown={(e) => {
+    if (e.key === 'Escape') {
+      setAthleteOpen(false);
+    }
+  }}
                   placeholder={
                     isCoach ? 'Search/select athlete' : 'Your profile'
                   }
@@ -512,22 +622,22 @@ export default function ScorePage() {
                              transition-colors"
                 />
 
-                {isCoach && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Clear input and show full list
-                      setAthleteInput('');
-                      setAthleteOpen(true);
-                    }}
-                    className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
-                               hover:border-emerald-500/70 hover:bg-zinc-900
-                               focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
-                    aria-label="Toggle athlete list"
-                  >
-                    ▾
-                  </button>
-                )}
+{isCoach && (
+  <button
+    type="button"
+    onClick={() => {
+      // Clear the visible name and show full list immediately
+      setAthleteInput('');
+      setAthleteOpen(true);
+    }}
+    className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
+               hover:border-emerald-500/70 hover:bg-zinc-900
+               focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
+    aria-label="Toggle athlete list"
+  >
+    ▾
+  </button>
+)}
               </div>
 
               {/* Dropdown */}
@@ -545,31 +655,32 @@ export default function ScorePage() {
                     </div>
                   )}
 
-                  {!loadingAthletes &&
-                    filteredAthletes.map((a) => (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setAthleteId(a.id);
-                          setAthleteInput(
-                            `${a.firstName} ${a.lastName}`.trim(),
-                          );
-                          setAthleteOpen(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80 flex flex-col gap-0.5"
-                      >
-                        <span className="text-zinc-100">
-                          {a.lastName}, {a.firstName}
-                        </span>
-                        {a.nickname && (
-                          <span className="text-[11px] text-emerald-400">
-                            {a.nickname}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+{!loadingAthletes &&
+  filteredAthletes.map((a) => (
+    <button
+      key={a.id}
+      type="button"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        setAthleteId(a.id);
+        setAthleteInput(
+          `${a.firstName} ${a.lastName}`.trim(),
+        );
+        setAthleteOpen(false);
+      }}
+      className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80"
+    >
+      <span className="text-zinc-100">
+        {a.lastName}, {a.firstName}
+        {a.nickname && (
+          <span className="text-emerald-400">
+            {`, ${a.nickname}`}
+          </span>
+        )}
+      </span>
+    </button>
+  ))}
+
                 </div>
               )}
 
@@ -629,16 +740,17 @@ export default function ScorePage() {
             </p>
           ) : (
             <div className="space-y-1">
-              <label className="block text-sm mb-1 text-zinc-300">
-                Score (Strength / Skills)
-              </label>
-              <input
-                value={valueStrength}
-                onChange={(e) => setValueStrength(e.target.value)}
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-                placeholder="e.g. 5x5 @80kg • EMOM 10’ @ bodyweight"
-                disabled={!!alreadySubmitted}
-              />
+             <label className="block text-sm mb-1 text-zinc-300">
+  {strengthLabel}
+</label>
+<input
+  value={valueStrength}
+  onChange={(e) => setValueStrength(e.target.value)}
+  className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+  placeholder={strengthPlaceholder}
+  disabled={!!alreadySubmitted}
+/>
+
             </div>
           )}
         </div>
@@ -681,23 +793,31 @@ export default function ScorePage() {
             </div>
 
             <div>
-              <label className="block text-sm mb-1 text-zinc-300">
-                Score (Main WOD)
-              </label>
-              {!canRecordMain ? (
-                <p className="text-xs text-zinc-400">
-                  Score recording for the Main WOD is disabled for{' '}
-                  {fmt(date)}.
-                </p>
-              ) : (
-                <input
-                  value={valueMain}
-                  onChange={(e) => setValueMain(e.target.value)}
-                  className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-                  placeholder="FOR TIME: mm:ss • AMRAP/EMOM: rounds+reps (e.g. 7+12)"
-                  disabled={!!alreadySubmitted}
-                />
-              )}
+<label className="block text-sm mb-1 text-zinc-300">
+  {mainScoreMeta.label}
+</label>
+{!canRecordMain ? (
+  <p className="text-xs text-zinc-400">
+    Score recording for the Main WOD is disabled for{' '}
+    {fmt(date)}.
+  </p>
+) : (
+  <>
+    <input
+      value={valueMain}
+      onChange={(e) => setValueMain(e.target.value)}
+      className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+      placeholder={mainScoreMeta.placeholder}
+      disabled={!!alreadySubmitted}
+    />
+    {mainScoreMeta.help && (
+      <p className="mt-1 text-xs text-zinc-500">
+        {mainScoreMeta.help}
+      </p>
+    )}
+  </>
+)}
+
             </div>
           </div>
         </div>
