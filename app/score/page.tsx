@@ -150,6 +150,134 @@ function getMainScoreMeta(wod: WOD | null): {
   }
 }
 
+// ---------- Validation helpers ----------
+
+type ValidationResult = { ok: true } | { ok: false; message: string };
+
+function validateTime(value: string): boolean {
+  const trimmed = value.trim();
+  const re = /^(\d{1,2}):([0-5]\d)$/;
+  return re.test(trimmed);
+}
+
+function validateRoundsReps(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const re = /^\d+(\+\d+)?$/;
+  return re.test(trimmed);
+}
+
+function validateInteger(value: string): boolean {
+  return /^\d+$/.test(value.trim());
+}
+
+function validateNumberish(value: string): boolean {
+  return /-?\d+(\.\d+)?/.test(value.trim());
+}
+
+function validateStrengthScore(
+  kind: StrengthScoreKind,
+  raw: string,
+): ValidationResult {
+  const v = raw.trim();
+  if (!v) return { ok: false, message: 'Add a strength/skills score.' };
+
+  if (kind === 'weight') {
+    if (!validateNumberish(v)) {
+      return {
+        ok: false,
+        message:
+          'For load-based strength work, enter a number (e.g. 120 or 120kg).',
+      };
+    }
+    return { ok: true };
+  }
+
+  if (kind === 'reps') {
+    if (!validateInteger(v)) {
+      return {
+        ok: false,
+        message: 'For rep-based strength work, enter whole reps only (e.g. 45).',
+      };
+    }
+    return { ok: true };
+  }
+
+  if (kind === 'time') {
+    if (!validateTime(v)) {
+      return {
+        ok: false,
+        message:
+          'For time-based strength work, use mm:ss (e.g. 02:30).',
+      };
+    }
+    return { ok: true };
+  }
+
+  // other – just require something
+  return { ok: true };
+}
+
+function validateMainScore(
+  scoring: ScoringType | null,
+  raw: string,
+): ValidationResult {
+  const v = raw.trim();
+  if (!v) {
+    return {
+      ok: false,
+      message: 'Add a score for the Main WOD or leave it empty.',
+    };
+  }
+
+  if (!scoring || scoring === 'other') {
+    return { ok: true };
+  }
+
+  if (scoring === 'for_time') {
+    // either mm:ss or rounds+reps
+    if (validateTime(v) || validateRoundsReps(v)) return { ok: true };
+    return {
+      ok: false,
+      message:
+        'For FOR TIME, enter either finishing time as mm:ss or, if time-capped, rounds+reps (e.g. 7+15).',
+    };
+  }
+
+  if (scoring === 'amrap') {
+    if (!validateRoundsReps(v)) {
+      return {
+        ok: false,
+        message: 'For AMRAP, enter rounds+reps (e.g. 7+12).',
+      };
+    }
+    return { ok: true };
+  }
+
+  if (scoring === 'emom') {
+    if (!validateInteger(v)) {
+      return {
+        ok: false,
+        message: 'For EMOM, enter total reps (e.g. 85).',
+      };
+    }
+    return { ok: true };
+  }
+
+  if (scoring === 'max_load') {
+    if (!validateNumberish(v)) {
+      return {
+        ok: false,
+        message: 'For MAX LOAD, enter the heaviest successful load in kg (e.g. 120).',
+      };
+    }
+    return { ok: true };
+  }
+
+  return { ok: true };
+}
+
+
 type Score = {
   id: string;
   athlete: string;
@@ -205,12 +333,15 @@ export default function ScorePage() {
   // Athlete extra info
   const [team, setTeam] = useState('');
 
-  // Strength
-  const [valueStrength, setValueStrength] = useState('');
+// Strength
+const [rxScaledStrength, setRxScaledStrength] =
+  useState<'RX' | 'Scaled'>('RX');
+const [valueStrength, setValueStrength] = useState('');
 
-  // Main WOD
-  const [rxScaled, setRxScaled] = useState<'RX' | 'Scaled'>('RX');
-  const [valueMain, setValueMain] = useState('');
+// Main WOD
+const [rxScaled, setRxScaled] = useState<'RX' | 'Scaled'>('RX');
+const [valueMain, setValueMain] = useState('');
+
 
   // Lists
   const [scoresMain, setScoresMain] = useState<Score[]>([]);
@@ -509,6 +640,21 @@ export default function ScorePage() {
 
     if (!name) return;
     if (!wantStrength && !wantMain) return;
+if (wantStrength) {
+  const vRes = validateStrengthScore(strengthKind, valueStrength);
+  if (!vRes.ok) {
+    alert(vRes.message);
+    return;
+  }
+}
+
+if (wantMain) {
+  const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
+  if (!vRes.ok) {
+    alert(vRes.message);
+    return;
+  }
+}
 
     const keyName = name.toLowerCase();
     if (submittedNames.includes(keyName)) {
@@ -529,7 +675,7 @@ export default function ScorePage() {
         id: crypto.randomUUID(),
         athlete: name,
         team: teamName,
-        rxScaled: 'RX', // Strength is RX-only
+        rxScaled: rxScaledStrength,
         value: valueStrength.trim(),
         date,
         part: 'strength',
@@ -719,19 +865,59 @@ export default function ScorePage() {
       </div>
 
       {/* Strength / Skills — Score */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Strength / Skills — Score</h2>
-        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-2">
-          <div className="text-sm text-zinc-300">
-            {wod?.strength?.title
-              ? `Part: ${wod.strength.title}`
-              : loadingWod
-              ? 'Loading Strength / Skills part…'
-              : 'No Strength/Skills part set'}
-            {wod?.strength?.scoreHint
-              ? ` • Hint: ${wod.strength.scoreHint}`
-              : ''}
-          </div>
+<section className="space-y-2">
+  <div className="flex items-center justify-between gap-3">
+    <h2 className="text-lg font-semibold">Strength / Skills</h2>
+
+    {canRecordStrength && (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-zinc-400 hidden sm:inline">
+          RX / Scaled
+        </span>
+        <label className="inline-flex items-center gap-1">
+          <input
+            type="radio"
+            className="h-3 w-3 accent-emerald-500"
+            checked={rxScaledStrength === 'RX'}
+            onChange={() => setRxScaledStrength('RX')}
+          />
+          <span className="text-[11px] text-zinc-200">RX</span>
+        </label>
+        <label className="inline-flex items-center gap-1">
+          <input
+            type="radio"
+            className="h-3 w-3 accent-emerald-500"
+            checked={rxScaledStrength === 'Scaled'}
+            onChange={() => setRxScaledStrength('Scaled')}
+          />
+          <span className="text-[11px] text-zinc-200">Scaled</span>
+        </label>
+      </div>
+    )}
+  </div>
+
+  <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-2">
+    <div className="text-sm text-zinc-300">
+      {wod?.strength?.title
+        ? `Part: ${wod.strength.title}`
+        : loadingWod
+        ? 'Loading Strength / Skills part…'
+        : 'No Strength/Skills part set'}
+    </div>
+
+    {wod?.strength?.description && (
+      <div className="text-xs text-zinc-400 whitespace-pre-line">
+        {wod.strength.description}
+      </div>
+    )}
+
+    {wod?.strength?.scoreHint && (
+      <div className="text-xs text-zinc-500 mt-1">
+        Hint: {wod.strength.scoreHint}
+      </div>
+    )}
+    ...
+
 
           {!canRecordStrength ? (
             <p className="text-xs text-zinc-400">
@@ -757,8 +943,36 @@ export default function ScorePage() {
       </section>
 
       {/* Main WOD — Score */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">WOD — Score</h2>
+<section className="space-y-2">
+  <div className="flex items-center justify-between gap-3">
+    <h2 className="text-lg font-semibold">WOD</h2>
+
+    {canRecordMain && (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-zinc-400 hidden sm:inline">
+          RX / Scaled
+        </span>
+        <label className="inline-flex items-center gap-1">
+          <input
+            type="radio"
+            className="h-3 w-3 accent-emerald-500"
+            checked={rxScaled === 'RX'}
+            onChange={() => setRxScaled('RX')}
+          />
+          <span className="text-[11px] text-zinc-200">RX</span>
+        </label>
+        <label className="inline-flex items-center gap-1">
+          <input
+            type="radio"
+            className="h-3 w-3 accent-emerald-500"
+            checked={rxScaled === 'Scaled'}
+            onChange={() => setRxScaled('Scaled')}
+          />
+          <span className="text-[11px] text-zinc-200">Scaled</span>
+        </label>
+      </div>
+    )}
+  </div>
         <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-3">
           {/* WOD info */}
           <div className="text-sm text-zinc-300">
@@ -770,9 +984,9 @@ export default function ScorePage() {
             {wod ? ` • Scoring: ${wod.scoring.toUpperCase()}` : ''}
             {wod?.timeCap ? ` • Time cap: ${wod.timeCap}` : ''}
           </div>
-          <div className="text-xs text-zinc-400">
-            {loadingWod ? '' : wod?.description || '—'}
-          </div>
+<div className="text-xs text-zinc-400 whitespace-pre-line">
+  {loadingWod ? '' : wod?.description || '—'}
+</div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div>
@@ -792,33 +1006,33 @@ export default function ScorePage() {
               </select>
             </div>
 
-            <div>
-<label className="block text-sm mb-1 text-zinc-300">
-  {mainScoreMeta.label}
-</label>
-{!canRecordMain ? (
-  <p className="text-xs text-zinc-400">
-    Score recording for the Main WOD is disabled for{' '}
-    {fmt(date)}.
-  </p>
-) : (
-  <>
-    <input
-      value={valueMain}
-      onChange={(e) => setValueMain(e.target.value)}
-      className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-      placeholder={mainScoreMeta.placeholder}
-      disabled={!!alreadySubmitted}
-    />
-    {mainScoreMeta.help && (
-      <p className="mt-1 text-xs text-zinc-500">
-        {mainScoreMeta.help}
-      </p>
-    )}
-  </>
-)}
+<div>
+  <label className="block text-sm mb-1 text-zinc-300">
+    {mainScoreMeta.label}
+  </label>
+  {!canRecordMain ? (
+    <p className="text-xs text-zinc-400">
+      Score recording for the Main WOD is disabled for{' '}
+      {fmt(date)}.
+    </p>
+  ) : (
+    <>
+      <input
+        value={valueMain}
+        onChange={(e) => setValueMain(e.target.value)}
+        className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+        placeholder={mainScoreMeta.placeholder}
+        disabled={!!alreadySubmitted}
+      />
+      {mainScoreMeta.help && (
+        <p className="mt-1 text-xs text-zinc-500">
+          {mainScoreMeta.help}
+        </p>
+      )}
+    </>
+  )}
+</div>
 
-            </div>
           </div>
         </div>
       </section>
