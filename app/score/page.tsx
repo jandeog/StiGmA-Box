@@ -989,22 +989,7 @@ if (wantMain) {
 </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">
-                RX/Scaled
-              </label>
-              <select
-                value={rxScaled}
-                onChange={(e) =>
-                  setRxScaled(e.target.value as 'RX' | 'Scaled')
-                }
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-                disabled={!canRecordMain || !!alreadySubmitted}
-              >
-                <option value="RX">RX</option>
-                <option value="Scaled">Scaled</option>
-              </select>
-            </div>
+
 
 <div>
   <label className="block text-sm mb-1 text-zinc-300">
