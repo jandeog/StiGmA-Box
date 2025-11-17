@@ -1,3 +1,4 @@
+// app/api/attendance/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -16,13 +17,15 @@ async function requireCoach() {
   const sess = await verifySession(token);
   if (!sess?.aid) return { error: json({ error: 'Unauthorized' }, 401) };
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('athletes')
     .select('is_coach')
     .eq('id', sess.aid)
     .maybeSingle();
 
+  if (error) return { error: json({ error: error.message }, 500) };
   if (!data?.is_coach) return { error: json({ error: 'Forbidden' }, 403) };
+
   return { sess };
 }
 
@@ -33,10 +36,9 @@ export async function GET(req: NextRequest) {
 
   const auth = await requireCoach();
   if (auth.error) return auth.error;
-
   if (!slotId) return json({ error: 'Missing slotId' }, 400);
 
-  // slot meta
+  // Slot meta
   const { data: slot, error: se } = await supabaseAdmin
     .from('schedule_slots')
     .select('id,date,time,title,capacity_main,capacity_wait')
@@ -45,35 +47,47 @@ export async function GET(req: NextRequest) {
   if (se) return json({ error: se.message }, 500);
   if (!slot) return json({ error: 'Slot not found' }, 404);
 
-  // stats
-  const { data: counts, error: ce } = await supabaseAdmin
+  // Counts
+  const { data: countRows, error: ce } = await supabaseAdmin
     .from('schedule_participants')
     .select('list_type', { count: 'exact' })
     .eq('slot_id', slotId);
   if (ce) return json({ error: ce.message }, 500);
-  const booked_main = (counts ?? []).filter((r) => r.list_type === 'main').length;
-  const booked_wait = (counts ?? []).filter((r) => r.list_type === 'wait').length;
+  const booked_main = (countRows ?? []).filter(r => r.list_type === 'main').length;
+  const booked_wait  = (countRows ?? []).filter(r => r.list_type === 'wait').length;
 
-  // roster (qualify list_type and include attendance)
-  const { data: rosterRows, error: re } = await supabaseAdmin
+  // Roster: participants (+ athlete data)
+  const { data: partRows, error: re1 } = await supabaseAdmin
     .from('schedule_participants')
-    .select(
-      `athlete_id, list_type,
-       athletes!inner(first_name,last_name,email),
-       attendance:attendance!left(attended, attended_at)`
-    )
+    .select(`athlete_id, list_type,
+             athletes!inner(first_name,last_name,email)`)
     .eq('slot_id', slotId);
-  if (re) return json({ error: re.message }, 500);
+  if (re1) return json({ error: re1.message }, 500);
 
-  const roster = (rosterRows ?? []).map((r: any) => ({
-    athlete_id: r.athlete_id,
-    first_name: r.athletes?.first_name ?? '',
-    last_name: r.athletes?.last_name ?? '',
-    email: r.athletes?.email ?? '',
-    list_type: r.list_type as 'main' | 'wait',
-    attended: !!r.attendance?.[0]?.attended,
-    attended_at: r.attendance?.[0]?.attended_at ?? null,
-  }));
+  // Attendance: fetched separately (no FK inference required)
+  const { data: attRows, error: re2 } = await supabaseAdmin
+    .from('attendance')
+    .select('athlete_id, attended, attended_at')
+    .eq('slot_id', slotId);
+  if (re2) return json({ error: re2.message }, 500);
+
+  // Merge participants with attendance
+  const attByAthlete = new Map(
+    (attRows ?? []).map(r => [r.athlete_id, { attended: !!r.attended, attended_at: r.attended_at }])
+  );
+
+  const roster = (partRows ?? []).map((r: any) => {
+    const a = attByAthlete.get(r.athlete_id);
+    return {
+      athlete_id: r.athlete_id,
+      first_name: r.athletes?.first_name ?? '',
+      last_name:  r.athletes?.last_name  ?? '',
+      email:      r.athletes?.email      ?? '',
+      list_type:  r.list_type as 'main' | 'wait',
+      attended:   a?.attended ?? false,
+      attended_at:a?.attended_at ?? null,
+    };
+  });
 
   return json({
     slot,
@@ -82,7 +96,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/** POST /api/attendance  { action, ... }  */
+/** POST /api/attendance  { action, ... } */
 export async function POST(req: NextRequest) {
   const auth = await requireCoach();
   if (auth.error) return auth.error;
@@ -91,9 +105,8 @@ export async function POST(req: NextRequest) {
   const action = body?.action as 'search' | 'add' | 'toggle';
 
   if (action === 'search') {
-    const slotId = body?.slotId as string;
     const q = (body?.q || '').trim();
-    if (!slotId || !q) return json({ results: [] });
+    if (!q) return json({ results: [] });
 
     const { data, error } = await supabaseAdmin
       .from('athletes')
@@ -101,26 +114,26 @@ export async function POST(req: NextRequest) {
       .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`)
       .order('last_name', { ascending: true })
       .limit(20);
-    if (error) return json({ error: error.message }, 500);
 
+    if (error) return json({ error: error.message }, 500);
     return json({ results: data ?? [] });
   }
 
   if (action === 'add') {
     const slotId = body?.slotId as string;
     const athleteId = body?.athleteId as string;
+    const listType: 'main' | 'wait' = body?.listType ?? 'main';
     if (!slotId || !athleteId) return json({ error: 'Missing slotId/athleteId' }, 400);
 
-    // Move/add participant via RPC (resolves the "list_type is ambiguous")
-    // Choose list_type = 'main' by default; you can change to 'wait' if needed.
-    const { data: moved, error: rpcErr } = await supabaseAdmin.rpc('add_or_move_participant', {
+    // Move/add participant via RPC (fixes list_type ambiguity)
+    const { error: rpcErr } = await supabaseAdmin.rpc('add_or_move_participant', {
       p_slot: slotId,
       p_athlete: athleteId,
-      p_list: 'main',
+      p_list: listType,
     });
     if (rpcErr) return json({ error: rpcErr.message }, 500);
 
-    // Mark attendance true
+    // Mark attendance as present (walk-in)
     const { error: aerr } = await supabaseAdmin
       .from('attendance')
       .upsert(
@@ -129,7 +142,7 @@ export async function POST(req: NextRequest) {
       );
     if (aerr) return json({ error: aerr.message }, 500);
 
-    // Deduct 1 credit if possible (coach override: allow going negative? keep >= 0)
+    // Deduct 1 credit (simple model)
     const { data: ath } = await supabaseAdmin
       .from('athletes')
       .select('credits')
@@ -151,7 +164,7 @@ export async function POST(req: NextRequest) {
     const attended = !!body?.attended;
     if (!slotId || !athleteId) return json({ error: 'Missing slotId/athleteId' }, 400);
 
-    // Upsert attendance
+    // Upsert attendance row
     const { error: aerr } = await supabaseAdmin
       .from('attendance')
       .upsert(
@@ -165,28 +178,21 @@ export async function POST(req: NextRequest) {
       );
     if (aerr) return json({ error: aerr.message }, 500);
 
-    // Adjust credits: present => -1 if not already deducted, absent => +1 (refund) if previously deducted.
-    // Simple approach: if attended=true, ensure at least one credit was removed; if attended=false, add one back.
-    // (You can refine this with an attendance audit table later.)
-    if (attended) {
-      const { data: ath } = await supabaseAdmin
-        .from('athletes')
-        .select('credits')
-        .eq('id', athleteId)
-        .maybeSingle();
-      const newCredits = Math.max(0, (ath?.credits ?? 0) - 1);
-      const { error: uerr } = await supabaseAdmin.from('athletes').update({ credits: newCredits }).eq('id', athleteId);
-      if (uerr) return json({ error: uerr.message }, 500);
-    } else {
-      const { data: ath } = await supabaseAdmin
-        .from('athletes')
-        .select('credits')
-        .eq('id', athleteId)
-        .maybeSingle();
-      const newCredits = (ath?.credits ?? 0) + 1;
-      const { error: uerr } = await supabaseAdmin.from('athletes').update({ credits: newCredits }).eq('id', athleteId);
-      if (uerr) return json({ error: uerr.message }, 500);
-    }
+    // Adjust credits (basic logic)
+    const { data: ath } = await supabaseAdmin
+      .from('athletes')
+      .select('credits')
+      .eq('id', athleteId)
+      .maybeSingle();
+
+    const cur = ath?.credits ?? 0;
+    const next = attended ? Math.max(0, cur - 1) : cur + 1;
+
+    const { error: uerr } = await supabaseAdmin
+      .from('athletes')
+      .update({ credits: next })
+      .eq('id', athleteId);
+    if (uerr) return json({ error: uerr.message }, 500);
 
     return json({ ok: true });
   }
