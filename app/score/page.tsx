@@ -64,7 +64,34 @@ type WodApi = {
   } | null;
   locked?: boolean;
 };
+
 type StrengthScoreKind = 'weight' | 'reps' | 'time' | 'other';
+
+type Score = {
+  id: string;
+  athlete: string;
+  team?: string;
+  rxScaled: 'RX' | 'Scaled';
+  value: string;
+  date: string;
+  part: 'main' | 'strength';
+};
+
+type ApiScoreRow = {
+  id: string;
+  wod_date: string;
+  part: 'main' | 'strength';
+  rx_scaled: 'RX' | 'Scaled';
+  score: string;
+  athlete?: {
+    first_name?: string | null;
+    last_name?: string | null;
+    nickname?: string | null;
+    team_name?: string | null;
+  } | null;
+};
+
+// ---------- Helpers ----------
 
 function inferStrengthScoreKind(str?: StrengthPart): StrengthScoreKind {
   if (!str) return 'other';
@@ -277,18 +304,7 @@ function validateMainScore(
   return { ok: true };
 }
 
-
-type Score = {
-  id: string;
-  athlete: string;
-  team?: string;
-  rxScaled: 'RX' | 'Scaled';
-  value: string;
-  date: string;
-  part: 'main' | 'strength';
-};
-
-// ---------- Helpers ----------
+// ---------- Misc helpers ----------
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -300,6 +316,7 @@ const fmt = (iso: string) => {
 const scoresKey = (d: string) => `scores:${d}`; // main WOD
 const strengthScoresKey = (d: string) => `scores_strength:${d}`; // strength
 const submittedKey = (d: string) => `submitted:${d}`; // per-day submissions
+const wodKey = (d: string) => `wod:${d}`;
 
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url, { cache: 'no-store' });
@@ -333,20 +350,22 @@ export default function ScorePage() {
   // Athlete extra info
   const [team, setTeam] = useState('');
 
-// Strength
-const [rxScaledStrength, setRxScaledStrength] =
-  useState<'RX' | 'Scaled'>('RX');
-const [valueStrength, setValueStrength] = useState('');
+  // Strength
+  const [rxScaledStrength, setRxScaledStrength] =
+    useState<'RX' | 'Scaled'>('RX');
+  const [valueStrength, setValueStrength] = useState('');
 
-// Main WOD
-const [rxScaled, setRxScaled] = useState<'RX' | 'Scaled'>('RX');
-const [valueMain, setValueMain] = useState('');
-
+  // Main WOD
+  const [rxScaled, setRxScaled] = useState<'RX' | 'Scaled'>('RX');
+  const [valueMain, setValueMain] = useState('');
 
   // Lists
   const [scoresMain, setScoresMain] = useState<Score[]>([]);
   const [scoresStrength, setScoresStrength] = useState<Score[]>([]);
   const [submittedNames, setSubmittedNames] = useState<string[]>([]); // normalized lowercased names
+
+  const [loadingScores, setLoadingScores] = useState(false);
+  const [scoresError, setScoresError] = useState<string | null>(null);
 
   // Flags from WOD config
   const canRecordMain = wod?.recordMainScore ?? true;
@@ -434,23 +453,36 @@ const [valueMain, setValueMain] = useState('');
     setTeam(a?.teamName ?? '');
   }, [athleteId, athletes]);
 
-  // ---------- Load WOD + scores on date change ----------
+  // ---------- Load WOD on date change (from Supabase via /api/wod, keep a copy in localStorage) ----------
 
   useEffect(() => {
     let alive = true;
 
-    // Load WOD from Supabase via /api/wod
     (async () => {
       try {
         setLoadingWod(true);
+        setWod(null);
+
+        // optional: seed from localStorage for instant display
+        const cached = localStorage.getItem(wodKey(date));
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached) as WOD;
+            setWod(parsed);
+          } catch {
+            // ignore bad cache
+          }
+        }
+
         const j = await getJSON<WodApi>(`/api/wod?date=${date}`);
         if (!alive) return;
 
         if (!j || !j.wod) {
           setWod(null);
+          localStorage.removeItem(wodKey(date));
         } else {
           const w = j.wod;
-          setWod({
+          const next: WOD = {
             date,
             title: w.title ?? '',
             description: w.description ?? '',
@@ -468,7 +500,9 @@ const [valueMain, setValueMain] = useState('');
                     recordScore: !!w.strengthRecordScore,
                   }
                 : undefined,
-          });
+          };
+          setWod(next);
+          localStorage.setItem(wodKey(date), JSON.stringify(next));
         }
       } catch (e) {
         if (alive) {
@@ -480,16 +514,6 @@ const [valueMain, setValueMain] = useState('');
       }
     })();
 
-    // Load scores / submissions from localStorage
-    const sMain = localStorage.getItem(scoresKey(date));
-    setScoresMain(sMain ? (JSON.parse(sMain) as Score[]) : []);
-
-    const sStr = localStorage.getItem(strengthScoresKey(date));
-    setScoresStrength(sStr ? (JSON.parse(sStr) as Score[]) : []);
-
-    const subs = localStorage.getItem(submittedKey(date));
-    setSubmittedNames(subs ? (JSON.parse(subs) as string[]) : []);
-
     // Reset inputs when date changes (but keep selected athlete)
     setValueStrength('');
     setRxScaled('RX');
@@ -500,7 +524,105 @@ const [valueMain, setValueMain] = useState('');
     };
   }, [date]);
 
-  // ---------- Persist helpers ----------
+  // ---------- Load scores + submitted from localStorage + Supabase ----------
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // 1) seed from localStorage
+    const sMainRaw = localStorage.getItem(scoresKey(date));
+    const sStrRaw = localStorage.getItem(strengthScoresKey(date));
+    const subsRaw = localStorage.getItem(submittedKey(date));
+
+    const sMainLS = sMainRaw ? (JSON.parse(sMainRaw) as Score[]) : [];
+    const sStrLS = sStrRaw ? (JSON.parse(sStrRaw) as Score[]) : [];
+    const subsLS = subsRaw ? (JSON.parse(subsRaw) as string[]) : [];
+
+    setScoresMain(sMainLS);
+    setScoresStrength(sStrLS);
+    setSubmittedNames(subsLS);
+
+    // 2) fetch from Supabase via /api/scores and override cache
+    async function loadFromApi() {
+      setLoadingScores(true);
+      setScoresError(null);
+      try {
+        const params = new URLSearchParams({ date });
+        const res = await fetch(`/api/scores?${params.toString()}`, {
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          let msg = `Failed to load scores (HTTP ${res.status})`;
+          try {
+            const j = await res.json();
+            if (j?.error) msg = j.error;
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg);
+        }
+
+        const j = await res.json();
+        if (cancelled) return;
+
+        const rows: ApiScoreRow[] = j.items ?? [];
+
+        const mapped: Score[] = rows.map((row) => {
+          const a = row.athlete;
+          const fullName =
+            [a?.first_name, a?.last_name].filter(Boolean).join(' ') ||
+            'Unknown';
+          const teamName = a?.team_name ?? undefined;
+
+          return {
+            id: row.id,
+            athlete: fullName,
+            team: teamName,
+            rxScaled: row.rx_scaled,
+            value: row.score,
+            date: row.wod_date,
+            part: row.part === 'strength' ? 'strength' : 'main',
+          };
+        });
+
+        const main = mapped.filter((s) => s.part === 'main');
+        const strength = mapped.filter((s) => s.part === 'strength');
+
+        setScoresMain(main);
+        setScoresStrength(strength);
+
+        const subs = Array.from(
+          new Set(
+            mapped
+              .map((s) => s.athlete.trim().toLowerCase())
+              .filter(Boolean),
+          ),
+        );
+        setSubmittedNames(subs);
+
+        // keep localStorage in sync with Supabase
+        localStorage.setItem(scoresKey(date), JSON.stringify(main));
+        localStorage.setItem(strengthScoresKey(date), JSON.stringify(strength));
+        localStorage.setItem(submittedKey(date), JSON.stringify(subs));
+      } catch (err: any) {
+        console.error('load scores failed', err);
+        if (!cancelled) {
+          setScoresError(err?.message || 'Failed to load scores');
+        }
+      } finally {
+        if (!cancelled) setLoadingScores(false);
+      }
+    }
+
+    loadFromApi();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
+
+  // ---------- Persist helpers (localStorage) ----------
 
   const saveScoresMain = (list: Score[]) => {
     setScoresMain(list);
@@ -626,9 +748,7 @@ const [valueMain, setValueMain] = useState('');
 
   // ---------- Submit ----------
 
-  // ---------- Submit ----------
-
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const selected = athletes.find((a) => a.id === athleteId);
@@ -640,21 +760,22 @@ const [valueMain, setValueMain] = useState('');
 
     if (!name) return;
     if (!wantStrength && !wantMain) return;
-if (wantStrength) {
-  const vRes = validateStrengthScore(strengthKind, valueStrength);
-  if (!vRes.ok) {
-    alert(vRes.message);
-    return;
-  }
-}
 
-if (wantMain) {
-  const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
-  if (!vRes.ok) {
-    alert(vRes.message);
-    return;
-  }
-}
+    if (wantStrength) {
+      const vRes = validateStrengthScore(strengthKind, valueStrength);
+      if (!vRes.ok) {
+        alert(vRes.message);
+        return;
+      }
+    }
+
+    if (wantMain) {
+      const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
+      if (!vRes.ok) {
+        alert(vRes.message);
+        return;
+      }
+    }
 
     const keyName = name.toLowerCase();
     if (submittedNames.includes(keyName)) {
@@ -670,6 +791,7 @@ if (wantMain) {
       return;
     }
 
+    // Local state / localStorage update first
     if (wantStrength) {
       const newScoreS: Score = {
         id: crypto.randomUUID(),
@@ -700,6 +822,41 @@ if (wantMain) {
 
     const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
     saveSubmitted(nextSubmitted);
+
+    // Persist to Supabase via /api/scores
+    try {
+      const payload = {
+        date,
+        athleteId: selected?.id,
+        strength: wantStrength
+          ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
+          : null,
+        main: wantMain
+          ? { rxScaled, value: valueMain.trim() }
+          : null,
+        classSlotId: null as string | null, // will wire class selection later
+      };
+
+      const res = await fetch('/api/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        let msg = `Failed to save scores (HTTP ${res.status})`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        alert(msg);
+      }
+    } catch (err) {
+      console.error('submit scores failed', err);
+      alert('Network error while saving scores.');
+    }
   };
 
   const nameWithNick = (fullName: string) => {
@@ -723,10 +880,7 @@ if (wantMain) {
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <span className="text-sm text-zinc-400">Date</span>
           {/* @ts-ignore – DateStepper is JS-only */}
-          <DateStepper
-            value={date}
-            onChange={(v: string) => setDate(v)}
-          />
+          <DateStepper value={date} onChange={(v: string) => setDate(v)} />
         </div>
       </header>
 
@@ -749,15 +903,14 @@ if (wantMain) {
                     setAthleteInput(e.target.value);
                     setAthleteOpen(true);
                   }}
-                    onFocus={() => {
-    if (isCoach) setAthleteOpen(true);
-  }}
-  // removed onBlur – dropdown will stay open until user picks / changes
-  onKeyDown={(e) => {
-    if (e.key === 'Escape') {
-      setAthleteOpen(false);
-    }
-  }}
+                  onFocus={() => {
+                    if (isCoach) setAthleteOpen(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setAthleteOpen(false);
+                    }
+                  }}
                   placeholder={
                     isCoach ? 'Search/select athlete' : 'Your profile'
                   }
@@ -768,22 +921,22 @@ if (wantMain) {
                              transition-colors"
                 />
 
-{isCoach && (
-  <button
-    type="button"
-    onClick={() => {
-      // Clear the visible name and show full list immediately
-      setAthleteInput('');
-      setAthleteOpen(true);
-    }}
-    className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
-               hover:border-emerald-500/70 hover:bg-zinc-900
-               focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
-    aria-label="Toggle athlete list"
-  >
-    ▾
-  </button>
-)}
+                {isCoach && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Clear the visible name and show full list immediately
+                      setAthleteInput('');
+                      setAthleteOpen(true);
+                    }}
+                    className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
+                               hover:border-emerald-500/70 hover:bg-zinc-900
+                               focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
+                    aria-label="Toggle athlete list"
+                  >
+                    ▾
+                  </button>
+                )}
               </div>
 
               {/* Dropdown */}
@@ -801,48 +954,44 @@ if (wantMain) {
                     </div>
                   )}
 
-{!loadingAthletes &&
-  filteredAthletes.map((a) => (
-    <button
-      key={a.id}
-      type="button"
-      onMouseDown={(e) => {
-        e.preventDefault();
-        setAthleteId(a.id);
-        setAthleteInput(
-          `${a.firstName} ${a.lastName}`.trim(),
-        );
-        setAthleteOpen(false);
-      }}
-      className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80"
-    >
-      <span className="text-zinc-100">
-        {a.lastName}, {a.firstName}
-        {a.nickname && (
-          <span className="text-emerald-400">
-            {`, ${a.nickname}`}
-          </span>
-        )}
-      </span>
-    </button>
-  ))}
-
+                  {!loadingAthletes &&
+                    filteredAthletes.map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setAthleteId(a.id);
+                          setAthleteInput(
+                            `${a.firstName} ${a.lastName}`.trim(),
+                          );
+                          setAthleteOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80"
+                      >
+                        <span className="text-zinc-100">
+                          {a.lastName}, {a.firstName}
+                          {a.nickname && (
+                            <span className="text-emerald-400">
+                              {`, ${a.nickname}`}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
                 </div>
               )}
 
               {!isCoach && (
                 <p className="mt-1 text-xs text-zinc-500">
-                  As an athlete you can only submit scores for your own
-                  profile.
+                  As an athlete you can only submit scores for your own profile.
                 </p>
               )}
             </div>
 
             {/* Team */}
             <div>
-              <label className="block text-sm mb-1 text-zinc-300">
-                Team
-              </label>
+              <label className="block text-sm mb-1 text-zinc-300">Team</label>
               <input
                 value={team}
                 onChange={(e) => setTeam(e.target.value)}
@@ -857,122 +1006,122 @@ if (wantMain) {
 
           {alreadySubmitted && (
             <div className="mt-2 text-xs text-amber-400">
-              This athlete has already submitted for {fmt(date)}. New
-              submissions are blocked.
+              This athlete has already submitted for {fmt(date)}. New submissions
+              are blocked.
             </div>
           )}
         </div>
       </div>
 
-      {/* Strength / Skills — Score */}
-<section className="space-y-2">
-  <div className="flex items-center justify-between gap-3">
-    <h2 className="text-lg font-semibold">Strength / Skills</h2>
+      {/* Strength / Skills */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Strength / Skills</h2>
 
-    {canRecordStrength && (
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-zinc-400 hidden sm:inline">
-          RX / Scaled
-        </span>
-        <label className="inline-flex items-center gap-1">
-          <input
-            type="radio"
-            className="h-3 w-3 accent-emerald-500"
-            checked={rxScaledStrength === 'RX'}
-            onChange={() => setRxScaledStrength('RX')}
-          />
-          <span className="text-[11px] text-zinc-200">RX</span>
-        </label>
-        <label className="inline-flex items-center gap-1">
-          <input
-            type="radio"
-            className="h-3 w-3 accent-emerald-500"
-            checked={rxScaledStrength === 'Scaled'}
-            onChange={() => setRxScaledStrength('Scaled')}
-          />
-          <span className="text-[11px] text-zinc-200">Scaled</span>
-        </label>
-      </div>
-    )}
-  </div>
+          {canRecordStrength && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-zinc-400 hidden sm:inline">
+                RX / Scaled
+              </span>
+              <label className="inline-flex items-center gap-1">
+                <input
+                  type="radio"
+                  className="h-3 w-3 accent-emerald-500"
+                  checked={rxScaledStrength === 'RX'}
+                  onChange={() => setRxScaledStrength('RX')}
+                />
+                <span className="text-[11px] text-zinc-200">RX</span>
+              </label>
+              <label className="inline-flex items-center gap-1">
+                <input
+                  type="radio"
+                  className="h-3 w-3 accent-emerald-500"
+                  checked={rxScaledStrength === 'Scaled'}
+                  onChange={() => setRxScaledStrength('Scaled')}
+                />
+                <span className="text-[11px] text-zinc-200">Scaled</span>
+              </label>
+            </div>
+          )}
+        </div>
 
-  <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-2">
-    <div className="text-sm text-zinc-300">
-      {wod?.strength?.title
-        ? `Part: ${wod.strength.title}`
-        : loadingWod
-        ? 'Loading Strength / Skills part…'
-        : 'No Strength/Skills part set'}
-    </div>
+        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-2">
+          <div className="text-sm text-zinc-300">
+            {wod?.strength?.title
+              ? `Part: ${wod.strength.title}`
+              : loadingWod
+              ? 'Loading Strength / Skills part…'
+              : 'No Strength/Skills part set'}
+          </div>
 
-    {wod?.strength?.description && (
-      <div className="text-xs text-zinc-400 whitespace-pre-line">
-        {wod.strength.description}
-      </div>
-    )}
+          {wod?.strength?.description && (
+            <div className="text-xs text-zinc-400 whitespace-pre-line">
+              {wod.strength.description}
+            </div>
+          )}
 
-    {wod?.strength?.scoreHint && (
-      <div className="text-xs text-zinc-500 mt-1">
-        Hint: {wod.strength.scoreHint}
-      </div>
-    )}
-    ...
-
+          {wod?.strength?.scoreHint && (
+            <div className="text-xs text-zinc-500 mt-1">
+              Hint: {wod.strength.scoreHint}
+            </div>
+          )}
 
           {!canRecordStrength ? (
             <p className="text-xs text-zinc-400">
-              Score recording for <span className="font-semibold">Strength /
-              Skills</span> is disabled for {fmt(date)}.
+              Score recording for <span className="font-semibold">
+                Strength / Skills
+              </span>{' '}
+              is disabled for {fmt(date)}.
             </p>
           ) : (
             <div className="space-y-1">
-             <label className="block text-sm mb-1 text-zinc-300">
-  {strengthLabel}
-</label>
-<input
-  value={valueStrength}
-  onChange={(e) => setValueStrength(e.target.value)}
-  className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-  placeholder={strengthPlaceholder}
-  disabled={!!alreadySubmitted}
-/>
-
+              <label className="block text-sm mb-1 text-zinc-300">
+                {strengthLabel}
+              </label>
+              <input
+                value={valueStrength}
+                onChange={(e) => setValueStrength(e.target.value)}
+                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                placeholder={strengthPlaceholder}
+                disabled={!!alreadySubmitted}
+              />
             </div>
           )}
         </div>
       </section>
 
-      {/* Main WOD — Score */}
-<section className="space-y-2">
-  <div className="flex items-center justify-between gap-3">
-    <h2 className="text-lg font-semibold">WOD</h2>
+      {/* Main WOD */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">WOD</h2>
 
-    {canRecordMain && (
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-zinc-400 hidden sm:inline">
-          RX / Scaled
-        </span>
-        <label className="inline-flex items-center gap-1">
-          <input
-            type="radio"
-            className="h-3 w-3 accent-emerald-500"
-            checked={rxScaled === 'RX'}
-            onChange={() => setRxScaled('RX')}
-          />
-          <span className="text-[11px] text-zinc-200">RX</span>
-        </label>
-        <label className="inline-flex items-center gap-1">
-          <input
-            type="radio"
-            className="h-3 w-3 accent-emerald-500"
-            checked={rxScaled === 'Scaled'}
-            onChange={() => setRxScaled('Scaled')}
-          />
-          <span className="text-[11px] text-zinc-200">Scaled</span>
-        </label>
-      </div>
-    )}
-  </div>
+          {canRecordMain && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-zinc-400 hidden sm:inline">
+                RX / Scaled
+              </span>
+              <label className="inline-flex items-center gap-1">
+                <input
+                  type="radio"
+                  className="h-3 w-3 accent-emerald-500"
+                  checked={rxScaled === 'RX'}
+                  onChange={() => setRxScaled('RX')}
+                />
+                <span className="text-[11px] text-zinc-200">RX</span>
+              </label>
+              <label className="inline-flex items-center gap-1">
+                <input
+                  type="radio"
+                  className="h-3 w-3 accent-emerald-500"
+                  checked={rxScaled === 'Scaled'}
+                  onChange={() => setRxScaled('Scaled')}
+                />
+                <span className="text-[11px] text-zinc-200">Scaled</span>
+              </label>
+            </div>
+          )}
+        </div>
+
         <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-3">
           {/* WOD info */}
           <div className="text-sm text-zinc-300">
@@ -984,40 +1133,34 @@ if (wantMain) {
             {wod ? ` • Scoring: ${wod.scoring.toUpperCase()}` : ''}
             {wod?.timeCap ? ` • Time cap: ${wod.timeCap}` : ''}
           </div>
-<div className="text-xs text-zinc-400 whitespace-pre-line">
-  {loadingWod ? '' : wod?.description || '—'}
-</div>
+          <div className="text-xs text-zinc-400 whitespace-pre-line">
+            {loadingWod ? '' : wod?.description || '—'}
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-
-
-<div>
-  <label className="block text-sm mb-1 text-zinc-300">
-    {mainScoreMeta.label}
-  </label>
-  {!canRecordMain ? (
-    <p className="text-xs text-zinc-400">
-      Score recording for the Main WOD is disabled for{' '}
-      {fmt(date)}.
-    </p>
-  ) : (
-    <>
-      <input
-        value={valueMain}
-        onChange={(e) => setValueMain(e.target.value)}
-        className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-        placeholder={mainScoreMeta.placeholder}
-        disabled={!!alreadySubmitted}
-      />
-      {mainScoreMeta.help && (
-        <p className="mt-1 text-xs text-zinc-500">
-          {mainScoreMeta.help}
-        </p>
-      )}
-    </>
-  )}
-</div>
-
+          <div>
+            <label className="block text-sm mb-1 text-zinc-300">
+              {mainScoreMeta.label}
+            </label>
+            {!canRecordMain ? (
+              <p className="text-xs text-zinc-400">
+                Score recording for the Main WOD is disabled for {fmt(date)}.
+              </p>
+            ) : (
+              <>
+                <input
+                  value={valueMain}
+                  onChange={(e) => setValueMain(e.target.value)}
+                  className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                  placeholder={mainScoreMeta.placeholder}
+                  disabled={!!alreadySubmitted}
+                />
+                {mainScoreMeta.help && (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {mainScoreMeta.help}
+                  </p>
+                )}
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -1031,6 +1174,14 @@ if (wantMain) {
         >
           Submit
         </button>
+        {loadingScores && (
+          <span className="ml-3 text-xs text-zinc-400">
+            Updating scores…
+          </span>
+        )}
+        {scoresError && (
+          <div className="mt-1 text-xs text-amber-400">{scoresError}</div>
+        )}
       </div>
 
       {/* Leaderboard */}
@@ -1053,9 +1204,7 @@ if (wantMain) {
                     className="flex items-center justify-between gap-2"
                   >
                     <div className="flex-1">
-                      <div className="text-xs text-zinc-500">
-                        #{i + 1}
-                      </div>
+                      <div className="text-xs text-zinc-500">#{i + 1}</div>
                       <div className="font-medium">
                         {nameWithNick(s.athlete)}
                       </div>
@@ -1085,9 +1234,7 @@ if (wantMain) {
                     className="flex items-center justify-between gap-2"
                   >
                     <div className="flex-1">
-                      <div className="text-xs text-zinc-500">
-                        #{i + 1}
-                      </div>
+                      <div className="text-xs text-zinc-500">#{i + 1}</div>
                       <div className="font-medium">
                         {nameWithNick(s.athlete)}
                       </div>
