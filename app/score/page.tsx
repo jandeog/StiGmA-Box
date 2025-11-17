@@ -1176,15 +1176,18 @@ const sortedMain = useMemo(() => {
       key={s.id}
       className="flex items-center justify-between gap-2"
     >
-      <div className="flex-1">
-        <div className="text-xs text-zinc-500">
-          #{i + 1}
-          {s.classTime ? ` • ${s.classTime}` : ''}
-        </div>
-        <div className="font-medium">
-          {nameWithNick(s.athlete)}
-        </div>
-      </div>
+<div className="flex-1">
+  <div className="text-xs text-zinc-500">#{i + 1}</div>
+  <div className="font-medium">
+    {nameWithNick(s.athlete)}
+    {s.classTime && (
+      <span className="ml-1 text-xs text-emerald-400">
+        ({s.classTime})
+      </span>
+    )}
+  </div>
+</div>
+
       <div className="text-sm font-semibold">{s.value}</div>
     </li>
   ))}
@@ -1208,17 +1211,20 @@ const sortedMain = useMemo(() => {
       className="flex items-center justify-between gap-2"
     >
       <div className="flex-1">
-        <div className="text-xs text-zinc-500">
-          #{i + 1}
-          {s.classTime ? ` • ${s.classTime}` : ''}
-        </div>
-        <div className="font-medium">
-          {nameWithNick(s.athlete)}
-        </div>
-        <div className="text-xs text-zinc-400">
-          {s.rxScaled}
-        </div>
-      </div>
+  <div className="text-xs text-zinc-500">#{i + 1}</div>
+  <div className="font-medium">
+    {nameWithNick(s.athlete)}
+    {s.classTime && (
+      <span className="ml-1 text-xs text-emerald-400">
+        ({s.classTime})
+      </span>
+    )}
+  </div>
+  <div className="text-xs text-zinc-400">
+    {s.rxScaled}
+  </div>
+</div>
+
       <div className="text-sm font-semibold">{s.value}</div>
     </li>
   ))}
