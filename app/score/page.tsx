@@ -75,6 +75,7 @@ type Score = {
   value: string;
   date: string;
   part: 'main' | 'strength';
+  classTime?: string | null; // class hour (e.g. "18:00")
 };
 
 type ApiScoreRow = {
@@ -83,6 +84,9 @@ type ApiScoreRow = {
   part: 'main' | 'strength';
   rx_scaled: 'RX' | 'Scaled';
   score: string;
+  class_slot?: {
+    time?: string | null;
+  } | null;
   athlete?: {
     first_name?: string | null;
     last_name?: string | null;
@@ -90,6 +94,7 @@ type ApiScoreRow = {
     team_name?: string | null;
   } | null;
 };
+
 
 // ---------- Helpers ----------
 
@@ -543,15 +548,19 @@ export default function ScorePage() {
             'Unknown';
           const teamName = a?.team_name ?? undefined;
 
-          return {
-            id: row.id,
-            athlete: fullName,
-            team: teamName,
-            rxScaled: row.rx_scaled,
-            value: row.score,
-            date: row.wod_date,
-            part: row.part === 'strength' ? 'strength' : 'main',
-          };
+  return {
+    id: row.id,
+    athlete: fullName,
+    team: teamName,
+    rxScaled: row.rx_scaled,
+    value: row.score,
+    date: row.wod_date,
+    part: row.part === 'strength' ? 'strength' : 'main',
+    classTime: row.class_slot?.time
+      ? row.class_slot.time.slice(0, 5) // "HH:MM"
+      : null,
+  };
+
         });
 
         const main = mapped.filter((s) => s.part === 'main');
@@ -646,22 +655,35 @@ export default function ScorePage() {
   };
 
   // Main WOD leaderboard
-  const sortedMain = useMemo(() => {
-    const s = [...scoresMain];
-    if (!wod) return s;
+const sortedMain = useMemo(() => {
+  const s = [...scoresMain];
+  if (!wod) return s;
 
-    if (wod.scoring === 'for_time') {
-      // RX first, then time ↑ (smaller is better)
-      return s.sort(
-        (a, b) => rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value),
-      );
-    }
+  if (wod.scoring === 'for_time') {
+    // Split between finished (mm:ss) and time-capped (rounds+reps etc.)
+    const finished = s.filter((sc) => validateTime(sc.value));
+    const capped = s.filter((sc) => !validateTime(sc.value));
 
-    // Others (AMRAP, EMOM, max_load, other) → RX first, value ↓ (bigger is better)
-    return s.sort(
-      (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
+    finished.sort(
+      (a, b) =>
+        rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value), // lower time wins
     );
-  }, [scoresMain, wod]);
+
+    capped.sort(
+      (a, b) =>
+        rxRank(a) - rxRank(b) ||
+        toRepKey(b.value) - toRepKey(a.value), // more rounds+reps wins
+    );
+
+    return [...finished, ...capped];
+  }
+
+  // AMRAP, EMOM, max_load, other → RX first, value ↓ (bigger is better)
+  return s.sort(
+    (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
+  );
+}, [scoresMain, wod]);
+
 
   // Strength leaderboard: higher number wins
   const sortedStrength = useMemo(() => {
@@ -1148,25 +1170,26 @@ export default function ScorePage() {
                 No scores for {fmt(date)}.
               </p>
             ) : (
-              <ul className="space-y-1 text-sm">
-                {sortedStrength.map((s, i) => (
-                  <li
-                    key={s.id}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <div className="flex-1">
-                      <div className="text-xs text-zinc-500">#{i + 1}</div>
-                      <div className="font-medium">
-                        {nameWithNick(s.athlete)}
-                      </div>
-                      <div className="text-xs text-zinc-400">
-                        {s.team || ''}
-                      </div>
-                    </div>
-                    <div className="text-sm font-semibold">{s.value}</div>
-                  </li>
-                ))}
-              </ul>
+<ul className="space-y-1 text-sm">
+  {sortedStrength.map((s, i) => (
+    <li
+      key={s.id}
+      className="flex items-center justify-between gap-2"
+    >
+      <div className="flex-1">
+        <div className="text-xs text-zinc-500">
+          #{i + 1}
+          {s.classTime ? ` • ${s.classTime}` : ''}
+        </div>
+        <div className="font-medium">
+          {nameWithNick(s.athlete)}
+        </div>
+      </div>
+      <div className="text-sm font-semibold">{s.value}</div>
+    </li>
+  ))}
+</ul>
+
             )}
           </div>
 
@@ -1179,25 +1202,28 @@ export default function ScorePage() {
               </p>
             ) : (
               <ul className="space-y-1 text-sm">
-                {sortedMain.map((s, i) => (
-                  <li
-                    key={s.id}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <div className="flex-1">
-                      <div className="text-xs text-zinc-500">#{i + 1}</div>
-                      <div className="font-medium">
-                        {nameWithNick(s.athlete)}
-                      </div>
-                      <div className="text-xs text-zinc-400">
-                        {s.team ? `${s.team} • ` : ''}
-                        {s.rxScaled}
-                      </div>
-                    </div>
-                    <div className="text-sm font-semibold">{s.value}</div>
-                  </li>
-                ))}
-              </ul>
+  {sortedMain.map((s, i) => (
+    <li
+      key={s.id}
+      className="flex items-center justify-between gap-2"
+    >
+      <div className="flex-1">
+        <div className="text-xs text-zinc-500">
+          #{i + 1}
+          {s.classTime ? ` • ${s.classTime}` : ''}
+        </div>
+        <div className="font-medium">
+          {nameWithNick(s.athlete)}
+        </div>
+        <div className="text-xs text-zinc-400">
+          {s.rxScaled}
+        </div>
+      </div>
+      <div className="text-sm font-semibold">{s.value}</div>
+    </li>
+  ))}
+</ul>
+
             )}
           </div>
         </div>

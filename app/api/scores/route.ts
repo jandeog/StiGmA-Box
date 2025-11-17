@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   const session = await verifySession(token);
   if (!session) return unauthorized();
 
-  const { data, error } = await supabaseAdmin
+   const { data, error } = await supabaseAdmin
     .from('wod_scores')
     .select(
       `
@@ -43,6 +43,9 @@ export async function GET(req: Request) {
         rx_scaled,
         score,
         created_at,
+        class_slot:class_slot_id (
+          time
+        ),
         athlete:athlete_id (
           first_name,
           last_name,
@@ -53,6 +56,7 @@ export async function GET(req: Request) {
     )
     .eq('wod_date', date)
     .order('created_at', { ascending: false });
+
 
   if (error) {
     console.error('GET /api/scores error', error);
