@@ -705,23 +705,19 @@ const sortedMain = useMemo(() => {
     [wod],
   );
 
-  const strengthLabel =
-    strengthKind === 'weight'
-      ? 'Score (kg / load)'
-      : strengthKind === 'reps'
-      ? 'Score (reps)'
-      : strengthKind === 'time'
-      ? 'Score (time, mm:ss)'
-      : 'Score (Strength / Skills)';
+  const strengthLabel = 'Score (Load / KG / Reps)';
 
   const strengthPlaceholder =
-    strengthKind === 'weight'
+    wod?.strength?.scoreHint && wod.strength.scoreHint.trim()
+      ? wod.strength.scoreHint
+      : strengthKind === 'weight'
       ? 'Heaviest successful load in kg (e.g. 120)'
       : strengthKind === 'reps'
       ? 'Max reps or total reps (e.g. 45)'
       : strengthKind === 'time'
       ? 'Time in mm:ss (e.g. 02:30)'
       : 'e.g. 5x5 @80kg • EMOM 10’ @ bodyweight';
+
 
   const mainScoreMeta = useMemo(() => getMainScoreMeta(wod), [wod]);
 
@@ -1066,12 +1062,6 @@ const payload = {
           {wod?.strength?.description && (
             <div className="text-xs text-zinc-400 whitespace-pre-line">
               {wod.strength.description}
-            </div>
-          )}
-
-          {wod?.strength?.scoreHint && (
-            <div className="text-xs text-zinc-500 mt-1">
-              Hint: {wod.strength.scoreHint}
             </div>
           )}
 

@@ -142,6 +142,7 @@ export async function POST(req: Request) {
 
   let bookingForDay: BookingRow | null = null;
   let classSlotIdToUse: string | null = null;
+  let hadBookingBefore = false; // <— NEW
 
   if (slotIds.length > 0) {
     const { data: bookings, error: bookingErr } = await supabaseAdmin
@@ -156,6 +157,8 @@ export async function POST(req: Request) {
     }
 
     if (bookings && bookings.length > 0) {
+      hadBookingBefore = true; // <— athlete was already booked
+
       // Pick the earliest booked class of the day
       const timeBySlot = new Map(
         slots.map((s) => [s.id as string, s.time as string]),
@@ -245,7 +248,8 @@ export async function POST(req: Request) {
 
   // -------------------- Optional credit charge (coach only) --------------------
 
-  if (isCoach && chargeCredit && classSlotIdToUse) {
+   if (isCoach && chargeCredit && classSlotIdToUse && !hadBookingBefore) {
+
     // Simple (non-atomic) credit decrement
     const { data: current, error: loadErr } = await supabaseAdmin
       .from('athletes')
