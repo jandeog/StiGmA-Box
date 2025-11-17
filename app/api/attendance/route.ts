@@ -124,6 +124,18 @@ export async function POST(req: NextRequest) {
     const athleteId = body?.athleteId as string;
     const listType: 'main' | 'wait' = body?.listType ?? 'main';
     if (!slotId || !athleteId) return json({ error: 'Missing slotId/athleteId' }, 400);
+await supabaseAdmin
+  .from('attendance')
+  .upsert(
+    {
+      slot_id: slotId,
+      athlete_id: athleteId,
+      attended: true,
+      attended_at: new Date().toISOString(),
+      method: 'walk_in',                 // << add this
+    },
+    { onConflict: 'slot_id,athlete_id' }
+  );
 
     // Move/add participant via RPC (fixes list_type ambiguity)
     const { error: rpcErr } = await supabaseAdmin.rpc('add_or_move_participant', {
@@ -163,6 +175,18 @@ export async function POST(req: NextRequest) {
     const athleteId = body?.athleteId as string;
     const attended = !!body?.attended;
     if (!slotId || !athleteId) return json({ error: 'Missing slotId/athleteId' }, 400);
+await supabaseAdmin
+  .from('attendance')
+  .upsert(
+    {
+      slot_id: slotId,
+      athlete_id: athleteId,
+      attended,
+      attended_at: attended ? new Date().toISOString() : null,
+      method: 'coach_toggle',            // << add this
+    },
+    { onConflict: 'slot_id,athlete_id' }
+  );
 
     // Upsert attendance row
     const { error: aerr } = await supabaseAdmin
