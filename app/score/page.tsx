@@ -313,11 +313,6 @@ const fmt = (iso: string) => {
   return `${d}-${m}-${y}`;
 };
 
-const scoresKey = (d: string) => `scores:${d}`; // main WOD
-const strengthScoresKey = (d: string) => `scores_strength:${d}`; // strength
-const submittedKey = (d: string) => `submitted:${d}`; // per-day submissions
-const wodKey = (d: string) => `wod:${d}`;
-
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url, { cache: 'no-store' });
   const raw = await r.text();
@@ -453,7 +448,7 @@ export default function ScorePage() {
     setTeam(a?.teamName ?? '');
   }, [athleteId, athletes]);
 
-  // ---------- Load WOD on date change (from Supabase via /api/wod, keep a copy in localStorage) ----------
+  // ---------- Load WOD on date change (from Supabase via /api/wod) ----------
 
   useEffect(() => {
     let alive = true;
@@ -463,23 +458,11 @@ export default function ScorePage() {
         setLoadingWod(true);
         setWod(null);
 
-        // optional: seed from localStorage for instant display
-        const cached = localStorage.getItem(wodKey(date));
-        if (cached) {
-          try {
-            const parsed = JSON.parse(cached) as WOD;
-            setWod(parsed);
-          } catch {
-            // ignore bad cache
-          }
-        }
-
         const j = await getJSON<WodApi>(`/api/wod?date=${date}`);
         if (!alive) return;
 
         if (!j || !j.wod) {
           setWod(null);
-          localStorage.removeItem(wodKey(date));
         } else {
           const w = j.wod;
           const next: WOD = {
@@ -502,7 +485,6 @@ export default function ScorePage() {
                 : undefined,
           };
           setWod(next);
-          localStorage.setItem(wodKey(date), JSON.stringify(next));
         }
       } catch (e) {
         if (alive) {
@@ -524,25 +506,11 @@ export default function ScorePage() {
     };
   }, [date]);
 
-  // ---------- Load scores + submitted from localStorage + Supabase ----------
+  // ---------- Load scores from Supabase ----------
 
   useEffect(() => {
     let cancelled = false;
 
-    // 1) seed from localStorage
-    const sMainRaw = localStorage.getItem(scoresKey(date));
-    const sStrRaw = localStorage.getItem(strengthScoresKey(date));
-    const subsRaw = localStorage.getItem(submittedKey(date));
-
-    const sMainLS = sMainRaw ? (JSON.parse(sMainRaw) as Score[]) : [];
-    const sStrLS = sStrRaw ? (JSON.parse(sStrRaw) as Score[]) : [];
-    const subsLS = subsRaw ? (JSON.parse(subsRaw) as string[]) : [];
-
-    setScoresMain(sMainLS);
-    setScoresStrength(sStrLS);
-    setSubmittedNames(subsLS);
-
-    // 2) fetch from Supabase via /api/scores and override cache
     async function loadFromApi() {
       setLoadingScores(true);
       setScoresError(null);
@@ -600,15 +568,13 @@ export default function ScorePage() {
           ),
         );
         setSubmittedNames(subs);
-
-        // keep localStorage in sync with Supabase
-        localStorage.setItem(scoresKey(date), JSON.stringify(main));
-        localStorage.setItem(strengthScoresKey(date), JSON.stringify(strength));
-        localStorage.setItem(submittedKey(date), JSON.stringify(subs));
       } catch (err: any) {
         console.error('load scores failed', err);
         if (!cancelled) {
           setScoresError(err?.message || 'Failed to load scores');
+          setScoresMain([]);
+          setScoresStrength([]);
+          setSubmittedNames([]);
         }
       } finally {
         if (!cancelled) setLoadingScores(false);
@@ -621,23 +587,6 @@ export default function ScorePage() {
       cancelled = true;
     };
   }, [date]);
-
-  // ---------- Persist helpers (localStorage) ----------
-
-  const saveScoresMain = (list: Score[]) => {
-    setScoresMain(list);
-    localStorage.setItem(scoresKey(date), JSON.stringify(list));
-  };
-
-  const saveScoresStrength = (list: Score[]) => {
-    setScoresStrength(list);
-    localStorage.setItem(strengthScoresKey(date), JSON.stringify(list));
-  };
-
-  const saveSubmitted = (names: string[]) => {
-    setSubmittedNames(names);
-    localStorage.setItem(submittedKey(date), JSON.stringify(names));
-  };
 
   // ---------- Derived values ----------
 
@@ -791,38 +740,6 @@ export default function ScorePage() {
       return;
     }
 
-    // Local state / localStorage update first
-    if (wantStrength) {
-      const newScoreS: Score = {
-        id: crypto.randomUUID(),
-        athlete: name,
-        team: teamName,
-        rxScaled: rxScaledStrength,
-        value: valueStrength.trim(),
-        date,
-        part: 'strength',
-      };
-      saveScoresStrength([newScoreS, ...scoresStrength]);
-      setValueStrength('');
-    }
-
-    if (wantMain) {
-      const newScoreM: Score = {
-        id: crypto.randomUUID(),
-        athlete: name,
-        team: teamName,
-        rxScaled,
-        value: valueMain.trim(),
-        date,
-        part: 'main',
-      };
-      saveScoresMain([newScoreM, ...scoresMain]);
-      setValueMain('');
-    }
-
-    const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
-    saveSubmitted(nextSubmitted);
-
     // Persist to Supabase via /api/scores
     try {
       const payload = {
@@ -852,11 +769,45 @@ export default function ScorePage() {
           /* ignore */
         }
         alert(msg);
+        return;
       }
     } catch (err) {
       console.error('submit scores failed', err);
       alert('Network error while saving scores.');
+      return;
     }
+
+    // Local UI update after successful save
+    if (wantStrength) {
+      const newScoreS: Score = {
+        id: crypto.randomUUID(),
+        athlete: name,
+        team: teamName,
+        rxScaled: rxScaledStrength,
+        value: valueStrength.trim(),
+        date,
+        part: 'strength',
+      };
+      setScoresStrength((prev) => [newScoreS, ...prev]);
+      setValueStrength('');
+    }
+
+    if (wantMain) {
+      const newScoreM: Score = {
+        id: crypto.randomUUID(),
+        athlete: name,
+        team: teamName,
+        rxScaled,
+        value: valueMain.trim(),
+        date,
+        part: 'main',
+      };
+      setScoresMain((prev) => [newScoreM, ...prev]);
+      setValueMain('');
+    }
+
+    const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
+    setSubmittedNames(nextSubmitted);
   };
 
   const nameWithNick = (fullName: string) => {
