@@ -359,6 +359,10 @@ export default function ScorePage() {
   const [rxScaled, setRxScaled] = useState<'RX' | 'Scaled'>('RX');
   const [valueMain, setValueMain] = useState('');
 
+    // Athlete-only: verify attendance without a score
+  const [noScore, setNoScore] = useState(false);
+
+
   // Lists
   const [scoresMain, setScoresMain] = useState<Score[]>([]);
   const [scoresStrength, setScoresStrength] = useState<Score[]>([]);
@@ -451,6 +455,7 @@ export default function ScorePage() {
     }
     const a = athletes.find((x) => x.id === athleteId);
     setTeam(a?.teamName ?? '');
+    setNoScore(false);
   }, [athleteId, athletes]);
 
   // ---------- Load WOD on date change (from Supabase via /api/wod) ----------
@@ -502,13 +507,15 @@ export default function ScorePage() {
     })();
 
     // Reset inputs when date changes (but keep selected athlete)
+
     setValueStrength('');
     setRxScaled('RX');
     setValueMain('');
-
+    setNoScore(false);
     return () => {
       alive = false;
     };
+
   }, [date]);
 
   // ---------- Load scores from Supabase ----------
@@ -723,58 +730,76 @@ const sortedMain = useMemo(() => {
     e.preventDefault();
 
     const selected = athletes.find((a) => a.id === athleteId);
-    const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
-    const teamName = team.trim() || undefined;
+const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
+const teamName = team.trim() || undefined;
 
-    const wantStrength = canRecordStrength && valueStrength.trim();
-    const wantMain = canRecordMain && valueMain.trim();
+const noScoreFlag = !isCoach && noScore;
 
-    if (!name) return;
-    if (!wantStrength && !wantMain) return;
+const wantStrength = canRecordStrength && !noScoreFlag && valueStrength.trim();
+const wantMain = canRecordMain && !noScoreFlag && valueMain.trim();
 
-    if (wantStrength) {
-      const vRes = validateStrengthScore(strengthKind, valueStrength);
-      if (!vRes.ok) {
-        alert(vRes.message);
-        return;
-      }
-    }
 
-    if (wantMain) {
-      const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
-      if (!vRes.ok) {
-        alert(vRes.message);
-        return;
-      }
-    }
+if (!name) return;
+if (!wantStrength && !wantMain && !noScoreFlag) return;
+
+
+    if (!noScoreFlag && wantStrength) {
+  const vRes = validateStrengthScore(strengthKind, valueStrength);
+  if (!vRes.ok) {
+    alert(vRes.message);
+    return;
+  }
+}
+
+if (!noScoreFlag && wantMain) {
+  const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
+  if (!vRes.ok) {
+    alert(vRes.message);
+    return;
+  }
+}
+
 
     const keyName = name.toLowerCase();
     if (submittedNames.includes(keyName)) {
       alert(`You have already submitted for ${fmt(date)}.`);
       return;
     }
+let chargeCredit = false;
+if (isCoach) {
+  chargeCredit = window.confirm(
+    'Do you also want to charge 1 credit for this athlete for this class day?',
+  );
+}
 
-    if (
-      !window.confirm(
-        `Submit scores for ${name} on ${fmt(date)}?\nThis cannot be changed later.`,
-      )
-    ) {
-      return;
-    }
+const confirmMessage = noScoreFlag
+  ? `Verify attendance for ${name} on ${fmt(
+      date,
+    )}?\nNo score will be recorded.`
+  : `Submit scores for ${name} on ${fmt(
+      date,
+    )}?\nThis cannot be changed later.`;
+
+if (!window.confirm(confirmMessage)) {
+  return;
+}
+
+
 
     // Persist to Supabase via /api/scores
     try {
-      const payload = {
-        date,
-        athleteId: selected?.id,
-        strength: wantStrength
-          ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
-          : null,
-        main: wantMain
-          ? { rxScaled, value: valueMain.trim() }
-          : null,
-        classSlotId: null as string | null, // will wire class selection later
-      };
+const payload = {
+  date,
+  athleteId: selected?.id,
+  strength: wantStrength
+    ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
+    : null,
+  main: wantMain ? { rxScaled, value: valueMain.trim() } : null,
+  classSlotId: null as string | null, // backend now infers from bookings
+  noScore: noScoreFlag,
+  chargeCredit,
+};
+
 
       const res = await fetch('/api/scores', {
         method: 'POST',
@@ -1056,7 +1081,7 @@ const sortedMain = useMemo(() => {
                 onChange={(e) => setValueStrength(e.target.value)}
                 className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
                 placeholder={strengthPlaceholder}
-                disabled={!!alreadySubmitted}
+                disabled={!!alreadySubmitted || (!isCoach && noScore)}
               />
             </div>
           )}
@@ -1125,13 +1150,36 @@ const sortedMain = useMemo(() => {
                   onChange={(e) => setValueMain(e.target.value)}
                   className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
                   placeholder={mainScoreMeta.placeholder}
-                  disabled={!!alreadySubmitted}
+                    disabled={!!alreadySubmitted || (!isCoach && noScore)}
+
                 />
                 {mainScoreMeta.help && (
                   <p className="mt-1 text-xs text-zinc-500">
                     {mainScoreMeta.help}
                   </p>
                 )}
+                          {!isCoach && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                className="h-3 w-3 accent-emerald-500"
+                checked={noScore}
+                onChange={(e) => {
+                  setNoScore(e.target.checked);
+                  if (e.target.checked) {
+                    // Clear score inputs when athlete chooses “no score”
+                    setValueMain('');
+                    setValueStrength('');
+                  }
+                }}
+              />
+              <span>
+                Don&apos;t remember / Don&apos;t want to record a score – just verify my
+                attendance.
+              </span>
+            </div>
+          )}
+
               </>
             )}
           </div>
