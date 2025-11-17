@@ -367,6 +367,7 @@ export default function ScorePage() {
   const [scoresMain, setScoresMain] = useState<Score[]>([]);
   const [scoresStrength, setScoresStrength] = useState<Score[]>([]);
   const [submittedNames, setSubmittedNames] = useState<string[]>([]); // normalized lowercased names
+  const [scoresReloadKey, setScoresReloadKey] = useState(0);
 
   const [loadingScores, setLoadingScores] = useState(false);
   const [scoresError, setScoresError] = useState<string | null>(null);
@@ -602,7 +603,7 @@ export default function ScorePage() {
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [date, scoresReloadKey]);
 
   // ---------- Derived values ----------
 
@@ -855,6 +856,7 @@ const payload = {
 
     const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
     setSubmittedNames(nextSubmitted);
+     setScoresReloadKey((k) => k + 1);
   };
 
   const nameWithNick = (fullName: string) => {
@@ -863,8 +865,17 @@ const payload = {
     const m = athletes.find(
       (a) => a.firstName === fn && a.lastName === ln,
     );
-    return m?.nickname ? `${fullName} (${m.nickname})` : fullName;
+
+    if (!m?.nickname) return <>{fullName}</>;
+
+    return (
+      <>
+        {fullName}
+        <span className="text-yellow-400"> ({m.nickname})</span>
+      </>
+    );
   };
+
 
   // ---------- UI ----------
 
@@ -970,7 +981,7 @@ const payload = {
                         <span className="text-zinc-100">
                           {a.lastName}, {a.firstName}
                           {a.nickname && (
-                            <span className="text-emerald-400">
+                            <span className="text-yellow-400">
                               {`, ${a.nickname}`}
                             </span>
                           )}
@@ -1268,9 +1279,16 @@ const payload = {
       </span>
     )}
   </div>
-  <div className="text-xs text-zinc-400">
+  <div
+    className={
+      s.rxScaled === 'RX'
+        ? 'text-xs font-semibold text-red-400'
+        : 'text-xs font-semibold text-green-400'
+    }
+  >
     {s.rxScaled}
   </div>
+
 </div>
 
       <div className="text-sm font-semibold">{s.value}</div>
