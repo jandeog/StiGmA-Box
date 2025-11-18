@@ -66,30 +66,26 @@ async function onOtpSubmit(e: React.FormEvent) {
   setMsg('');
 
   try {
-    const emailTrim = email.trim();
+    const eTrim = email.trim();
 
-    await post('/api/auth/verify-otp', {
-      email: emailTrim,
-      token: otp.trim(),
-    });
+    await post('/api/auth/verify-otp', { email: eTrim, token: otp.trim() });
 
-    // remember which email just passed OTP so /athletes/add knows it's a signup
-    if (typeof document !== 'undefined') {
-      document.cookie =
-        `sbx_signup_email=${encodeURIComponent(emailTrim)}; ` +
-        'path=/; max-age=900'; // 15 minutes is plenty for the flow
-    }
+    // send the signup email along to /athletes/add
+    const dest =
+      `/athletes/add?email=${encodeURIComponent(eTrim)}` +
+      (redirect ? `&redirect=${encodeURIComponent(redirect)}` : '');
 
     if (typeof window !== 'undefined') {
-      window.location.href = '/athletes/add';
+      window.location.href = dest;
     } else {
-      router.replace('/athletes/add');
+      router.replace(dest);
       router.refresh();
     }
   } catch (err: any) {
     setMsg(err.message);
   }
 }
+
 
 
   return (
