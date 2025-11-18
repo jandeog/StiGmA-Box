@@ -79,15 +79,22 @@ export default function AddAthletePage() {
     setIAmCoach(iAmCoachLocal);
 
 // 2) OTP -> signup υπερισχύει
-// Πρώτα από ?email=..., μετά (αν υπάρχει) από παλιό cookie
+// Διαβάζουμε το πραγματικό URL από τον browser (πιο σίγουρο από useSearchParams)
+const emailFromUrl =
+  typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('email') || ''
+    : signupEmailFromQuery;
+
+// Πρώτα από URL email, μετά (αν υπάρχει) από παλιό cookie
 const signupEmail =
-  signupEmailFromQuery || getCookie('sbx_signup_email') || '';
+  emailFromUrl || getCookie('sbx_signup_email') || '';
 
 if (signupEmail) {
   setMode('signup');
   setEmail(signupEmail);
   return;
 }
+
 
 
 
