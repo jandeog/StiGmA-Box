@@ -11,13 +11,17 @@ function getCookie(name: string) {
   const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
   return m ? decodeURIComponent(m[1]) : '';
 }
-
+function clearCookie(name: string) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=; path=/; max-age=0`;
+}
 export default function AddAthletePage() {
   const router = useRouter();
   const qs = useSearchParams();
   const redirect = qs.get('redirect') || '';
   const targetId = qs.get('id')
   const createNew = qs.get('new') === '1';
+  const signupEmailFromQuery = qs.get('email') || '';
   const [acceptRules, setAcceptRules] = useState(false);
 
   const [mode, setMode] = useState<Mode>('signup');
@@ -74,13 +78,20 @@ export default function AddAthletePage() {
     setMyId(myIdLocal);
     setIAmCoach(iAmCoachLocal);
 
-    // 2) OTP -> signup υπερισχύει
-    const signupEmail = getCookie('sbx_signup_email');
-    if (signupEmail) {
-      setMode('signup');
-      setEmail(signupEmail);
-      return;
-    }
+// 2) OTP -> signup υπερισχύει
+// ΜΟΝΟ από OTP cookie ή ?email=..., ΠΟΤΕ από me.email
+const signupEmail =
+  getCookie('sbx_signup_email') ||
+  signupEmailFromQuery ||
+  '';
+
+if (signupEmail) {
+  setMode('signup');
+  setEmail(signupEmail);
+  return;
+}
+
+
 
     // 3) Coach New -> κενή φόρμα με editable email + password
     if (createNew && iAmCoachLocal) {
@@ -151,7 +162,7 @@ export default function AddAthletePage() {
 
   return () => { alive = false; };
 // επανα-τρέχει όταν αλλάζει το URL (?id / ?new)
-}, [targetId, createNew]);
+}, [targetId, createNew, signupEmailFromQuery]);
 
   const needsPassword =
   mode === 'signup' || mode === 'coach-new' || (mode === 'edit-self' && changePassword);
@@ -274,13 +285,17 @@ const r = await fetch('/api/auth/complete-signup', {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(payload),
 });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || 'Error');
+const j = await r.json();
+if (!r.ok) throw new Error(j?.error || 'Error');
+
 window.dispatchEvent(new CustomEvent('credits:refresh'));
-      // redirect ανά ρόλο (όπως έχουμε ορίσει)
-      if (j.role === 'coach') router.replace('/athletes');
-      
-      else router.replace(redirect || '/schedule');
+
+// once signup/settings are saved, we don't need the OTP email cookie anymore
+clearCookie('sbx_signup_email');
+
+// redirect ανά ρόλο (όπως έχουμε ορίσει)
+if (j.role === 'coach') router.replace('/athletes');
+else router.replace(redirect || '/schedule');
     } catch (err: any) {
       setMsg(err.message);
     } finally {
@@ -305,10 +320,16 @@ window.dispatchEvent(new CustomEvent('credits:refresh'));
             <input
   type="email"
   value={email}
-  onChange={(e)=>setEmail(e.target.value)}
-  disabled={mode !== 'coach-new'}   // ✅ μόνο στο coach-new editable
-  className={"w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm " + (mode !== 'coach-new' ? "opacity-80 cursor-not-allowed" : "")}
- />
+  onChange={(e) => setEmail(e.target.value)}
+  disabled={mode === 'edit-self' || mode === 'coach-edit'}
+  autoComplete="off"
+  className={
+    "w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm " +
+    ((mode === 'edit-self' || mode === 'coach-edit')
+      ? "opacity-80 cursor-not-allowed"
+      : "")
+  }
+/>
 
           </div>
 
@@ -345,12 +366,13 @@ window.dispatchEvent(new CustomEvent('credits:refresh'));
     <div>
       <label className="block text-xs mb-1 text-zinc-400">Password (≥6)</label>
       <div className="relative">
-        <input
-          type={showPw1 ? 'text' : 'password'}
-          value={pw1}
-          onChange={(e) => setPw1(e.target.value)}
-          className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
-        />
+<input
+  type={showPw1 ? 'text' : 'password'}
+  autoComplete="new-password"
+  value={pw1}
+  onChange={(e) => setPw1(e.target.value)}
+  className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
+/>
         <button
           type="button"
           onClick={() => setShowPw1((v) => !v)}
@@ -390,12 +412,13 @@ window.dispatchEvent(new CustomEvent('credits:refresh'));
     <div>
       <label className="block text-xs mb-1 text-zinc-400">Confirm</label>
       <div className="relative">
-        <input
-          type={showPw2 ? 'text' : 'password'}
-          value={pw2}
-          onChange={(e) => setPw2(e.target.value)}
-          className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
-        />
+<input
+  type={showPw2 ? 'text' : 'password'}
+  autoComplete="new-password"
+  value={pw2}
+  onChange={(e) => setPw2(e.target.value)}
+  className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm pr-10"
+/>
         <button
           type="button"
           onClick={() => setShowPw2((v) => !v)}

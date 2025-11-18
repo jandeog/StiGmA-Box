@@ -61,18 +61,36 @@ async function onPasswordSubmit(e: React.FormEvent) {
 
 
 
-  async function onOtpSubmit(e: React.FormEvent) {
-    e.preventDefault(); setMsg('');
-    try {
-      await post('/api/auth/verify-otp', { email: email.trim(), token: otp.trim() });
-      if (typeof window !== 'undefined') {
-  window.location.href = '/athletes/add';
-} else {
-  router.replace('/athletes/add');
-  router.refresh();
-}
-    } catch (err: any) { setMsg(err.message); }
+async function onOtpSubmit(e: React.FormEvent) {
+  e.preventDefault();
+  setMsg('');
+
+  try {
+    const emailTrim = email.trim();
+
+    await post('/api/auth/verify-otp', {
+      email: emailTrim,
+      token: otp.trim(),
+    });
+
+    // remember which email just passed OTP so /athletes/add knows it's a signup
+    if (typeof document !== 'undefined') {
+      document.cookie =
+        `sbx_signup_email=${encodeURIComponent(emailTrim)}; ` +
+        'path=/; max-age=900'; // 15 minutes is plenty for the flow
+    }
+
+    if (typeof window !== 'undefined') {
+      window.location.href = '/athletes/add';
+    } else {
+      router.replace('/athletes/add');
+      router.refresh();
+    }
+  } catch (err: any) {
+    setMsg(err.message);
   }
+}
+
 
   return (
     <main className="mx-auto max-w-md p-6">
