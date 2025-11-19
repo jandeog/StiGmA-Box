@@ -14,12 +14,36 @@ const asInt = (v: any) => {
     const n = typeof v === 'string' ? parseInt(v, 10) : Number(v);
     return Number.isFinite(n) ? n : null;
   };
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const sess = await verifySession(token);
+    // cookies() is synchronous in App Router
+  const cookieStore = cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value || null;
+
+  // Make verifySession robust – invalid/old tokens shouldn't crash the route
+  let sess: any = null;
+  if (token) {
+    try {
+      sess = await verifySession(token);
+    } catch (err) {
+      console.error('complete-signup: verifySession failed', err);
+      sess = null;
+    }
+  }
+
   const signupEmailCookie = cookieStore.get(SIGNUP_EMAIL_COOKIE)?.value || '';
 
-  const emailFromSignup = String(signupEmailCookie || profile.email || '').trim().toLowerCase();
+  const emailFromSignup = String(
+    signupEmailCookie || profile.email || '',
+  )
+    .trim()
+    .toLowerCase();
+
+  // If this is truly a new signup, we MUST have an email
+  if (!emailFromSignup) {
+    return NextResponse.json(
+      { error: 'Missing signup email.' },
+      { status: 400 },
+    );
+  }
 
   // Resolve insert vs edit-self
   let athleteId: string | null = sess?.aid ?? null;
