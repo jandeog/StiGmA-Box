@@ -11,10 +11,13 @@ function asInt(v: any) {
 }
 
 /* ----------------------------- GET /athletes/:id ---------------------------- */
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const id = String(params.id || '').trim();
+export async function GET(req: Request) {
+  // read :id from the URL path, no second arg → no Next type friction
+  const { pathname } = new URL(req.url);
+  const id = String(pathname.split('/').pop() || '').trim();
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
+  // session check (coach only for this endpoint)
   const token = cookies().get(SESSION_COOKIE)?.value || null;
   const sess = await verifySession(token || undefined).catch(() => null);
   if (!sess || sess.role !== 'coach') {
@@ -52,10 +55,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 /* ---------------------------- PATCH /athletes/:id --------------------------- */
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const id = String(params.id || '').trim();
+export async function PATCH(req: Request) {
+  const { pathname } = new URL(req.url);
+  const id = String(pathname.split('/').pop() || '').trim();
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
+  // session check (coach only)
   const token = cookies().get(SESSION_COOKIE)?.value || null;
   const sess = await verifySession(token || undefined).catch(() => null);
   if (!sess || sess.role !== 'coach') {
@@ -65,8 +70,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   let body: any = {};
-  try { body = await req.json(); } catch {}
+  try { body = await req.json(); } catch { body = {}; }
 
+  // Only these fields are allowed to be patched
   const allowed = new Set([
     'first_name','last_name','nickname','team_name',
     'dob','phone','gender',
@@ -79,21 +85,26 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   for (const k in body) {
     if (!allowed.has(k)) continue;
     const v = body[k];
+
     switch (k) {
       case 'is_coach':
         if (typeof v === 'boolean') update.is_coach = v;
         break;
+
       case 'height_cm':
       case 'weight_kg':
       case 'years_of_experience':
-        update[k] = asInt(v);
+        update[k] = asInt(v); // allow null
         break;
+
       case 'credits': {
         const n = asInt(v);
         if (n != null) update.credits = Math.max(0, Math.floor(n));
         break;
       }
+
       default:
+        // strings: allow explicit null, treat '' as null
         update[k] = v === '' ? null : (v ?? null);
         break;
     }
