@@ -1,6 +1,5 @@
 export const runtime = 'nodejs';
 
-import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -12,23 +11,12 @@ function asInt(v: any) {
 }
 
 /* ----------------------------- GET /athletes/:id ---------------------------- */
-export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const id = String(params.id || '').trim();
-  if (!id) {
-    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-  }
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  // session check (coach only for this endpoint)
   const token = cookies().get(SESSION_COOKIE)?.value || null;
-  let sess = null;
-  try {
-    sess = await verifySession(token || undefined);
-  } catch {
-    sess = null;
-  }
+  const sess = await verifySession(token || undefined).catch(() => null);
   if (!sess || sess.role !== 'coach') {
     const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     res.headers.set('Cache-Control', 'no-store');
@@ -64,38 +52,21 @@ export async function GET(
 }
 
 /* ---------------------------- PATCH /athletes/:id --------------------------- */
-export async function PATCH(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const id = String(params.id || '').trim();
-  if (!id) {
-    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-  }
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  // session check (coach only)
   const token = cookies().get(SESSION_COOKIE)?.value || null;
-  let sess = null;
-  try {
-    sess = await verifySession(token || undefined);
-  } catch {
-    sess = null;
-  }
+  const sess = await verifySession(token || undefined).catch(() => null);
   if (!sess || sess.role !== 'coach') {
     const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     res.headers.set('Cache-Control', 'no-store');
     return res;
   }
 
-  // parse body safely
   let body: any = {};
-  try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
+  try { body = await req.json(); } catch {}
 
-  // Only these fields are allowed to be patched
   const allowed = new Set([
     'first_name','last_name','nickname','team_name',
     'dob','phone','gender',
@@ -104,33 +75,25 @@ export async function PATCH(
     'is_coach','credits',
   ]);
 
-  // Build a partial update object
   const update: Record<string, any> = {};
   for (const k in body) {
     if (!allowed.has(k)) continue;
     const v = body[k];
-
     switch (k) {
       case 'is_coach':
         if (typeof v === 'boolean') update.is_coach = v;
         break;
-
       case 'height_cm':
       case 'weight_kg':
-      case 'years_of_experience': {
-        const n = asInt(v);
-        update[k] = n; // allow null to clear
+      case 'years_of_experience':
+        update[k] = asInt(v);
         break;
-      }
-
       case 'credits': {
         const n = asInt(v);
         if (n != null) update.credits = Math.max(0, Math.floor(n));
         break;
       }
-
       default:
-        // strings: allow explicit null, treat '' as null, otherwise keep string
         update[k] = v === '' ? null : (v ?? null);
         break;
     }
@@ -146,7 +109,7 @@ export async function PATCH(
     .from('athletes')
     .update(update)
     .eq('id', id)
-    .select('id, email, is_coach, credits')
+    .select('id')
     .maybeSingle();
 
   if (error) {
