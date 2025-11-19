@@ -21,9 +21,9 @@ export async function GET(req: Request) {
   let query = supabaseAdmin
     .from('athletes')
     .select(`
-      id, email, phone, is_coach,
-      first_name, last_name, nickname, team_name,
-      credits
+  id, email, first_name, last_name, nickname, team_name, phone,
+  credits, is_coach, created_at, updated_at,
+  emergency_name, emergency_phone
     `);
 
   if (q) {
