@@ -24,7 +24,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = await cookies();
+  const cookieStore = cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value || '';
   let displayName: string | undefined = undefined;
 
@@ -54,38 +54,40 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full bg-zinc-950 text-zinc-100 antialiased">
-        {/* Header */}
-        <header className="sticky top-0 z-50 w-full border-b border-zinc-800/70 bg-zinc-950/75 backdrop-blur">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between gap-3 py-3">
-              {/* Left: Logo + menu */}
-              <HeaderLogoMenu displayName={displayName} />
+        {/* Header (only after sign-in) */}
+       {signedIn && (
+                  <header className="sticky top-0 z-50 w-full border-b border-zinc-800/70 bg-zinc-950/75 backdrop-blur">
+            <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between gap-3 py-3">
+                {/* Left: Logo + menu */}
+                <HeaderLogoMenu displayName={displayName} />
 
-              {/* Center: Tabs (desktop) */}
-              <nav className="hidden md:flex items-center gap-1">
-                <NavLink href="/athletes" label="Athletes" />
-                <NavLink href="/schedule" label="Schedule" />
-                <NavLink href="/wod" label="WOD" />
-                <NavLink href="/score" label="Scores" />
+                {/* Center: Tabs (desktop) */}
+                <nav className="hidden md:flex items-center gap-1">
+                  <NavLink href="/athletes" label="Athletes" />
+                  <NavLink href="/schedule" label="Schedule" />
+                  <NavLink href="/wod" label="WOD" />
+                  <NavLink href="/score" label="Scores" />
+                </nav>
+
+                {/* Right: LIVE credits */}
+                <HeaderCredits
+                  initialCredits={credits}
+                  initialIsCoach={isCoach}
+                  signedIn={signedIn}
+                />
+              </div>
+
+              {/* Secondary row for small screens: tabs full width */}
+              <nav className="md:hidden grid grid-cols-2 gap-2 pb-3">
+                <Link href="/athletes" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Athletes</Link>
+                <Link href="/schedule" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Schedule</Link>
+                <Link href="/wod" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">WOD</Link>
+                <Link href="/score" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Scores</Link>
               </nav>
-
-              {/* Right: LIVE credits */}
-              <HeaderCredits
-                initialCredits={credits}
-                initialIsCoach={isCoach}
-                signedIn={signedIn}
-              />
             </div>
-
-            {/* Secondary row for small screens: tabs full width */}
-            <nav className="md:hidden grid grid-cols-2 gap-2 pb-3">
-              <Link href="/athletes" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Athletes</Link>
-              <Link href="/schedule" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Schedule</Link>
-              <Link href="/wod" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">WOD</Link>
-              <Link href="/score" className="px-3 py-2 rounded-lg text-center border border-zinc-800 bg-zinc-900/60">Scores</Link>
-            </nav>
-          </div>
-        </header>
+          </header>
+        )}
 
         <main className="mx-auto max-w-6xl px-0 sm:px-6 lg:px-8 py-4">
           {children}

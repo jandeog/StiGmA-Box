@@ -6,17 +6,37 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
 
 export async function GET() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const sess = await verifySession(token);
-  if (!sess?.aid) return NextResponse.json({ me: null });
+  const cookieStore = cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value || null;
+
+  const sess = await verifySession(token || undefined).catch(() => null);
+  if (!sess?.aid) {
+    const res = NextResponse.json({ me: null }, { status: 200 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  }
 
   const { data, error } = await supabaseAdmin
     .from('athletes')
-    .select('id, email, phone, dob, notes, is_coach, first_name, gender, last_name, nickname, team_name, credits, height_cm, weight_kg, years_of_experience, terms_version, terms_accepted_at, emergency_name. emergency_phone')
+    .select(`
+      id, email,
+      first_name, last_name, nickname, team_name,
+      dob, phone, gender,
+      height_cm, weight_kg, years_of_experience,
+      notes, credits, is_coach,
+      terms_version, terms_accepted_at,
+      emergency_name, emergency_phone
+    `)
     .eq('id', sess.aid)
     .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ me: data });
+  if (error) {
+    const res = NextResponse.json({ me: null, error: error.message }, { status: 500 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  }
+
+  const res = NextResponse.json({ me: data }, { status: 200 });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
 }

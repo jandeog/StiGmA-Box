@@ -1,5 +1,6 @@
 export const runtime = 'nodejs';
 
+import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -10,15 +11,25 @@ function asInt(v: any) {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(req: Request) {
-  const { pathname } = new URL(req.url);
-  const id = pathname.split('/').pop()!;
+/* ----------------------------- GET /athletes/:id ---------------------------- */
+export async function GET(_req: NextRequest, ctx: { params: { id: string } }) {
+  const id = String(ctx.params?.id || '').trim();
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  }
 
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const sess = await verifySession(token);
+  // session check (coach only for this endpoint)
+  const token = cookies().get(SESSION_COOKIE)?.value || null;
+  let sess = null;
+  try {
+    sess = await verifySession(token || undefined);
+  } catch {
+    sess = null;
+  }
   if (!sess || sess.role !== 'coach') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
   }
 
   const { data, error } = await supabaseAdmin
@@ -33,22 +44,50 @@ export async function GET(req: Request) {
     .eq('id', id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ athlete: data });
-}
-
-export async function PATCH(req: Request) {
-  const { pathname } = new URL(req.url);
-  const id = pathname.split('/').pop()!;
-
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const sess = await verifySession(token);
-  if (!sess || sess.role !== 'coach') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (error) {
+    const res = NextResponse.json({ error: error.message }, { status: 500 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  }
+  if (!data) {
+    const res = NextResponse.json({ error: 'Not found' }, { status: 404 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
   }
 
-  const body = await req.json();
+  const res = NextResponse.json({ athlete: data }, { status: 200 });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
+/* ---------------------------- PATCH /athletes/:id --------------------------- */
+export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
+  const id = String(ctx.params?.id || '').trim();
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  }
+
+  // session check (coach only)
+  const token = cookies().get(SESSION_COOKIE)?.value || null;
+  let sess = null;
+  try {
+    sess = await verifySession(token || undefined);
+  } catch {
+    sess = null;
+  }
+  if (!sess || sess.role !== 'coach') {
+    const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  }
+
+  // parse body safely
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
 
   // Only these fields are allowed to be patched
   const allowed = new Set([
@@ -59,7 +98,7 @@ export async function PATCH(req: Request) {
     'is_coach','credits',
   ]);
 
-  // Build a partial update object: include a key ONLY if it exists in the JSON
+  // Build a partial update object
   const update: Record<string, any> = {};
   for (const k in body) {
     if (!allowed.has(k)) continue;
@@ -91,9 +130,10 @@ export async function PATCH(req: Request) {
     }
   }
 
-  // If nothing to update, return OK (prevents accidental wipes)
   if (Object.keys(update).length === 0) {
-    return NextResponse.json({ ok: true, id });
+    const res = NextResponse.json({ ok: true, id });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
   }
 
   const { data, error } = await supabaseAdmin
@@ -103,6 +143,18 @@ export async function PATCH(req: Request) {
     .select('id, email, is_coach, credits')
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, id: data?.id });
+  if (error) {
+    const res = NextResponse.json({ error: error.message }, { status: 500 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  }
+  if (!data) {
+    const res = NextResponse.json({ error: 'Not found' }, { status: 404 });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  }
+
+  const res = NextResponse.json({ ok: true, id: data.id }, { status: 200 });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
 }

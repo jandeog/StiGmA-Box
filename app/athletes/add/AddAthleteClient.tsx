@@ -11,13 +11,21 @@ type Props = {
   redirect: string;
   targetId: string | null;
   createNew: boolean;
+    initialEmRole?: string;   // NEW
+  initialEmPhone?: string;  // NEW
 };
+function numOrNull(v: string) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
 
 export default function AddAthleteClient({
   initialEmail,
   redirect,
   targetId,
   createNew,
+    initialEmRole = '',       // NEW
+  initialEmPhone = '',      // NEW
 }: Props) {
   const router = useRouter();
 
@@ -33,6 +41,7 @@ export default function AddAthleteClient({
   const [showPw1, setShowPw1] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
   const [changePassword, setChangePassword] = useState(false);
+
 
   // profile fields
   const [firstName, setFirstName] = useState('');
@@ -55,46 +64,97 @@ export default function AddAthleteClient({
   const [msg, setMsg] = useState<string | null>(null);
 
   // ---- setup ----
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (initialEmail) {
-        setMode('signup');
-        setEmail(initialEmail);
+
+  
+useEffect(() => {
+  let alive = true;
+
+  async function run() {
+    setMsg(null);
+
+    // 1) Pure signup: if we have an initialEmail (OTP/callback), do signup mode first.
+    if (initialEmail) {
+      if (!alive) return;
+      setMode('signup');
+      setEmail(initialEmail);
+      if (initialEmRole) setEmName(initialEmRole);
+      if (initialEmPhone) setEmPhone(initialEmPhone);
+      return;
+    }
+
+    // 2) Resolve who I am (to know if I'm a coach)
+    const meRes = await fetch('/api/me', { cache: 'no-store' });
+    const j = meRes.ok ? await meRes.json() : { me: null };
+    const me = j?.me || null;
+
+    if (!alive) return;
+
+    const amCoach = !!me?.is_coach;
+    setIAmCoach(amCoach);
+    setMyId(me?.id ?? null);
+
+    // 3) If I'm a coach and a targetId is present -> COACH EDIT takes priority.
+    if (amCoach && targetId) {
+      setMode('coach-edit');
+
+      const r = await fetch(
+        `/api/athletes/${encodeURIComponent(targetId)}?t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+      const aj = r.ok ? await r.json() : { athlete: null };
+      const a = aj?.athlete || null;
+
+      if (!alive) return;
+      if (!a) {
+        setMsg('Athlete not found.');
         return;
       }
 
-      const meRes = await fetch('/api/me', { cache: 'no-store' });
-      if (!meRes.ok) return;
-      const j = await meRes.json();
-      const me = j?.me ?? null;
-      if (!me || !alive) return;
+      // fill with target athlete
+      setEmail(a.email || '');
+      setFirstName(a.first_name || '');
+      setLastName(a.last_name || '');
+      setNickname(a.nickname || '');
+      setTeamName(a.team_name || '');
+      setDob(a.dob || '');
+      setPhone(a.phone || '');
+      setGender(a.gender || '');
+      setHeightCm(a.height_cm ? String(a.height_cm) : '');
+      setWeightKg(a.weight_kg ? String(a.weight_kg) : '');
+      setYears(a.years_of_experience ? String(a.years_of_experience) : '');
+      setNotes(a.notes || '');
+      setEmName(a.emergency_name || '');
+      setEmPhone(a.emergency_phone || '');
+      setIsCoachFlag(!!a.is_coach);
+      setCredits(a.credits != null ? String(a.credits) : '0');
+      return;
+    }
 
-      setMyId(me.id);
-      setIAmCoach(!!me.is_coach);
-      setMode('edit-self');
+    // 4) Otherwise -> EDIT SELF (uses /api/me)
+    setMode('edit-self');
 
-      setEmail(me.email || '');
-      setFirstName(me.first_name || '');
-      setLastName(me.last_name || '');
-      setNickname(me.nickname || '');
-      setTeamName(me.team_name || '');
-      setDob(me.dob || '');
-      setPhone(me.phone || '');
-      setGender(me.gender || '');
-      setHeightCm(me.height_cm ? String(me.height_cm) : '');
-      setWeightKg(me.weight_kg ? String(me.weight_kg) : '');
-      setYears(me.years_of_experience ? String(me.years_of_experience) : '');
-      setNotes(me.notes || '');
-      setEmName(me.emergency_name || '');
-      setEmPhone(me.emergency_phone || '');
-      setIsCoachFlag(!!me.is_coach);
-      setCredits(me.credits != null ? String(me.credits) : '0');
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [initialEmail, targetId, createNew]);
+    setEmail(me?.email || '');
+    setFirstName(me?.first_name || '');
+    setLastName(me?.last_name || '');
+    setNickname(me?.nickname || '');
+    setTeamName(me?.team_name || '');
+    setDob(me?.dob || '');
+    setPhone(me?.phone || '');
+    setGender(me?.gender || '');
+    setHeightCm(me?.height_cm ? String(me?.height_cm) : '');
+    setWeightKg(me?.weight_kg ? String(me?.weight_kg) : '');
+    setYears(me?.years_of_experience ? String(me?.years_of_experience) : '');
+    setNotes(me?.notes || '');
+    setEmName(me?.emergency_name || '');
+    setEmPhone(me?.emergency_phone || '');
+    setIsCoachFlag(!!me?.is_coach);
+    setCredits(me?.credits != null ? String(me?.credits) : '0');
+  }
+
+  run();
+  return () => { alive = false; };
+}, [initialEmail, initialEmRole, initialEmPhone, targetId]);
+
 
   const needsPassword =
     mode === 'signup' ||
@@ -113,75 +173,91 @@ export default function AddAthleteClient({
     return Number.isFinite(n) && n >= 0 ? n : 0;
   }
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setMsg(null);
-    if (!canSubmit) return;
+ async function onSubmit(e: React.FormEvent) {
+  e.preventDefault();
+  setMsg(null);
+  if (busy) return;
+
+  try {
     setBusy(true);
-    try {
-      // --- mandatory checks ---
-      if (mode === 'signup') {
-        if (!email.trim()) throw new Error('Email is required.');
-        if (pw1.length < 6) throw new Error('Password must be at least 6 characters.');
-        if (pw1 !== pw2) throw new Error('Passwords do not match.');
-        if (!firstName.trim() || !lastName.trim())
-          throw new Error('First and last name are required.');
-        if (!phone.trim()) throw new Error('Phone is required.');
-        if (!emName.trim() || !emPhone.trim())
-          throw new Error('Emergency role and phone are required.');
-        if (!acceptRules) throw new Error('You must accept the gym rules.');
+
+    // Build common payload from form state
+    const base: any = {
+      first_name: firstName || null,
+      last_name: lastName || null,
+      nickname: nickname || null,
+      team_name: teamName || null,
+      dob: dob || null,
+      phone: phone || null,
+      gender: gender || null,
+      height_cm: numOrNull(heightCm),
+      weight_kg: numOrNull(weightKg),
+      years_of_experience: numOrNull(years),
+      notes: notes || null,
+      emergency_name: emName || null,
+      emergency_phone: emPhone || null,
+    };
+
+    // ========= COACH EDITS ANOTHER ATHLETE =========
+    if (mode === 'coach-edit' && targetId) {
+      // Only coaches can touch credits / is_coach
+      if (iAmCoach) {
+        base.credits = numOrNull(credits) ?? 0;
+        base.is_coach = isCoachFlag;
       }
 
-      const payload: any = {
-        email,
-        first_name: firstName || undefined,
-        last_name: lastName || undefined,
-        nickname: nickname || undefined,
-        team_name: teamName || undefined,
-        dob: dob || undefined,
-        phone: phone || undefined,
-        gender: gender || undefined,
-        height_cm: heightCm ? Number(heightCm) : undefined,
-        weight_kg: weightKg ? Number(weightKg) : undefined,
-        years_of_experience: years ? Number(years) : undefined,
-        notes: notes || undefined,
-        emergency_name: emName || undefined,
-        emergency_phone: emPhone || undefined,
-        acceptRules: mode === 'signup' ? true : undefined,
-        terms_version: 1,
-      };
-
-      if (iAmCoach) payload.is_coach = isCoachFlag || undefined;
-      if (iAmCoach) payload.credits = toNonNegativeInt(credits);
-      if (needsPassword) payload.password = pw1;
-
-      const r = await fetch('/api/auth/complete-signup', {
-        method: 'POST',
+      const r = await fetch(`/api/athletes/${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(base),
+        cache: 'no-store',
       });
 
-      let j: any = null;
-      try {
-        j = await r.json();
-      } catch {
-        j = null;
-      }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error || `Failed to save athlete (HTTP ${r.status})`);
 
-      if (!r.ok) throw new Error(j?.error || `Error (HTTP ${r.status})`);
-
-      const badge = nickname || `${firstName[0]}${lastName[0]}`.toUpperCase();
-      window.dispatchEvent(new CustomEvent('header:updateName', { detail: badge }));
-      window.dispatchEvent(new CustomEvent('credits:refresh'));
-
-      if (j?.role === 'coach') router.replace('/athletes');
-      else router.replace(redirect || '/schedule');
-    } catch (err: any) {
-      setMsg(err.message);
-    } finally {
-      setBusy(false);
+      // Do NOT update header badge when editing others
+      router.replace('/athletes');
+      return;
     }
+
+    // ========= SIGNUP or EDIT-SELF =========
+    const payload: any = {
+      ...base,
+      email,                  // edit-self may allow changing email in your flow; if not, server will ignore
+      acceptRules: mode === 'signup' ? true : undefined,
+    };
+
+    // Password only when required
+    if (needsPassword) {
+      if (pw1.length < 6) throw new Error('Password must be at least 6 characters.');
+      if (pw1 !== pw2) throw new Error('Passwords do not match.');
+      payload.password = pw1;
+    }
+
+    const r = await fetch('/api/auth/complete-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || `Error (HTTP ${r.status})`);
+
+    // Update header badge only for self
+    const badge = nickname || (firstName && lastName ? `${firstName[0]}${lastName[0]}`.toUpperCase() : '');
+    if (badge) window.dispatchEvent(new CustomEvent('header:updateName', { detail: badge }));
+    window.dispatchEvent(new CustomEvent('credits:refresh'));
+
+    if (j?.role === 'coach') router.replace('/athletes');
+    else router.replace(redirect || '/schedule');
+  } catch (err: any) {
+    setMsg(err.message || 'Failed to save');
+  } finally {
+    setBusy(false);
   }
+}
 
   // ---- UI ----
   return (

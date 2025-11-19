@@ -38,6 +38,12 @@ export default function HeaderLogoMenu({ displayName }: { displayName?: string }
     };
   }, [open]);
 
+  // NEW: helper that closes menu before navigating
+  const go = (href: string) => () => {
+    setOpen(false);
+    router.push(href);
+  };
+
   async function signOut() {
     setOpen(false);
     await fetch('/api/auth/signout', { method: 'POST', cache: 'no-store' });
@@ -81,14 +87,26 @@ export default function HeaderLogoMenu({ displayName }: { displayName?: string }
           role="menu"
           className="absolute z-50 mt-2 w-44 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/95 shadow-lg backdrop-blur"
         >
-          <button onClick={() => router.push('/schedule')} className="block w-full px-3 py-2 text-left text-sm hover:bg-white/10">
+          <button
+            onClick={go('/schedule')}
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-white/10"
+            role="menuitem"
+          >
             Book Now
           </button>
-          <button onClick={() => router.push('/athletes/add')} className="block w-full px-3 py-2 text-left text-sm hover:bg-white/10">
+          <button
+            onClick={go('/athletes/add')}
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-white/10"
+            role="menuitem"
+          >
             Settings
           </button>
           <div className="h-px bg-zinc-800" />
-          <button onClick={signOut} className="block w-full px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/10">
+          <button
+            onClick={signOut}
+            className="block w-full px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/10"
+            role="menuitem"
+          >
             Log out
           </button>
         </div>
