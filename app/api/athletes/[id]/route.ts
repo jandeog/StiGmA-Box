@@ -12,8 +12,11 @@ function asInt(v: any) {
 }
 
 /* ----------------------------- GET /athletes/:id ---------------------------- */
-export async function GET(_req: NextRequest, ctx: { params: { id: string } }) {
-  const id = String(ctx.params?.id || '').trim();
+export async function GET(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  const id = String(params.id || '').trim();
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
@@ -61,8 +64,11 @@ export async function GET(_req: NextRequest, ctx: { params: { id: string } }) {
 }
 
 /* ---------------------------- PATCH /athletes/:id --------------------------- */
-export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
-  const id = String(ctx.params?.id || '').trim();
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const id = String(params.id || '').trim();
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
