@@ -371,54 +371,176 @@ useEffect(() => {
 
         </section>
 
-        {/* Profile */}
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
-          <h2 className="text-sm font-medium">Profile</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <input
-              placeholder="First name *"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              className="placeholder-red-400 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
-            />
-            <input
-              placeholder="Last name *"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              className="placeholder-red-400 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
-            />
-            <input placeholder="Nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-            <input placeholder="Team" value={teamName} onChange={(e) => setTeamName(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-            <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-            <input
-              placeholder="Phone *"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="placeholder-red-400 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
-            />
-            <select value={gender} onChange={(e) => setGender(e.target.value as Gender | '')} className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm">
-              <option value="">Gender</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-              <option value="other">Other</option>
-              <option value="prefer_not_say">Prefer not to say</option>
-            </select>
-            <input placeholder="Height (cm)" value={heightCm} onChange={(e) => setHeightCm(e.target.value.replace(/\D/g, ''))} className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-            <input placeholder="Weight (kg)" value={weightKg} onChange={(e) => setWeightKg(e.target.value.replace(/\D/g, ''))} className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-            <input placeholder="Years of experience" value={years} onChange={(e) => setYears(e.target.value.replace(/\D/g, ''))} className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-            <input placeholder="Credits" value={credits} onChange={(e) => setCredits(e.target.value.replace(/\D/g, ''))} disabled={!iAmCoach} className={'rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm ' + (!iAmCoach ? 'opacity-80 cursor-not-allowed' : '')} />
-          </div>
-          <textarea placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-        </section>
+{/* Profile */}
+<section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
+  <h2 className="text-sm font-medium">Profile</h2>
 
-        {/* Emergency */}
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
-          <h2 className="text-sm font-medium">Emergency Contact <span className="text-red-500">*</span> </h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <input placeholder="Emergency Role *" value={emName} onChange={(e) => setEmName(e.target.value)} className="placeholder-red-400 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-            <input placeholder="Emergency Phone *" value={emPhone} onChange={(e) => setEmPhone(e.target.value)} className="placeholder-red-400 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm" />
-          </div>
-        </section>
+  <div className="grid gap-4 md:grid-cols-2">
+    {/* First name */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">
+        First name <span className="text-red-500">*</span>
+      </label>
+      <input
+        value={firstName}
+        onChange={(e) => setFirstName(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+
+    {/* Last name */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">
+        Last name <span className="text-red-500">*</span>
+      </label>
+      <input
+        value={lastName}
+        onChange={(e) => setLastName(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+
+    {/* Nickname */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Nickname</label>
+      <input
+        value={nickname}
+        onChange={(e) => setNickname(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+
+    {/* Team */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Team</label>
+      <input
+        value={teamName}
+        onChange={(e) => setTeamName(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+
+    {/* DOB */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Date of birth</label>
+      <input
+        type="date"
+        value={dob}
+        onChange={(e) => setDob(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+
+    {/* Phone (required) */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">
+        Phone <span className="text-red-500">*</span>
+      </label>
+      <input
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+
+    {/* Gender */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Gender</label>
+      <select
+        value={gender}
+        onChange={(e) => setGender(e.target.value as any)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      >
+        <option value="">—</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="other">Other</option>
+        <option value="prefer_not_say">Prefer not to say</option>
+      </select>
+    </div>
+
+    {/* Height / Weight / Years */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Height (cm)</label>
+      <input
+        value={heightCm}
+        onChange={(e) => setHeightCm(e.target.value.replace(/\D/g, ''))}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Weight (kg)</label>
+      <input
+        value={weightKg}
+        onChange={(e) => setWeightKg(e.target.value.replace(/\D/g, ''))}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Years of experience</label>
+      <input
+        value={years}
+        onChange={(e) => setYears(e.target.value.replace(/\D/g, ''))}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+
+    {/* Credits (coach only) */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Credits</label>
+      <input
+        value={credits}
+        onChange={(e) => setCredits(e.target.value.replace(/\D/g, ''))}
+        disabled={!iAmCoach}
+        className={
+          'w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm ' +
+          (!iAmCoach ? 'opacity-80 cursor-not-allowed' : '')
+        }
+      />
+    </div>
+  </div>
+
+  {/* Notes */}
+  <div>
+    <label className="block text-xs mb-1 text-zinc-400">Notes</label>
+    <textarea
+      rows={3}
+      value={notes}
+      onChange={(e) => setNotes(e.target.value)}
+      className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+    />
+  </div>
+</section>
+
+{/* Emergency */}
+<section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
+  <h2 className="text-sm font-medium">
+    Emergency Contact <span className="text-red-500">*</span>
+  </h2>
+  <div className="grid gap-4 md:grid-cols-2">
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">
+        Emergency Role <span className="text-red-500">*</span>
+      </label>
+      <input
+        value={emName}
+        onChange={(e) => setEmName(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">
+        Emergency Phone <span className="text-red-500">*</span>
+      </label>
+      <input
+        value={emPhone}
+        onChange={(e) => setEmPhone(e.target.value)}
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm"
+      />
+    </div>
+  </div>
+</section>
+
 
         <div className="flex gap-3 items-center">
           <button type="submit" disabled={!canSubmit || busy} className="rounded-md bg-white/10 px-4 py-2 text-sm disabled:opacity-50">
