@@ -51,7 +51,8 @@ input::placeholder,
 textarea::placeholder {
   color: #a1a1aa;                /* placeholder-zinc-400 */
 }
-
+   .no-scrollbar::-webkit-scrollbar { display:none; }
+   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 input:focus,
 select:focus,
 textarea:focus {
