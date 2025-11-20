@@ -30,9 +30,9 @@ export default function HeaderNavIcons({
       {items.map((item) => {
         const active = pathname.startsWith(item.href);
         const wrapperClasses = isDesktop
-          ? 'group flex items-center justify-center w-20 h-20'
+          ? 'group flex items-center justify-center w-24 h-24'
           : 'group flex items-center justify-center w-16 h-16';
-        const iconSizeClasses = isDesktop ? 'w-16 h-16' : 'w-14 h-14';
+        const iconSizeClasses = isDesktop ? 'w-24 h-24' : 'w-16 h-16';
 
         return (
           <Link key={item.href} href={item.href} className={wrapperClasses}>
