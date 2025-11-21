@@ -15,7 +15,7 @@ const asInt = (v: any) => {
     return Number.isFinite(n) ? n : null;
   };
     // cookies() is synchronous in App Router
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value || null;
 
   // Make verifySession robust – invalid/old tokens shouldn't crash the route

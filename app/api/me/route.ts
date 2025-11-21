@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
 
 export async function GET() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value || null;
 
   const sess = await verifySession(token || undefined).catch(() => null);

@@ -229,22 +229,33 @@ export async function POST(req: Request) {
     }
   }
 
-  // Attendance table entry (only if we have a concrete class slot)
-  if (classSlotIdToUse) {
-    const method = isCoach ? 'coach_toggle' : 'booked';
-    const { error: attErr } = await supabaseAdmin.from('attendance').insert({
-      slot_id: classSlotIdToUse,
-      athlete_id: athleteId,
-      method,
-      attended: true,
-      attended_at: new Date().toISOString(),
-    });
+  // Attendance table entry (UPSERT to avoid duplicates)
+if (classSlotIdToUse) {
+  const method = isCoach ? 'coach_toggle' : 'booked';
 
-    if (attErr) {
-      // Not fatal for scoring, just log
-      console.error('Failed to insert attendance from /api/scores', attErr);
-    }
+  const { error: attErr } = await supabaseAdmin
+    .from('attendance')
+    .upsert(
+      {
+        slot_id: classSlotIdToUse,
+        athlete_id: athleteId,
+        method,
+        attended: true,
+        attended_at: new Date().toISOString(),
+      },
+      {
+        onConflict: 'slot_id,athlete_id',
+        ignoreDuplicates: false, // update existing row instead of ignoring
+      },
+    );
+
+  if (attErr) {
+    console.error('Failed to upsert attendance from /api/scores', attErr);
   }
+}
+
+
+
 
   // -------------------- Optional credit charge (coach only) --------------------
 

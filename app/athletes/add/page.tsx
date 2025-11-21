@@ -4,7 +4,7 @@ import AddAthleteClient from './AddAthleteClient';
 
 export default async function Page(props: PageProps<'/athletes/add'>) {
   const searchParams = await props.searchParams;
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
 
   const cookieEmail = (cookieStore.get(SIGNUP_EMAIL_COOKIE)?.value || '')
     .trim()
@@ -21,7 +21,7 @@ export default async function Page(props: PageProps<'/athletes/add'>) {
   const createNew = (searchParams.new as string | undefined) === '1';
 
   // ✨ NEW: pass optional emergency seed values from query if present
-  const initialEmRole  = (searchParams.emergency_name as string | undefined) || '';
+  const initialEmRole  = (searchParams.emergency_role  as string | undefined) || '';
   const initialEmPhone = (searchParams.emergency_phone as string | undefined) || '';
 
   return (

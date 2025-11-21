@@ -18,8 +18,9 @@ export async function GET(req: Request) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // session check (coach only for this endpoint)
-  const token = cookies().get(SESSION_COOKIE)?.value || null;
-  const sess = await verifySession(token || undefined).catch(() => null);
+const cookieStore = await cookies();
+const token = cookieStore.get(SESSION_COOKIE)?.value || null;
+const sess = await verifySession(token || undefined).catch(() => null);
   if (!sess || sess.role !== 'coach') {
     const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     res.headers.set('Cache-Control', 'no-store');
@@ -61,8 +62,11 @@ export async function PATCH(req: Request) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // session check (coach only)
-  const token = cookies().get(SESSION_COOKIE)?.value || null;
-  const sess = await verifySession(token || undefined).catch(() => null);
+const cookieStore = await cookies();
+const token = cookieStore.get(SESSION_COOKIE)?.value || null;
+
+const sess = await verifySession(token || undefined).catch(() => null);
+
   if (!sess || sess.role !== 'coach') {
     const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     res.headers.set('Cache-Control', 'no-store');

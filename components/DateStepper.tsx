@@ -3,32 +3,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function DateStepper({
-  value,
-  onChange,
-  className = '',
-}: {
+type Props = {
   value: string; // YYYY-MM-DD
   onChange: (next: string) => void;
   className?: string;
-}) {
+};
+
+function DateStepperInner({ value, onChange, className = '' }: Props) {
   const [showPicker, setShowPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setShowPicker(false);
-      }
-    };
-    if (showPicker) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showPicker]);
-
+  // ---- helpers ----
   const addDays = (iso: string, delta: number) => {
     if (!iso) return iso;
     const [y, m, d] = iso.split('-').map(Number);
-    const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+    const dt = new Date(y!, (m ?? 1) - 1, d ?? 1);
     dt.setDate(dt.getDate() + delta);
     const yy = dt.getFullYear();
     const mm = String(dt.getMonth() + 1).padStart(2, '0');
@@ -42,9 +31,19 @@ export default function DateStepper({
     return `${d}/${m}/${y}`;
   };
 
-  const currentDate = new Date(value);
-  const [month, setMonth] = useState(currentDate.getMonth());
-  const [year, setYear] = useState(currentDate.getFullYear());
+  // ---- calendar state synced from value ----
+  const baseDate = value ? new Date(value) : new Date();
+  const [month, setMonth] = useState(baseDate.getMonth());
+  const [year, setYear] = useState(baseDate.getFullYear());
+
+  useEffect(() => {
+    if (!value) return;
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) {
+      setMonth(d.getMonth());
+      setYear(d.getFullYear());
+    }
+  }, [value]);
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDay = new Date(year, month, 1).getDay();
@@ -58,15 +57,34 @@ export default function DateStepper({
   };
 
   const today = new Date();
+  const currentDate = value ? new Date(value) : today;
+
   const isToday = (d: number) =>
     d === today.getDate() &&
     month === today.getMonth() &&
     year === today.getFullYear();
 
+  // ---- click outside to close ----
+  useEffect(() => {
+    if (!showPicker) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        pickerRef.current &&
+        !pickerRef.current.contains(e.target as Node)
+      ) {
+        setShowPicker(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPicker]);
+
   return (
     <div
       ref={pickerRef}
-className={`relative flex items-center px-2.5 py-1.5  transition-colors leading-none ${className}`}
+      className={`relative flex items-center px-2.5 py-1.5 transition-colors leading-none ${className}`}
     >
       <button
         type="button"
@@ -78,7 +96,7 @@ className={`relative flex items-center px-2.5 py-1.5  transition-colors leading-
 
       <button
         type="button"
-        onClick={() => setShowPicker(!showPicker)}
+        onClick={() => setShowPicker((s) => !s)}
         className="appearance-none min-h-0 h-auto leading-none text-[13px] px-2 hover:text-emerald-400 hover:!bg-emerald-950/40"
       >
         {formatDisplay(value)}
@@ -104,12 +122,15 @@ className={`relative flex items-center px-2.5 py-1.5  transition-colors leading-
           >
             <div className="flex justify-between items-center mb-1 text-zinc-300">
               <button
+                type="button"
                 className="hover:text-emerald-400"
                 onClick={() => {
                   if (month === 0) {
                     setMonth(11);
-                    setYear(year - 1);
-                  } else setMonth(month - 1);
+                    setYear((y) => y - 1);
+                  } else {
+                    setMonth((m) => m - 1);
+                  }
                 }}
               >
                 ←
@@ -121,12 +142,15 @@ className={`relative flex items-center px-2.5 py-1.5  transition-colors leading-
                 {year}
               </div>
               <button
+                type="button"
                 className="hover:text-emerald-400"
                 onClick={() => {
                   if (month === 11) {
                     setMonth(0);
-                    setYear(year + 1);
-                  } else setMonth(month + 1);
+                    setYear((y) => y + 1);
+                  } else {
+                    setMonth((m) => m + 1);
+                  }
                 }}
               >
                 →
@@ -149,21 +173,22 @@ className={`relative flex items-center px-2.5 py-1.5  transition-colors leading-
                   day === currentDate.getDate() &&
                   month === currentDate.getMonth() &&
                   year === currentDate.getFullYear();
-                return (
-<button
-  key={day}
-  onClick={() => handleSelectDate(day)}
-  className={`rounded-sm !py-[1px] !px-[2px] text-[11px] leading-none transition-colors ${
-    selected
-      ? 'bg-emerald-600 text-white'
-      : isToday(day)
-      ? 'border border-emerald-600 text-emerald-400'
-      : 'text-zinc-300 hover:bg-emerald-950/40 hover:text-emerald-400'
-  }`}
->
-  {day}
-</button>
 
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => handleSelectDate(day)}
+                    className={`rounded-sm !py-[1px] !px-[2px] text-[11px] leading-none transition-colors ${
+                      selected
+                        ? 'bg-emerald-600 text-white'
+                        : isToday(day)
+                        ? 'border border-emerald-600 text-emerald-400'
+                        : 'text-zinc-300 hover:bg-emerald-950/40 hover:text-emerald-400'
+                    }`}
+                  >
+                    {day}
+                  </button>
                 );
               })}
             </div>
@@ -173,3 +198,7 @@ className={`relative flex items-center px-2.5 py-1.5  transition-colors leading-
     </div>
   );
 }
+
+// Prevent re-renders when only the WOD form state changes
+const DateStepper = React.memo(DateStepperInner);
+export default DateStepper;
