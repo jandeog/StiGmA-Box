@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import DateStepper from '@/components/DateStepper';
 
 type ScoringType = 'for_time' | 'amrap' | 'emom' | 'max_load' | 'max_reps' | 'other';
@@ -35,16 +35,54 @@ type WodState = {
   };
 };
 
-type SetWod = React.Dispatch<React.SetStateAction<WodState>>;
+type SetWod = (updater: (prev: WodState) => WodState) => void;
 
-/* ---------- Sub-components (outside WodPage so they don't remount) ---------- */
+/* ---------------- Auto-resize textarea (no inner scroll) ---------------- */
+
+type AutoResizeTextareaProps =
+  React.TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string };
+
+function AutoResizeTextarea({ value, onChange, className, ...rest }: AutoResizeTextareaProps) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  // adjust height whenever value changes
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  const handleChange: React.ChangeEventHandler<HTMLTextAreaElement> = (e) => {
+    const el = ref.current;
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+    onChange?.(e);
+  };
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={handleChange}
+      rows={1}
+      className={`${fieldBase} resize-none overflow-hidden ${className ?? ''}`}
+      {...rest}
+    />
+  );
+}
+
+/* ---------------- Shared Blocks ---------------- */
 
 type StrengthBlockProps = {
   wod: WodState;
   setWod: SetWod;
+  readOnly?: boolean;
 };
 
-function StrengthBlock({ wod, setWod }: StrengthBlockProps) {
+function StrengthBlock({ wod, setWod, readOnly = false }: StrengthBlockProps) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
       <div className="text-sm font-semibold mb-2">Strength / Skills</div>
@@ -53,10 +91,14 @@ function StrengthBlock({ wod, setWod }: StrengthBlockProps) {
       <input
         value={wod.strength.title}
         onChange={(e) =>
-          setWod((s) => ({ ...s, strength: { ...s.strength, title: e.target.value } }))
+          setWod((s) => ({
+            ...s,
+            strength: { ...s.strength, title: e.target.value },
+          }))
         }
         placeholder="e.g. Back Squat"
-        className={fieldBase}
+        readOnly={readOnly}
+        className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
       />
 
       <div className="mt-3 grid gap-2">
@@ -64,36 +106,50 @@ function StrengthBlock({ wod, setWod }: StrengthBlockProps) {
         <input
           value={wod.strength.scoreHint}
           onChange={(e) =>
-            setWod((s) => ({ ...s, strength: { ...s.strength, scoreHint: e.target.value } }))
+            setWod((s) => ({
+              ...s,
+              strength: { ...s.strength, scoreHint: e.target.value },
+            }))
           }
           placeholder="e.g. 3RM, Max Reps…"
-          className={fieldBase}
+          readOnly={readOnly}
+          className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
         />
 
         <label className="block text-[12px] text-zinc-400">Description</label>
-        <textarea
+        <AutoResizeTextarea
           value={wod.strength.description}
           onChange={(e) =>
-            setWod((s) => ({ ...s, strength: { ...s.strength, description: e.target.value } }))
+            setWod((s) => ({
+              ...s,
+              strength: { ...s.strength, description: e.target.value },
+            }))
           }
-          rows={4}
-          className={fieldBase}
+          placeholder=""
+          readOnly={readOnly}
+          className={readOnly ? 'pointer-events-none' : ''}
         />
 
-        <label className="mt-2 inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-emerald-500"
-            checked={wod.strength.recordScore}
-            onChange={(e) =>
-              setWod((s) => ({
-                ...s,
-                strength: { ...s.strength, recordScore: e.target.checked },
-              }))
-            }
-          />
-          <span>Record score for Strength / Skills</span>
-        </label>
+        {/* hide checkbox completely in read-only (athlete) mode */}
+        {!readOnly && (
+          <label className="mt-2 inline-flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-emerald-500"
+              checked={wod.strength.recordScore}
+              onChange={(e) =>
+                setWod((s) => ({
+                  ...s,
+                  strength: {
+                    ...s.strength,
+                    recordScore: e.target.checked,
+                  },
+                }))
+              }
+            />
+            <span>Record score for Strength / Skills</span>
+          </label>
+        )}
       </div>
     </div>
   );
@@ -102,9 +158,10 @@ function StrengthBlock({ wod, setWod }: StrengthBlockProps) {
 type MainWodBlockProps = {
   wod: WodState;
   setWod: SetWod;
+  readOnly?: boolean;
 };
 
-function MainWodBlock({ wod, setWod }: MainWodBlockProps) {
+function MainWodBlock({ wod, setWod, readOnly = false }: MainWodBlockProps) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
       <div className="text-sm font-semibold mb-2">Main WOD</div>
@@ -113,8 +170,14 @@ function MainWodBlock({ wod, setWod }: MainWodBlockProps) {
       <input
         placeholder="e.g. Fran / EMOM 12’ / 5 Rounds …"
         value={wod.title}
-        onChange={(e) => setWod((s) => ({ ...s, title: e.target.value }))}
-        className={fieldBase}
+        onChange={(e) =>
+          setWod((s) => ({
+            ...s,
+            title: e.target.value,
+          }))
+        }
+        readOnly={readOnly}
+        className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
       />
 
       <div className="mt-3 grid gap-2">
@@ -123,9 +186,13 @@ function MainWodBlock({ wod, setWod }: MainWodBlockProps) {
           <select
             value={wod.scoring}
             onChange={(e) =>
-              setWod((s) => ({ ...s, scoring: e.target.value as ScoringType }))
+              setWod((s) => ({
+                ...s,
+                scoring: e.target.value as ScoringType,
+              }))
             }
-            className={fieldBase}
+            disabled={readOnly}
+            className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
           >
             {scoringOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -136,36 +203,56 @@ function MainWodBlock({ wod, setWod }: MainWodBlockProps) {
         </div>
 
         <label className="block text-[12px] text-zinc-400">Description</label>
-        <textarea
+        <AutoResizeTextarea
           value={wod.description}
-          onChange={(e) => setWod((s) => ({ ...s, description: e.target.value }))}
-          rows={6}
-          className={fieldBase}
+          onChange={(e) =>
+            setWod((s) => ({
+              ...s,
+              description: e.target.value,
+            }))
+          }
+          placeholder=""
+          readOnly={readOnly}
+          className={readOnly ? 'pointer-events-none' : ''}
         />
 
         <label className="block text-[12px] text-zinc-400">Time cap</label>
         <input
           value={wod.timeCap}
-          onChange={(e) => setWod((s) => ({ ...s, timeCap: e.target.value }))}
+          onChange={(e) =>
+            setWod((s) => ({
+              ...s,
+              timeCap: e.target.value,
+            }))
+          }
           placeholder="e.g. 16:00"
-          className={fieldBase}
+          readOnly={readOnly}
+          className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
         />
 
-        <label className="mt-2 inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-emerald-500"
-            checked={wod.recordMainScore}
-            onChange={(e) =>
-              setWod((s) => ({ ...s, recordMainScore: e.target.checked }))
-            }
-          />
-          <span>Record score for Main WOD</span>
-        </label>
+        {/* hide checkbox completely in read-only (athlete) mode */}
+        {!readOnly && (
+          <label className="mt-2 inline-flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-emerald-500"
+              checked={wod.recordMainScore}
+              onChange={(e) =>
+                setWod((s) => ({
+                  ...s,
+                  recordMainScore: e.target.checked,
+                }))
+              }
+            />
+            <span>Record score for Main WOD</span>
+          </label>
+        )}
       </div>
     </div>
   );
 }
+
+/* ---------------- Athlete Slide Deck ---------------- */
 
 type AthleteDeckProps = {
   wod: WodState;
@@ -201,35 +288,43 @@ function AthleteDeck({ wod, setWod }: AthleteDeckProps) {
 
   return (
     <>
-      {/* arrows + indicators */}
+      {/* indicators only (no arrows) */}
       <div className="flex items-center justify-center gap-3 mb-3">
-        <button
-          onClick={() => go(-1)}
-          className="px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
-        >
-          ←
-        </button>
-        <div className="flex gap-1">
-          <span
-            className={cx(
-              'h-1.5 w-6 rounded-full',
-              ix === 0 ? 'bg-emerald-500' : 'bg-zinc-700',
-            )}
-          />
-          <span
-            className={cx(
-              'h-1.5 w-6 rounded-full',
-              ix === 1 ? 'bg-emerald-500' : 'bg-zinc-700',
-            )}
-          />
-        </div>
-        <button
-          onClick={() => go(1)}
-          className="px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
-        >
-          →
-        </button>
-      </div>
+  
+  {/* Desktop arrows */}
+  <button
+    onClick={() => go(-1)}
+    className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
+  >
+    ←
+  </button>
+
+  {/* Indicators (mobile + desktop) */}
+  <div className="flex gap-1">
+    <span
+      className={cx(
+        'h-1.5 w-6 rounded-full',
+        ix === 0 ? 'bg-emerald-500' : 'bg-zinc-700'
+      )}
+    />
+    <span
+      className={cx(
+        'h-1.5 w-6 rounded-full',
+        ix === 1 ? 'bg-emerald-500' : 'bg-zinc-700'
+      )}
+    />
+  </div>
+
+  {/* Desktop arrows */}
+  <button
+    onClick={() => go(1)}
+    className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
+  >
+    →
+  </button>
+
+</div>
+
 
       {/* deck */}
       <div
@@ -238,38 +333,20 @@ function AthleteDeck({ wod, setWod }: AthleteDeckProps) {
         style={{ WebkitOverflowScrolling: 'touch' as any }}
       >
         <div className="min-w-full snap-start pr-2">
-          <StrengthBlock wod={wod} setWod={setWod} />
+          <StrengthBlock wod={wod} setWod={setWod} readOnly />
         </div>
         <div className="min-w-full snap-start pl-2">
-          <MainWodBlock wod={wod} setWod={setWod} />
+          <MainWodBlock wod={wod} setWod={setWod} readOnly />
         </div>
       </div>
     </>
   );
 }
 
-/* ----- Memoized header so DateStepper doesn't re-render on every keystroke ----- */
-
-type HeaderProps = {
-  date: string;
-  onDateChange: (d: string) => void;
-};
-
-const WodHeader = memo(function WodHeader({ date, onDateChange }: HeaderProps) {
-  return (
-    <div className="flex items-center justify-between gap-3 mb-4">
-      <h1 className="text-xl font-semibold">WOD</h1>
-
-      <div className="flex items-center gap-2">
-        <DateStepper {...({ value: date, onChange: onDateChange } as any)} />
-      </div>
-    </div>
-  );
-});
-
-/* --------------------------------- Page --------------------------------- */
+/* ---------------- Page ---------------- */
 
 export default function WodPage() {
+  // ISO date string yyyy-mm-dd
   const [date, setDate] = useState<string>(() =>
     new Date().toISOString().slice(0, 10),
   );
@@ -307,6 +384,21 @@ export default function WodPage() {
         setIsCoach(false);
       }
 
+      const reset = () =>
+        setWod(() => ({
+          title: '',
+          description: '',
+          scoring: 'for_time',
+          timeCap: '',
+          recordMainScore: true,
+          strength: {
+            title: '',
+            description: '',
+            scoreHint: '',
+            recordScore: false,
+          },
+        }));
+
       // wod per date
       try {
         const wr = await fetch(`/api/wod?date=${encodeURIComponent(date)}`, {
@@ -316,7 +408,7 @@ export default function WodPage() {
           const wj = await wr.json();
           const row = wj?.wod || null;
           if (alive && row) {
-            setWod({
+            setWod(() => ({
               title: row.title || '',
               description: row.description || '',
               scoring: (row.scoring as ScoringType) || 'for_time',
@@ -331,53 +423,15 @@ export default function WodPage() {
                 recordScore:
                   row.strengthRecordScore ?? !!row.strength_record_score,
               },
-            });
+            }));
           } else if (alive) {
-            setWod({
-              title: '',
-              description: '',
-              scoring: 'for_time',
-              timeCap: '',
-              recordMainScore: true,
-              strength: {
-                title: '',
-                description: '',
-                scoreHint: '',
-                recordScore: false,
-              },
-            });
+            reset();
           }
         } else if (alive) {
-          setWod({
-            title: '',
-            description: '',
-            scoring: 'for_time',
-            timeCap: '',
-            recordMainScore: true,
-            strength: {
-              title: '',
-              description: '',
-              scoreHint: '',
-              recordScore: false,
-            },
-          });
+          reset();
         }
       } catch {
-        if (alive) {
-          setWod({
-            title: '',
-            description: '',
-            scoring: 'for_time',
-            timeCap: '',
-            recordMainScore: true,
-            strength: {
-              title: '',
-              description: '',
-              scoreHint: '',
-              recordScore: false,
-            },
-          });
-        }
+        if (alive) reset();
       } finally {
         if (alive) setLoading(false);
       }
@@ -427,21 +481,34 @@ export default function WodPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-6">
-      <WodHeader date={date} onDateChange={setDate} />
+      {/* Header row */}
+      <div className="flex flex-col items-center gap-2 mb-4 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold text-center sm:text-left">WOD</h1>
+
+        {/* DateStepper */}
+        <div className="flex items-center gap-2 justify-center w-full sm:w-auto sm:justify-end">
+          <DateStepper
+            {...({ value: date, onChange: (d: string) => setDate(d) } as any)}
+          />
+        </div>
+      </div>
 
       {loading ? (
         <div className="text-sm text-zinc-400 py-8">Loading WOD…</div>
       ) : (
         <>
           {isCoach ? (
+            // === COACH: vertical editor ===
             <div className="grid gap-4">
               <StrengthBlock wod={wod} setWod={setWod} />
               <MainWodBlock wod={wod} setWod={setWod} />
             </div>
           ) : (
+            // === ATHLETE: horizontal deck ===
             <AthleteDeck wod={wod} setWod={setWod} />
           )}
 
+          {/* Footer actions (coach only) */}
           {isCoach && (
             <div className="mt-4 flex justify-end gap-2">
               <button
