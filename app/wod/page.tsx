@@ -45,7 +45,6 @@ type AutoResizeTextareaProps =
 function AutoResizeTextarea({ value, onChange, className, ...rest }: AutoResizeTextareaProps) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
-  // adjust height whenever value changes
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -130,7 +129,6 @@ function StrengthBlock({ wod, setWod, readOnly = false }: StrengthBlockProps) {
           className={readOnly ? 'pointer-events-none' : ''}
         />
 
-        {/* hide checkbox completely in read-only (athlete) mode */}
         {!readOnly && (
           <label className="mt-2 inline-flex items-center gap-2 text-sm">
             <input
@@ -230,7 +228,6 @@ function MainWodBlock({ wod, setWod, readOnly = false }: MainWodBlockProps) {
           className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
         />
 
-        {/* hide checkbox completely in read-only (athlete) mode */}
         {!readOnly && (
           <label className="mt-2 inline-flex items-center gap-2 text-sm">
             <input
@@ -288,45 +285,40 @@ function AthleteDeck({ wod, setWod }: AthleteDeckProps) {
 
   return (
     <>
-      {/* indicators only (no arrows) */}
       <div className="flex items-center justify-center gap-3 mb-3">
-  
-  {/* Desktop arrows */}
-  <button
-    onClick={() => go(-1)}
-    className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
-  >
-    ←
-  </button>
+        {/* Desktop arrows */}
+        <button
+          onClick={() => go(-1)}
+          className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
+        >
+          ←
+        </button>
 
-  {/* Indicators (mobile + desktop) */}
-  <div className="flex gap-1">
-    <span
-      className={cx(
-        'h-1.5 w-6 rounded-full',
-        ix === 0 ? 'bg-emerald-500' : 'bg-zinc-700'
-      )}
-    />
-    <span
-      className={cx(
-        'h-1.5 w-6 rounded-full',
-        ix === 1 ? 'bg-emerald-500' : 'bg-zinc-700'
-      )}
-    />
-  </div>
+        {/* Indicators */}
+        <div className="flex gap-1">
+          <span
+            className={cx(
+              'h-1.5 w-6 rounded-full',
+              ix === 0 ? 'bg-emerald-500' : 'bg-zinc-700',
+            )}
+          />
+          <span
+            className={cx(
+              'h-1.5 w-6 rounded-full',
+              ix === 1 ? 'bg-emerald-500' : 'bg-zinc-700',
+            )}
+          />
+        </div>
 
-  {/* Desktop arrows */}
-  <button
-    onClick={() => go(1)}
-    className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
-  >
-    →
-  </button>
+        {/* Desktop arrows */}
+        <button
+          onClick={() => go(1)}
+          className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
+        >
+          →
+        </button>
+      </div>
 
-</div>
-
-
-      {/* deck */}
       <div
         ref={deckRef}
         className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth"
@@ -346,13 +338,14 @@ function AthleteDeck({ wod, setWod }: AthleteDeckProps) {
 /* ---------------- Page ---------------- */
 
 export default function WodPage() {
-  // ISO date string yyyy-mm-dd
   const [date, setDate] = useState<string>(() =>
     new Date().toISOString().slice(0, 10),
   );
   const [isCoach, setIsCoach] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [wodDates, setWodDates] = useState<string[]>([]);
 
   const [wod, setWod] = useState<WodState>(() => ({
     title: '',
@@ -368,13 +361,38 @@ export default function WodPage() {
     },
   }));
 
+  // ---- Load ALL WOD dates once (for calendar coloring) ----
+  useEffect(() => {
+    let alive = true;
+
+    async function loadAllWodDates() {
+      try {
+        const res = await fetch('/api/wod/dates', { cache: 'no-store' });
+        if (!res.ok) return;
+
+        const json = await res.json();
+        const dates = (json?.dates ?? []) as string[];
+
+        if (!alive) return;
+
+        setWodDates(Array.from(new Set(dates)));
+      } catch (err) {
+        console.error('Failed to load WOD dates', err);
+      }
+    }
+
+    loadAllWodDates();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // ---- ROLE + WOD FETCH (per date) ----
   useEffect(() => {
     let alive = true;
 
     async function loadAll() {
       try {
-        // role
         const r = await fetch('/api/me', { cache: 'no-store' });
         const j = r.ok ? await r.json() : {};
         if (!alive) return;
@@ -384,7 +402,7 @@ export default function WodPage() {
         setIsCoach(false);
       }
 
-      const reset = () =>
+      const reset = () => {
         setWod(() => ({
           title: '',
           description: '',
@@ -398,8 +416,9 @@ export default function WodPage() {
             recordScore: false,
           },
         }));
+        setWodDates((prev) => prev.filter((d) => d !== date));
+      };
 
-      // wod per date
       try {
         const wr = await fetch(`/api/wod?date=${encodeURIComponent(date)}`, {
           cache: 'no-store',
@@ -424,6 +443,10 @@ export default function WodPage() {
                   row.strengthRecordScore ?? !!row.strength_record_score,
               },
             }));
+
+            setWodDates((prev) =>
+              prev.includes(date) ? prev : [...prev, date],
+            );
           } else if (alive) {
             reset();
           }
@@ -470,6 +493,10 @@ export default function WodPage() {
         const err = await r.json().catch(() => ({}));
         throw new Error(err?.error || `Save failed (HTTP ${r.status})`);
       }
+
+      setWodDates((prev) =>
+        prev.includes(date) ? prev : [...prev, date],
+      );
     } catch (err: any) {
       alert(err?.message || 'Save failed');
     } finally {
@@ -481,14 +508,14 @@ export default function WodPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-6">
-      {/* Header row */}
       <div className="flex flex-col items-center gap-2 mb-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-center sm:text-left">WOD</h1>
 
-        {/* DateStepper */}
         <div className="flex items-center gap-2 justify-center w-full sm:w-auto sm:justify-end">
           <DateStepper
-            {...({ value: date, onChange: (d: string) => setDate(d) } as any)}
+            value={date}
+            onChange={(d: string) => setDate(d)}
+            highlightedDates={wodDates}
           />
         </div>
       </div>
@@ -497,18 +524,19 @@ export default function WodPage() {
         <div className="text-sm text-zinc-400 py-8">Loading WOD…</div>
       ) : (
         <>
-          {isCoach ? (
-            // === COACH: vertical editor ===
+          {new Date(date).getDay() === 0 ? (
+            <div className="text-center text-zinc-400 py-10 text-lg">
+              Rest Day – No WOD for today
+            </div>
+          ) : isCoach ? (
             <div className="grid gap-4">
               <StrengthBlock wod={wod} setWod={setWod} />
               <MainWodBlock wod={wod} setWod={setWod} />
             </div>
           ) : (
-            // === ATHLETE: horizontal deck ===
             <AthleteDeck wod={wod} setWod={setWod} />
           )}
 
-          {/* Footer actions (coach only) */}
           {isCoach && (
             <div className="mt-4 flex justify-end gap-2">
               <button

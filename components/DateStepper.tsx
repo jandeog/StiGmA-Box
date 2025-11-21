@@ -7,9 +7,15 @@ type Props = {
   value: string; // YYYY-MM-DD
   onChange: (next: string) => void;
   className?: string;
+  highlightedDates?: string[]; // YYYY-MM-DD dates that should be tinted
 };
 
-function DateStepperInner({ value, onChange, className = '' }: Props) {
+function DateStepperInner({
+  value,
+  onChange,
+  className = '',
+  highlightedDates = [],
+}: Props) {
   const [showPicker, setShowPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -169,6 +175,12 @@ function DateStepperInner({ value, onChange, className = '' }: Props) {
               ))}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
+
+                const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(
+                  day,
+                ).padStart(2, '0')}`;
+                const hasWod = highlightedDates.includes(iso);
+
                 const selected =
                   day === currentDate.getDate() &&
                   month === currentDate.getMonth() &&
@@ -184,6 +196,8 @@ function DateStepperInner({ value, onChange, className = '' }: Props) {
                         ? 'bg-emerald-600 text-white'
                         : isToday(day)
                         ? 'border border-emerald-600 text-emerald-400'
+                        : hasWod
+                        ? 'bg-yellow-500/20 text-zinc-100 hover:bg-yellow-500/30'
                         : 'text-zinc-300 hover:bg-emerald-950/40 hover:text-emerald-400'
                     }`}
                   >
