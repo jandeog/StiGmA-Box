@@ -37,6 +37,19 @@ type WodState = {
 
 type SetWod = (updater: (prev: WodState) => WodState) => void;
 
+type MainSuggestion = {
+  title: string | null;
+  description: string | null;
+  scoring: string | null;
+  timeCap: string | null;
+};
+
+type StrengthSuggestion = {
+  strengthTitle: string | null;
+  strengthDescription: string | null;
+  strengthScoreHint: string | null;
+};
+
 /* ---------------- Auto-resize textarea (no inner scroll) ---------------- */
 
 type AutoResizeTextareaProps =
@@ -82,6 +95,55 @@ type StrengthBlockProps = {
 };
 
 function StrengthBlock({ wod, setWod, readOnly = false }: StrengthBlockProps) {
+  // suggestions for Strength / Skills title
+  const [searchTerm, setSearchTerm] = useState('');
+  const [suggestions, setSuggestions] = useState<StrengthSuggestion[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setSuggestions([]);
+      setShowMenu(false);
+      return;
+    }
+
+    let alive = true;
+    const handle = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/wod?suggest=strength&q=${encodeURIComponent(searchTerm)}`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok || !alive) return;
+        const data = (await res.json()) as StrengthSuggestion[];
+        setSuggestions((data ?? []).slice(0, 3));
+        setShowMenu((data ?? []).length > 0);
+      } catch {
+        if (!alive) return;
+        setSuggestions([]);
+        setShowMenu(false);
+      }
+    }, 200);
+
+    return () => {
+      alive = false;
+      clearTimeout(handle);
+    };
+  }, [searchTerm]);
+
+  const applySuggestion = (s: StrengthSuggestion) => {
+    setWod((prev) => ({
+      ...prev,
+      strength: {
+        ...prev.strength,
+        title: s.strengthTitle ?? '',
+        description: s.strengthDescription ?? '',
+        scoreHint: s.strengthScoreHint ?? '',
+      },
+    }));
+    setShowMenu(false);
+  };
+
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
       <div className="text-sm font-semibold mb-2">Strength / Skills</div>
@@ -89,16 +151,43 @@ function StrengthBlock({ wod, setWod, readOnly = false }: StrengthBlockProps) {
       <label className="block text-[12px] text-zinc-400">Title</label>
       <input
         value={wod.strength.title}
-        onChange={(e) =>
+        onChange={(e) => {
+          const val = e.target.value;
           setWod((s) => ({
             ...s,
-            strength: { ...s.strength, title: e.target.value },
-          }))
-        }
+            strength: { ...s.strength, title: val },
+          }));
+          if (!readOnly) {
+            setSearchTerm(val);
+          }
+        }}
         placeholder="e.g. Back Squat"
         readOnly={readOnly}
         className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
       />
+
+      {/* suggestions dropdown for strength title */}
+      {!readOnly && showMenu && suggestions.length > 0 && (
+        <div className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 text-xs overflow-hidden">
+          {suggestions.map((s, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => applySuggestion(s)}
+              className="block w-full text-left px-2 py-1 hover:bg-zinc-800"
+            >
+              <div className="font-medium">
+                {s.strengthTitle || '(no title)'}
+              </div>
+              {s.strengthDescription && (
+                <div className="text-[11px] text-zinc-400 truncate">
+                  {s.strengthDescription}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mt-3 grid gap-2">
         <label className="block text-[12px] text-zinc-400">Score (hint)</label>
@@ -160,6 +249,53 @@ type MainWodBlockProps = {
 };
 
 function MainWodBlock({ wod, setWod, readOnly = false }: MainWodBlockProps) {
+  // suggestions for Main WOD title
+  const [searchTerm, setSearchTerm] = useState('');
+  const [suggestions, setSuggestions] = useState<MainSuggestion[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setSuggestions([]);
+      setShowMenu(false);
+      return;
+    }
+
+    let alive = true;
+    const handle = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/wod?suggest=main&q=${encodeURIComponent(searchTerm)}`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok || !alive) return;
+        const data = (await res.json()) as MainSuggestion[];
+        setSuggestions((data ?? []).slice(0, 3));
+        setShowMenu((data ?? []).length > 0);
+      } catch {
+        if (!alive) return;
+        setSuggestions([]);
+        setShowMenu(false);
+      }
+    }, 200);
+
+    return () => {
+      alive = false;
+      clearTimeout(handle);
+    };
+  }, [searchTerm]);
+
+  const applySuggestion = (s: MainSuggestion) => {
+    setWod((prev) => ({
+      ...prev,
+      title: s.title ?? '',
+      description: s.description ?? '',
+      scoring: (s.scoring as ScoringType) ?? prev.scoring,
+      timeCap: s.timeCap ?? prev.timeCap,
+    }));
+    setShowMenu(false);
+  };
+
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
       <div className="text-sm font-semibold mb-2">Main WOD</div>
@@ -168,15 +304,42 @@ function MainWodBlock({ wod, setWod, readOnly = false }: MainWodBlockProps) {
       <input
         placeholder="e.g. Fran / EMOM 12’ / 5 Rounds …"
         value={wod.title}
-        onChange={(e) =>
+        onChange={(e) => {
+          const val = e.target.value;
           setWod((s) => ({
             ...s,
-            title: e.target.value,
-          }))
-        }
+            title: val,
+          }));
+          if (!readOnly) {
+            setSearchTerm(val);
+          }
+        }}
         readOnly={readOnly}
         className={`${fieldBase} ${readOnly ? 'pointer-events-none' : ''}`}
       />
+
+      {/* suggestions dropdown for main WOD title */}
+      {!readOnly && showMenu && suggestions.length > 0 && (
+        <div className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 text-xs overflow-hidden">
+          {suggestions.map((s, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => applySuggestion(s)}
+              className="block w-full text-left px-2 py-1 hover:bg-zinc-800"
+            >
+              <div className="font-medium">
+                {s.title || '(no title)'}
+              </div>
+              {s.description && (
+                <div className="text-[11px] text-zinc-400 truncate">
+                  {s.description}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mt-3 grid gap-2">
         <div>

@@ -1,7 +1,6 @@
-// app/score/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import DateStepper from '@/components/DateStepper';
 
 // ---------- Types ----------
@@ -94,7 +93,6 @@ type ApiScoreRow = {
     team_name?: string | null;
   } | null;
 };
-
 
 // ---------- Helpers ----------
 
@@ -300,7 +298,8 @@ function validateMainScore(
     if (!validateNumberish(v)) {
       return {
         ok: false,
-        message: 'For MAX LOAD, enter the heaviest successful load in kg (e.g. 120).',
+        message:
+          'For MAX LOAD, enter the heaviest successful load in kg (e.g. 120).',
       };
     }
     return { ok: true };
@@ -324,6 +323,103 @@ async function getJSON<T>(url: string): Promise<T> {
   const j = raw ? JSON.parse(raw) : {};
   if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
   return j as T;
+}
+
+// "07:00" -> "7 AM", "08:30" -> "8.30 AM", "20:00" -> "8 PM"
+function formatClassTimeLabel(raw?: string | null): string {
+  if (!raw) return '';
+  const [hStr = '0', mStr = '0'] = raw.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return raw;
+
+  const suffix = h < 12 ? 'AM' : 'PM';
+  let hour12 = h % 12;
+  if (hour12 === 0) hour12 = 12;
+  const minutePart = m === 0 ? '' : `.${m.toString().padStart(2, '0')}`;
+  return `${hour12}${minutePart} ${suffix}`;
+}
+
+// ---------- Slide deck for Strength / WOD (mobile) ----------
+
+type ScoreDeckProps = {
+  left: ReactNode;
+  right: ReactNode;
+};
+
+function ScoreDeck({ left, right }: ScoreDeckProps) {
+  const deckRef = useRef<HTMLDivElement | null>(null);
+  const [ix, setIx] = useState(0);
+
+  useEffect(() => {
+    const node = deckRef.current;
+    if (!node) return;
+
+    const onScroll = () => {
+      const w = node.clientWidth || 1;
+      const newIx = Math.round(node.scrollLeft / w);
+      setIx(newIx);
+    };
+
+    node.addEventListener('scroll', onScroll, { passive: true } as any);
+    return () => {
+      node.removeEventListener('scroll', onScroll);
+    };
+  }, []);
+
+  const go = (dir: -1 | 1) => {
+    const node = deckRef.current;
+    if (!node) return;
+    const w = node.clientWidth || 0;
+    node.scrollTo({ left: node.scrollLeft + dir * w, behavior: 'smooth' });
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-center gap-3 mb-3">
+        {/* Desktop arrows */}
+        <button
+          type="button"
+          onClick={() => go(-1)}
+          className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
+        >
+          ←
+        </button>
+
+        {/* Indicators */}
+        <div className="flex gap-1">
+          <span
+            className={`h-1.5 w-6 rounded-full ${
+              ix === 0 ? 'bg-emerald-500' : 'bg-zinc-700'
+            }`}
+          />
+          <span
+            className={`h-1.5 w-6 rounded-full ${
+              ix === 1 ? 'bg-emerald-500' : 'bg-zinc-700'
+            }`}
+          />
+        </div>
+
+        {/* Desktop arrows */}
+        <button
+          type="button"
+          onClick={() => go(1)}
+          className="hidden sm:block px-2 py-1 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-sm"
+        >
+          →
+        </button>
+      </div>
+
+      <div
+        ref={deckRef}
+        className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth"
+        style={{ WebkitOverflowScrolling: 'touch' as any }}
+      >
+        <div className="min-w-full snap-start pr-2">{left}</div>
+        <div className="min-w-full snap-start pl-2">{right}</div>
+      </div>
+    </>
+  );
 }
 
 // ---------- Component ----------
@@ -351,17 +447,15 @@ export default function ScorePage() {
   const [team, setTeam] = useState('');
 
   // Strength
-  const [rxScaledStrength, setRxScaledStrength] =
-    useState<'RX' | 'Scaled'>('RX');
+  const [rxScaledStrength] = useState<'RX' | 'Scaled'>('RX'); // default RX, no UI toggle
   const [valueStrength, setValueStrength] = useState('');
 
   // Main WOD
   const [rxScaled, setRxScaled] = useState<'RX' | 'Scaled'>('RX');
   const [valueMain, setValueMain] = useState('');
 
-    // Athlete-only: verify attendance without a score
+  // Athlete-only: verify attendance without a score
   const [noScore, setNoScore] = useState(false);
-
 
   // Lists
   const [scoresMain, setScoresMain] = useState<Score[]>([]);
@@ -459,7 +553,7 @@ export default function ScorePage() {
     setNoScore(false);
   }, [athleteId, athletes]);
 
-  // ---------- Load WOD on date change (from Supabase via /api/wod) ----------
+  // ---------- Load WOD on date change ----------
 
   useEffect(() => {
     let alive = true;
@@ -508,18 +602,17 @@ export default function ScorePage() {
     })();
 
     // Reset inputs when date changes (but keep selected athlete)
-
     setValueStrength('');
     setRxScaled('RX');
     setValueMain('');
     setNoScore(false);
+
     return () => {
       alive = false;
     };
-
   }, [date]);
 
-  // ---------- Load scores from Supabase ----------
+  // ---------- Load scores ----------
 
   useEffect(() => {
     let cancelled = false;
@@ -556,19 +649,18 @@ export default function ScorePage() {
             'Unknown';
           const teamName = a?.team_name ?? undefined;
 
-  return {
-    id: row.id,
-    athlete: fullName,
-    team: teamName,
-    rxScaled: row.rx_scaled,
-    value: row.score,
-    date: row.wod_date,
-    part: row.part === 'strength' ? 'strength' : 'main',
-    classTime: row.class_slot?.time
-      ? row.class_slot.time.slice(0, 5) // "HH:MM"
-      : null,
-  };
-
+          return {
+            id: row.id,
+            athlete: fullName,
+            team: teamName,
+            rxScaled: row.rx_scaled,
+            value: row.score,
+            date: row.wod_date,
+            part: row.part === 'strength' ? 'strength' : 'main',
+            classTime: row.class_slot?.time
+              ? row.class_slot.time.slice(0, 5)
+              : null,
+          };
         });
 
         const main = mapped.filter((s) => s.part === 'main');
@@ -627,7 +719,9 @@ export default function ScorePage() {
 
   const selectedAthlete = athletes.find((a) => a.id === athleteId);
   const normalizedName = (
-    selectedAthlete ? `${selectedAthlete.firstName} ${selectedAthlete.lastName}` : ''
+    selectedAthlete
+      ? `${selectedAthlete.firstName} ${selectedAthlete.lastName}`
+      : ''
   )
     .trim()
     .toLowerCase();
@@ -639,14 +733,14 @@ export default function ScorePage() {
   // RX first, then Scaled
   const rxRank = (s: Score) => (s.rxScaled === 'RX' ? 0 : 1);
 
-  // "mm:ss" -> seconds (or just "ss")
+  // "mm:ss" -> seconds
   const toSec = (v: string) => {
     const parts = v.split(':').map((n) => parseInt(n || '0', 10));
     if (parts.length === 1) return parts[0] || 0;
     return (parts[0] || 0) * 60 + (parts[1] || 0);
   };
 
-  // AMRAP/EMOM reps: "rounds+reps" → rounds*1000 + reps, else plain integer
+  // "rounds+reps" key
   const toRepKey = (v: string) => {
     if (v.includes('+')) {
       const [r, reps] = v.split('+').map((x) => parseInt(x || '0', 10));
@@ -655,7 +749,7 @@ export default function ScorePage() {
     return parseInt(v || '0', 10);
   };
 
-  // Strength: take MAX integer from string (kg or reps) — bigger is better
+  // Strength: take MAX integer from string (kg or reps)
   const toNumberMax = (v: string) => {
     const m = v.match(/-?\d+/g);
     if (!m) return 0;
@@ -663,43 +757,44 @@ export default function ScorePage() {
   };
 
   // Main WOD leaderboard
-const sortedMain = useMemo(() => {
-  const s = [...scoresMain];
-  if (!wod) return s;
+  const sortedMain = useMemo(() => {
+    const s = [...scoresMain];
+    if (!wod) return s;
 
-  if (wod.scoring === 'for_time') {
-    // Split between finished (mm:ss) and time-capped (rounds+reps etc.)
-    const finished = s.filter((sc) => validateTime(sc.value));
-    const capped = s.filter((sc) => !validateTime(sc.value));
+    if (wod.scoring === 'for_time') {
+      const finished = s.filter((sc) => validateTime(sc.value));
+      const capped = s.filter((sc) => !validateTime(sc.value));
 
-    finished.sort(
-      (a, b) =>
-        rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value), // lower time wins
+      finished.sort(
+        (a, b) =>
+          rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value),
+      );
+
+      capped.sort(
+        (a, b) =>
+          rxRank(a) - rxRank(b) ||
+          toRepKey(b.value) - toRepKey(a.value),
+      );
+
+      return [...finished, ...capped];
+    }
+
+    // AMRAP, EMOM, max_load, other
+    return s.sort(
+      (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
     );
-
-    capped.sort(
-      (a, b) =>
-        rxRank(a) - rxRank(b) ||
-        toRepKey(b.value) - toRepKey(a.value), // more rounds+reps wins
-    );
-
-    return [...finished, ...capped];
-  }
-
-  // AMRAP, EMOM, max_load, other → RX first, value ↓ (bigger is better)
-  return s.sort(
-    (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
-  );
-}, [scoresMain, wod]);
-
+  }, [scoresMain, wod]);
 
   // Strength leaderboard: higher number wins
-  const sortedStrength = useMemo(() => {
-    const s = [...scoresStrength];
-    return s.sort((a, b) => toNumberMax(b.value) - toNumberMax(a.value));
-  }, [scoresStrength]);
+  const sortedStrength = useMemo(
+    () =>
+      [...scoresStrength].sort(
+        (a, b) => toNumberMax(b.value) - toNumberMax(a.value),
+      ),
+    [scoresStrength],
+  );
 
-  // Score meta based on WOD / strength configuration
+  // Score meta
   const strengthKind = useMemo(
     () => inferStrengthScoreKind(wod?.strength),
     [wod],
@@ -718,7 +813,6 @@ const sortedMain = useMemo(() => {
       ? 'Time in mm:ss (e.g. 02:30)'
       : 'e.g. 5x5 @80kg • EMOM 10’ @ bodyweight';
 
-
   const mainScoreMeta = useMemo(() => getMainScoreMeta(wod), [wod]);
 
   // ---------- Submit ----------
@@ -727,76 +821,71 @@ const sortedMain = useMemo(() => {
     e.preventDefault();
 
     const selected = athletes.find((a) => a.id === athleteId);
-const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
-const teamName = team.trim() || undefined;
+    const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
+    const teamName = team.trim() || undefined;
 
-const noScoreFlag = !isCoach && noScore;
+    const noScoreFlag = !isCoach && noScore;
 
-const wantStrength = canRecordStrength && !noScoreFlag && valueStrength.trim();
-const wantMain = canRecordMain && !noScoreFlag && valueMain.trim();
+    const wantStrength =
+      canRecordStrength && !noScoreFlag && valueStrength.trim();
+    const wantMain = canRecordMain && !noScoreFlag && valueMain.trim();
 
-
-if (!name) return;
-if (!wantStrength && !wantMain && !noScoreFlag) return;
-
+    if (!name) return;
+    if (!wantStrength && !wantMain && !noScoreFlag) return;
 
     if (!noScoreFlag && wantStrength) {
-  const vRes = validateStrengthScore(strengthKind, valueStrength);
-  if (!vRes.ok) {
-    alert(vRes.message);
-    return;
-  }
-}
+      const vRes = validateStrengthScore(strengthKind, valueStrength);
+      if (!vRes.ok) {
+        alert(vRes.message);
+        return;
+      }
+    }
 
-if (!noScoreFlag && wantMain) {
-  const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
-  if (!vRes.ok) {
-    alert(vRes.message);
-    return;
-  }
-}
-
+    if (!noScoreFlag && wantMain) {
+      const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
+      if (!vRes.ok) {
+        alert(vRes.message);
+        return;
+      }
+    }
 
     const keyName = name.toLowerCase();
     if (submittedNames.includes(keyName)) {
       alert(`You have already submitted for ${fmt(date)}.`);
       return;
     }
-let chargeCredit = false;
-if (isCoach) {
-  chargeCredit = window.confirm(
-    'Do you also want to charge 1 credit for this athlete for this class day?',
-  );
-}
 
-const confirmMessage = noScoreFlag
-  ? `Verify attendance for ${name} on ${fmt(
-      date,
-    )}?\nNo score will be recorded.`
-  : `Submit scores for ${name} on ${fmt(
-      date,
-    )}?\nThis cannot be changed later.`;
+    let chargeCredit = false;
+    if (isCoach) {
+      chargeCredit = window.confirm(
+        'Do you also want to charge 1 credit for this athlete for this class day?',
+      );
+    }
 
-if (!window.confirm(confirmMessage)) {
-  return;
-}
+    const confirmMessage = noScoreFlag
+      ? `Verify attendance for ${name} on ${fmt(
+          date,
+        )}?\nNo score will be recorded.`
+      : `Submit scores for ${name} on ${fmt(
+          date,
+        )}?\nThis cannot be changed later.`;
 
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
 
-
-    // Persist to Supabase via /api/scores
     try {
-const payload = {
-  date,
-  athleteId: selected?.id,
-  strength: wantStrength
-    ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
-    : null,
-  main: wantMain ? { rxScaled, value: valueMain.trim() } : null,
-  classSlotId: null as string | null, // backend now infers from bookings
-  noScore: noScoreFlag,
-  chargeCredit,
-};
-
+      const payload = {
+        date,
+        athleteId: selected?.id,
+        strength: wantStrength
+          ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
+          : null,
+        main: wantMain ? { rxScaled, value: valueMain.trim() } : null,
+        classSlotId: null as string | null, // backend infers from bookings
+        noScore: noScoreFlag,
+        chargeCredit,
+      };
 
       const res = await fetch('/api/scores', {
         method: 'POST',
@@ -821,7 +910,6 @@ const payload = {
       return;
     }
 
-    // Local UI update after successful save
     if (wantStrength) {
       const newScoreS: Score = {
         id: crypto.randomUUID(),
@@ -852,26 +940,153 @@ const payload = {
 
     const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
     setSubmittedNames(nextSubmitted);
-     setScoresReloadKey((k) => k + 1);
+    setScoresReloadKey((k) => k + 1);
   };
 
   const nameWithNick = (fullName: string) => {
-    const [fn, ...rest] = fullName.split(' ');
-    const ln = rest.join(' ');
-    const m = athletes.find(
-      (a) => a.firstName === fn && a.lastName === ln,
-    );
-
-    if (!m?.nickname) return <>{fullName}</>;
-
-    return (
-      <>
-        {fullName}
-        <span className="text-yellow-400"> ({m.nickname})</span>
-      </>
-    );
+    // Leaderboard: show only full name, no nickname
+    return <span>{fullName}</span>;
   };
 
+  // ---------- Section renderers for slider ----------
+
+  const renderStrengthSection = () => (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Strength / Skills</h2>
+      </div>
+
+      <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-2">
+        <div className="text-sm text-zinc-300">
+          {wod?.strength?.title
+            ? `Part: ${wod.strength.title}`
+            : loadingWod
+            ? 'Loading Strength / Skills part…'
+            : 'No Strength/Skills part set'}
+        </div>
+
+        {wod?.strength?.description && (
+          <div className="text-xs text-zinc-400 whitespace-pre-line">
+            {wod.strength.description}
+          </div>
+        )}
+
+        {!canRecordStrength ? (
+          <p className="text-xs text-zinc-400">
+            Score recording for{' '}
+            <span className="font-semibold">Strength / Skills</span>{' '}
+            is disabled for {fmt(date)}.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            <label className="block text-sm mb-1 text-zinc-300">
+              {strengthLabel}
+            </label>
+            <input
+              value={valueStrength}
+              onChange={(e) => setValueStrength(e.target.value)}
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+              placeholder={strengthPlaceholder}
+              disabled={!!alreadySubmitted || (!isCoach && noScore)}
+            />
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
+  const renderMainWodSection = () => (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">WOD</h2>
+
+        {canRecordMain && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-zinc-400 hidden sm:inline">RX / Scaled</span>
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="radio"
+                className="h-3 w-3 accent-emerald-500"
+                checked={rxScaled === 'RX'}
+                onChange={() => setRxScaled('RX')}
+              />
+              <span className="text-[11px] text-zinc-200">RX</span>
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="radio"
+                className="h-3 w-3 accent-emerald-500"
+                checked={rxScaled === 'Scaled'}
+                onChange={() => setRxScaled('Scaled')}
+              />
+              <span className="text-[11px] text-zinc-200">Scaled</span>
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-3">
+        <div className="text-sm text-zinc-300">
+          {loadingWod
+            ? 'Loading Main WOD…'
+            : wod?.title
+            ? `WOD: ${wod.title}`
+            : 'No Main WOD set'}
+          {wod ? ` • Scoring: ${wod.scoring.toUpperCase()}` : ''}
+          {wod?.timeCap ? ` • Time cap: ${wod.timeCap}` : ''}
+        </div>
+        <div className="text-xs text-zinc-400 whitespace-pre-line">
+          {loadingWod ? '' : wod?.description || '—'}
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1 text-zinc-300">
+            {mainScoreMeta.label}
+          </label>
+          {!canRecordMain ? (
+            <p className="text-xs text-zinc-400">
+              Score recording for the Main WOD is disabled for {fmt(date)}.
+            </p>
+          ) : (
+            <>
+              <input
+                value={valueMain}
+                onChange={(e) => setValueMain(e.target.value)}
+                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
+                placeholder={mainScoreMeta.placeholder}
+                disabled={!!alreadySubmitted || (!isCoach && noScore)}
+              />
+              {mainScoreMeta.help && (
+                <p className="mt-1 text-xs text-zinc-500">
+                  {mainScoreMeta.help}
+                </p>
+              )}
+              {!isCoach && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3 accent-emerald-500"
+                    checked={noScore}
+                    onChange={(e) => {
+                      setNoScore(e.target.checked);
+                      if (e.target.checked) {
+                        setValueMain('');
+                        setValueStrength('');
+                      }
+                    }}
+                  />
+                  <span>
+                    Don&apos;t remember / Don&apos;t want to record a score – just
+                    verify my attendance.
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
 
   // ---------- UI ----------
 
@@ -904,7 +1119,7 @@ const payload = {
                 <input
                   value={athleteInput}
                   onChange={(e) => {
-                    if (!isCoach) return; // athletes cannot change themselves
+                    if (!isCoach) return;
                     setAthleteInput(e.target.value);
                     setAthleteOpen(true);
                   }}
@@ -930,7 +1145,6 @@ const payload = {
                   <button
                     type="button"
                     onClick={() => {
-                      // Clear the visible name and show full list immediately
                       setAthleteInput('');
                       setAthleteOpen(true);
                     }}
@@ -1018,174 +1232,18 @@ const payload = {
         </div>
       </div>
 
-      {/* Strength / Skills */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Strength / Skills</h2>
+      {/* Strength + WOD layout */}
+      <div className="sm:hidden">
+        <ScoreDeck
+          left={renderStrengthSection()}
+          right={renderMainWodSection()}
+        />
+      </div>
 
-          {canRecordStrength && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-zinc-400 hidden sm:inline">
-                RX / Scaled
-              </span>
-              <label className="inline-flex items-center gap-1">
-                <input
-                  type="radio"
-                  className="h-3 w-3 accent-emerald-500"
-                  checked={rxScaledStrength === 'RX'}
-                  onChange={() => setRxScaledStrength('RX')}
-                />
-                <span className="text-[11px] text-zinc-200">RX</span>
-              </label>
-              <label className="inline-flex items-center gap-1">
-                <input
-                  type="radio"
-                  className="h-3 w-3 accent-emerald-500"
-                  checked={rxScaledStrength === 'Scaled'}
-                  onChange={() => setRxScaledStrength('Scaled')}
-                />
-                <span className="text-[11px] text-zinc-200">Scaled</span>
-              </label>
-            </div>
-          )}
-        </div>
-
-        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-2">
-          <div className="text-sm text-zinc-300">
-            {wod?.strength?.title
-              ? `Part: ${wod.strength.title}`
-              : loadingWod
-              ? 'Loading Strength / Skills part…'
-              : 'No Strength/Skills part set'}
-          </div>
-
-          {wod?.strength?.description && (
-            <div className="text-xs text-zinc-400 whitespace-pre-line">
-              {wod.strength.description}
-            </div>
-          )}
-
-          {!canRecordStrength ? (
-            <p className="text-xs text-zinc-400">
-              Score recording for <span className="font-semibold">
-                Strength / Skills
-              </span>{' '}
-              is disabled for {fmt(date)}.
-            </p>
-          ) : (
-            <div className="space-y-1">
-              <label className="block text-sm mb-1 text-zinc-300">
-                {strengthLabel}
-              </label>
-              <input
-                value={valueStrength}
-                onChange={(e) => setValueStrength(e.target.value)}
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-                placeholder={strengthPlaceholder}
-                disabled={!!alreadySubmitted || (!isCoach && noScore)}
-              />
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Main WOD */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">WOD</h2>
-
-          {canRecordMain && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-zinc-400 hidden sm:inline">
-                RX / Scaled
-              </span>
-              <label className="inline-flex items-center gap-1">
-                <input
-                  type="radio"
-                  className="h-3 w-3 accent-emerald-500"
-                  checked={rxScaled === 'RX'}
-                  onChange={() => setRxScaled('RX')}
-                />
-                <span className="text-[11px] text-zinc-200">RX</span>
-              </label>
-              <label className="inline-flex items-center gap-1">
-                <input
-                  type="radio"
-                  className="h-3 w-3 accent-emerald-500"
-                  checked={rxScaled === 'Scaled'}
-                  onChange={() => setRxScaled('Scaled')}
-                />
-                <span className="text-[11px] text-zinc-200">Scaled</span>
-              </label>
-            </div>
-          )}
-        </div>
-
-        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 space-y-3">
-          {/* WOD info */}
-          <div className="text-sm text-zinc-300">
-            {loadingWod
-              ? 'Loading Main WOD…'
-              : wod?.title
-              ? `WOD: ${wod.title}`
-              : 'No Main WOD set'}
-            {wod ? ` • Scoring: ${wod.scoring.toUpperCase()}` : ''}
-            {wod?.timeCap ? ` • Time cap: ${wod.timeCap}` : ''}
-          </div>
-          <div className="text-xs text-zinc-400 whitespace-pre-line">
-            {loadingWod ? '' : wod?.description || '—'}
-          </div>
-
-          <div>
-            <label className="block text-sm mb-1 text-zinc-300">
-              {mainScoreMeta.label}
-            </label>
-            {!canRecordMain ? (
-              <p className="text-xs text-zinc-400">
-                Score recording for the Main WOD is disabled for {fmt(date)}.
-              </p>
-            ) : (
-              <>
-                <input
-                  value={valueMain}
-                  onChange={(e) => setValueMain(e.target.value)}
-                  className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
-                  placeholder={mainScoreMeta.placeholder}
-                    disabled={!!alreadySubmitted || (!isCoach && noScore)}
-
-                />
-                {mainScoreMeta.help && (
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {mainScoreMeta.help}
-                  </p>
-                )}
-                          {!isCoach && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
-              <input
-                type="checkbox"
-                className="h-3 w-3 accent-emerald-500"
-                checked={noScore}
-                onChange={(e) => {
-                  setNoScore(e.target.checked);
-                  if (e.target.checked) {
-                    // Clear score inputs when athlete chooses “no score”
-                    setValueMain('');
-                    setValueStrength('');
-                  }
-                }}
-              />
-              <span>
-                Don&apos;t remember / Don&apos;t want to record a score – just verify my
-                attendance.
-              </span>
-            </div>
-          )}
-
-              </>
-            )}
-          </div>
-        </div>
-      </section>
+      <div className="hidden sm:block space-y-4">
+        {renderStrengthSection()}
+        {renderMainWodSection()}
+      </div>
 
       {/* Submit */}
       <div>
@@ -1209,39 +1267,55 @@ const payload = {
       {/* Leaderboard */}
       <section className="mt-4 space-y-3">
         <h2 className="text-lg font-semibold text-center">Leaderboard</h2>
+        <p className="text-center text-[11px] text-zinc-400 flex items-center justify-center gap-3 mt-1">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-3 rounded-sm bg-red-900/40 border border-red-800/40" />
+            RX (WOD)
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-800/40" />
+            Scaled (WOD)
+          </span>
+
+        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Strength */}
           <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
             <div className="text-sm font-semibold mb-2">Strength</div>
-            {scoresStrength.length === 0 ? (
+            {sortedStrength.length === 0 ? (
               <p className="text-xs text-zinc-400">
                 No scores for {fmt(date)}.
               </p>
             ) : (
-<ul className="space-y-1 text-sm">
-  {sortedStrength.map((s, i) => (
-    <li
-      key={s.id}
-      className="flex items-center justify-between gap-2"
-    >
-<div className="flex-1">
-  <div className="text-xs text-zinc-500">#{i + 1}</div>
-  <div className="font-medium">
-    {nameWithNick(s.athlete)}
-    {s.classTime && (
-      <span className="ml-1 text-xs text-emerald-400">
-        ({s.classTime})
-      </span>
-    )}
-  </div>
-</div>
+              <ul className="space-y-1 text-sm">
+                {sortedStrength.map((s, i) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border border-zinc-800 bg-zinc-900/40"
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-[11px] text-zinc-400">
+                        #{i + 1}
+                      </span>
 
-      <div className="text-sm font-semibold">{s.value}</div>
-    </li>
-  ))}
-</ul>
+                      <span className="truncate">
+                        {nameWithNick(s.athlete)}
+                      </span>
 
+                      {s.classTime && (
+                        <span className="text-[11px] text-emerald-400">
+                          {formatClassTimeLabel(s.classTime)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-sm font-semibold shrink-0">
+                      {s.value}
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
 
@@ -1254,38 +1328,38 @@ const payload = {
               </p>
             ) : (
               <ul className="space-y-1 text-sm">
-  {sortedMain.map((s, i) => (
-    <li
-      key={s.id}
-      className="flex items-center justify-between gap-2"
-    >
-      <div className="flex-1">
-  <div className="text-xs text-zinc-500">#{i + 1}</div>
-  <div className="font-medium">
-    {nameWithNick(s.athlete)}
-    {s.classTime && (
-      <span className="ml-1 text-xs text-emerald-400">
-        ({s.classTime})
-      </span>
-    )}
-  </div>
-  <div
-    className={
-      s.rxScaled === 'RX'
-        ? 'text-xs font-semibold text-red-400'
-        : 'text-xs font-semibold text-green-400'
-    }
-  >
-    {s.rxScaled}
-  </div>
+                {sortedMain.map((s, i) => (
+                  <li
+                    key={s.id}
+                    className={
+                      'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
+                      (s.rxScaled === 'RX'
+                        ? 'bg-red-900/20 border-red-800/30'
+                        : 'bg-green-900/20 border-green-800/30')
+                    }
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-[11px] text-zinc-400">
+                        #{i + 1}
+                      </span>
 
-</div>
+                      <span className="truncate">
+                        {nameWithNick(s.athlete)}
+                      </span>
 
-      <div className="text-sm font-semibold">{s.value}</div>
-    </li>
-  ))}
-</ul>
+                      {s.classTime && (
+                        <span className="text-[11px] text-emerald-400">
+                          {formatClassTimeLabel(s.classTime)}
+                        </span>
+                      )}
+                    </div>
 
+                    <div className="text-sm font-semibold shrink-0">
+                      {s.value}
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>
