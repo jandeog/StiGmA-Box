@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import DateStepper from '@/components/DateStepper';
 
 // ---------- Types ----------
@@ -74,7 +80,7 @@ type Score = {
   value: string;
   date: string;
   part: 'main' | 'strength';
-  classTime?: string | null; // class hour (e.g. "18:00")
+  classTime?: string | null;
 };
 
 type ApiScoreRow = {
@@ -100,7 +106,6 @@ function inferStrengthScoreKind(str?: StrengthPart): StrengthScoreKind {
   if (!str) return 'other';
   const blob = `${str.title} ${str.description} ${str.scoreHint}`.toLowerCase();
 
-  // Typical CF strength cues → weight (kg)
   if (
     /rm\b|1rm|2rm|3rm|5rm|heavy|max load|load|kg|barbell|snatch|clean|jerk|deadlift|back squat|front squat|press|ohs/.test(
       blob,
@@ -109,7 +114,6 @@ function inferStrengthScoreKind(str?: StrengthPart): StrengthScoreKind {
     return 'weight';
   }
 
-  // Max reps / bodyweight tests → reps
   if (
     /max reps|reps|pull[- ]?ups|push[- ]?ups|burpees|wall balls|double unders|sit[- ]?ups|row|calories/.test(
       blob,
@@ -118,7 +122,6 @@ function inferStrengthScoreKind(str?: StrengthPart): StrengthScoreKind {
     return 'reps';
   }
 
-  // Strength “for time” intervals
   if (
     /for time|time cap|min|sec|second|minute|tempo|emom|on the minute/.test(
       blob,
@@ -244,7 +247,6 @@ function validateStrengthScore(
     return { ok: true };
   }
 
-  // other – just require something
   return { ok: true };
 }
 
@@ -265,7 +267,6 @@ function validateMainScore(
   }
 
   if (scoring === 'for_time') {
-    // either mm:ss or rounds+reps
     if (validateTime(v) || validateRoundsReps(v)) return { ok: true };
     return {
       ok: false,
@@ -340,7 +341,7 @@ function formatClassTimeLabel(raw?: string | null): string {
   return `${hour12}${minutePart} ${suffix}`;
 }
 
-// ---------- Slide deck for Strength / WOD (mobile) ----------
+// ---------- Slide deck for Strength / WOD (mobile, athlete only) ----------
 
 type ScoreDeckProps = {
   left: ReactNode;
@@ -377,7 +378,6 @@ function ScoreDeck({ left, right }: ScoreDeckProps) {
   return (
     <>
       <div className="flex items-center justify-center gap-3 mb-3">
-        {/* Desktop arrows */}
         <button
           type="button"
           onClick={() => go(-1)}
@@ -386,7 +386,6 @@ function ScoreDeck({ left, right }: ScoreDeckProps) {
           ←
         </button>
 
-        {/* Indicators */}
         <div className="flex gap-1">
           <span
             className={`h-1.5 w-6 rounded-full ${
@@ -400,7 +399,6 @@ function ScoreDeck({ left, right }: ScoreDeckProps) {
           />
         </div>
 
-        {/* Desktop arrows */}
         <button
           type="button"
           onClick={() => go(1)}
@@ -447,7 +445,7 @@ export default function ScorePage() {
   const [team, setTeam] = useState('');
 
   // Strength
-  const [rxScaledStrength] = useState<'RX' | 'Scaled'>('RX'); // default RX, no UI toggle
+  const [rxScaledStrength] = useState<'RX' | 'Scaled'>('RX');
   const [valueStrength, setValueStrength] = useState('');
 
   // Main WOD
@@ -460,15 +458,58 @@ export default function ScorePage() {
   // Lists
   const [scoresMain, setScoresMain] = useState<Score[]>([]);
   const [scoresStrength, setScoresStrength] = useState<Score[]>([]);
-  const [submittedNames, setSubmittedNames] = useState<string[]>([]); // normalized lowercased names
+  const [submittedNames, setSubmittedNames] = useState<string[]>([]);
   const [scoresReloadKey, setScoresReloadKey] = useState(0);
 
   const [loadingScores, setLoadingScores] = useState(false);
   const [scoresError, setScoresError] = useState<string | null>(null);
 
+  // Dates where this athlete has submitted scores
+  const [submittedDates, setSubmittedDates] = useState<string[]>([]);
+
   // Flags from WOD config
   const canRecordMain = wod?.recordMainScore ?? true;
   const canRecordStrength = wod?.strength?.recordScore ?? false;
+useEffect(() => {
+  let cancelled = false;
+
+  async function loadDates() {
+    if (!athleteId) {
+      setSubmittedDates([]);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({ athleteId });
+      const res = await fetch(`/api/scores/dates?${params.toString()}`, {
+        cache: 'no-store',
+      });
+
+      if (!res.ok) {
+        if (!cancelled) setSubmittedDates([]);
+        return;
+      }
+
+      const j = await res.json().catch(() => ({} as any));
+      if (cancelled) return;
+
+      const dates = (j?.dates ?? []) as string[];
+
+      // normalize to YYYY-MM-DD
+      setSubmittedDates(
+        Array.from(new Set(dates.map((d) => d.trim().slice(0, 10)))),
+      );
+    } catch (err) {
+      console.error('Failed to load score dates', err);
+      if (!cancelled) setSubmittedDates([]);
+    }
+  }
+
+  loadDates();
+  return () => {
+    cancelled = true;
+  };
+}, [athleteId]);
 
   // ---------- Load current user + athletes ----------
 
@@ -479,7 +520,6 @@ export default function ScorePage() {
       try {
         setLoadingAthletes(true);
 
-        // who am I
         const meRes = await fetch('/api/me', { cache: 'no-store' });
         const meJ = await meRes.json().catch(() => ({} as any));
 
@@ -489,7 +529,6 @@ export default function ScorePage() {
           setMyId(meJ.me.id ?? null);
         }
 
-        // list of athletes
         const r = await fetch('/api/athletes', { cache: 'no-store' });
         const j = await r.json().catch(() => ({} as any));
 
@@ -512,7 +551,6 @@ export default function ScorePage() {
 
         setAthletes(mapped);
 
-        // If user is a regular athlete → auto-select themselves
         if (meJ?.me && !meJ.me.is_coach && meJ.me.id) {
           setAthleteId(meJ.me.id);
         }
@@ -529,19 +567,18 @@ export default function ScorePage() {
     };
   }, []);
 
-  // ---------- Keep athleteInput in sync with athleteId (unless coach clears it manually) ----------
+  // ---------- Keep athleteInput in sync with athleteId ----------
 
   useEffect(() => {
     const a = athletes.find((x) => x.id === athleteId);
     if (a) {
       setAthleteInput(`${a.firstName} ${a.lastName}`.trim());
     } else if (!isCoach) {
-      // athletes: no selection => clear
       setAthleteInput('');
     }
   }, [athleteId, athletes, isCoach]);
 
-  // ---------- Sync team with selected athlete, wipe if null ----------
+  // ---------- Sync team with selected athlete ----------
 
   useEffect(() => {
     if (!athleteId) {
@@ -601,7 +638,6 @@ export default function ScorePage() {
       }
     })();
 
-    // Reset inputs when date changes (but keep selected athlete)
     setValueStrength('');
     setRxScaled('RX');
     setValueMain('');
@@ -697,12 +733,46 @@ export default function ScorePage() {
     };
   }, [date, scoresReloadKey]);
 
+  // ---------- Load all submitted dates for current athlete ----------
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadDates() {
+      if (!athleteId) {
+        setSubmittedDates([]);
+        return;
+      }
+      try {
+        const params = new URLSearchParams({ athleteId });
+        const res = await fetch(`/api/scores/dates?${params.toString()}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+
+        const j = await res.json().catch(() => ({} as any));
+        if (!alive) return;
+
+        const dates = (j?.dates ?? []) as string[];
+        setSubmittedDates(Array.from(new Set(dates)));
+      } catch (err) {
+        if (!alive) return;
+        console.error('Failed to load score dates', err);
+      }
+    }
+
+    loadDates();
+    return () => {
+      alive = false;
+    };
+  }, [athleteId]);
+
   // ---------- Derived values ----------
 
   const filteredAthletes = useMemo(() => {
     const base = isCoach
       ? athletes
-      : athletes.filter((a) => a.id === myId); // athletes see only themselves
+      : athletes.filter((a) => a.id === myId);
 
     const needle = athleteInput.trim().toLowerCase();
     if (!needle || !isCoach) return base;
@@ -730,17 +800,14 @@ export default function ScorePage() {
     ? submittedNames.includes(normalizedName)
     : false;
 
-  // RX first, then Scaled
   const rxRank = (s: Score) => (s.rxScaled === 'RX' ? 0 : 1);
 
-  // "mm:ss" -> seconds
   const toSec = (v: string) => {
     const parts = v.split(':').map((n) => parseInt(n || '0', 10));
     if (parts.length === 1) return parts[0] || 0;
     return (parts[0] || 0) * 60 + (parts[1] || 0);
   };
 
-  // "rounds+reps" key
   const toRepKey = (v: string) => {
     if (v.includes('+')) {
       const [r, reps] = v.split('+').map((x) => parseInt(x || '0', 10));
@@ -749,14 +816,12 @@ export default function ScorePage() {
     return parseInt(v || '0', 10);
   };
 
-  // Strength: take MAX integer from string (kg or reps)
   const toNumberMax = (v: string) => {
     const m = v.match(/-?\d+/g);
     if (!m) return 0;
     return Math.max(...m.map((n) => parseInt(n, 10)));
   };
 
-  // Main WOD leaderboard
   const sortedMain = useMemo(() => {
     const s = [...scoresMain];
     if (!wod) return s;
@@ -779,13 +844,11 @@ export default function ScorePage() {
       return [...finished, ...capped];
     }
 
-    // AMRAP, EMOM, max_load, other
     return s.sort(
       (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
     );
   }, [scoresMain, wod]);
 
-  // Strength leaderboard: higher number wins
   const sortedStrength = useMemo(
     () =>
       [...scoresStrength].sort(
@@ -794,7 +857,6 @@ export default function ScorePage() {
     [scoresStrength],
   );
 
-  // Score meta
   const strengthKind = useMemo(
     () => inferStrengthScoreKind(wod?.strength),
     [wod],
@@ -882,7 +944,7 @@ export default function ScorePage() {
           ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
           : null,
         main: wantMain ? { rxScaled, value: valueMain.trim() } : null,
-        classSlotId: null as string | null, // backend infers from bookings
+        classSlotId: null as string | null,
         noScore: noScoreFlag,
         chargeCredit,
       };
@@ -944,11 +1006,10 @@ export default function ScorePage() {
   };
 
   const nameWithNick = (fullName: string) => {
-    // Leaderboard: show only full name, no nickname
     return <span>{fullName}</span>;
   };
 
-  // ---------- Section renderers for slider ----------
+  // ---------- Section renderers ----------
 
   const renderStrengthSection = () => (
     <section className="space-y-2">
@@ -1092,158 +1153,165 @@ export default function ScorePage() {
 
   return (
     <section className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-      {/* Title */}
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold">Scores</h1>
+      {/* Title + Date */}
+<header className="flex flex-col items-center gap-3">
+  <h1 className="text-2xl font-semibold text-center">Scores</h1>
 
-        {/* Date */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <span className="text-sm text-zinc-400">Date</span>
-          {/* @ts-ignore – DateStepper is JS-only */}
-          <DateStepper value={date} onChange={(v: string) => setDate(v)} />
-        </div>
-      </header>
+  <div className="flex justify-center w-full">
+    {/* @ts-ignore – DateStepper is JS-only */}
+    <DateStepper
+      value={date}
+      onChange={(v: string) => setDate(v)}
+      highlightedDates={submittedDates}
+    />
+  </div>
+</header>
 
-      {/* Athlete */}
-      <div>
-        <h2 className="text-lg font-semibold">Athlete</h2>
-        <div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Combo box: search + select */}
-            <div className="relative">
-              <label className="block text-sm mb-1 text-zinc-300">
-                Athlete <span className="text-red-400">*</span>
-              </label>
 
-              <div className="flex items-center gap-1">
-                <input
-                  value={athleteInput}
-                  onChange={(e) => {
-                    if (!isCoach) return;
-                    setAthleteInput(e.target.value);
-                    setAthleteOpen(true);
-                  }}
-                  onFocus={() => {
-                    if (isCoach) setAthleteOpen(true);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setAthleteOpen(false);
-                    }
-                  }}
-                  placeholder={
-                    isCoach ? 'Search/select athlete' : 'Your profile'
-                  }
-                  readOnly={!isCoach}
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm shadow-sm
-                             hover:border-emerald-500/70
-                             focus:outline-none focus:ring-2 focus:ring-emerald-600/50 focus:border-emerald-500
-                             transition-colors"
-                />
+      {/* Athlete section – ONLY for coaches */}
+      {isCoach && (
+        <div>
+          <h2 className="text-lg font-semibold">Athlete</h2>
+          <div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Combo box: search + select */}
+              <div className="relative">
+                <label className="block text-sm mb-1 text-zinc-300">
+                  Athlete <span className="text-red-400">*</span>
+                </label>
 
-                {isCoach && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAthleteInput('');
+                <div className="flex items-center gap-1">
+                  <input
+                    value={athleteInput}
+                    onChange={(e) => {
+                      if (!isCoach) return;
+                      setAthleteInput(e.target.value);
                       setAthleteOpen(true);
                     }}
-                    className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
-                               hover:border-emerald-500/70 hover:bg-zinc-900
-                               focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
-                    aria-label="Toggle athlete list"
-                  >
-                    ▾
-                  </button>
+                    onFocus={() => {
+                      if (isCoach) setAthleteOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setAthleteOpen(false);
+                      }
+                    }}
+                    placeholder="Search/select athlete"
+                    readOnly={!isCoach}
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm shadow-sm
+                               hover:border-emerald-500/70
+                               focus:outline-none focus:ring-2 focus:ring-emerald-600/50 focus:border-emerald-500
+                               transition-colors"
+                  />
+
+                  {isCoach && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAthleteInput('');
+                        setAthleteOpen(true);
+                      }}
+                      className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
+                                 hover:border-emerald-500/70 hover:bg-zinc-900
+                                 focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
+                      aria-label="Toggle athlete list"
+                    >
+                      ▾
+                    </button>
+                  )}
+                </div>
+
+                {isCoach && athleteOpen && (
+                  <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900 shadow-lg">
+                    {loadingAthletes && (
+                      <div className="px-3 py-2 text-xs text-zinc-400">
+                        Loading athletes…
+                      </div>
+                    )}
+
+                    {!loadingAthletes && filteredAthletes.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-zinc-400">
+                        No athletes found.
+                      </div>
+                    )}
+
+                    {!loadingAthletes &&
+                      filteredAthletes.map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setAthleteId(a.id);
+                            setAthleteInput(
+                              `${a.firstName} ${a.lastName}`.trim(),
+                            );
+                            setAthleteOpen(false);
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80"
+                        >
+                          <span className="text-zinc-100">
+                            {a.lastName}, {a.firstName}
+                            {a.nickname && (
+                              <span className="text-yellow-400">
+                                {`, ${a.nickname}`}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
                 )}
               </div>
 
-              {/* Dropdown */}
-              {isCoach && athleteOpen && (
-                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900 shadow-lg">
-                  {loadingAthletes && (
-                    <div className="px-3 py-2 text-xs text-zinc-400">
-                      Loading athletes…
-                    </div>
-                  )}
-
-                  {!loadingAthletes && filteredAthletes.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-zinc-400">
-                      No athletes found.
-                    </div>
-                  )}
-
-                  {!loadingAthletes &&
-                    filteredAthletes.map((a) => (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setAthleteId(a.id);
-                          setAthleteInput(
-                            `${a.firstName} ${a.lastName}`.trim(),
-                          );
-                          setAthleteOpen(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80"
-                      >
-                        <span className="text-zinc-100">
-                          {a.lastName}, {a.firstName}
-                          {a.nickname && (
-                            <span className="text-yellow-400">
-                              {`, ${a.nickname}`}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    ))}
-                </div>
-              )}
-
-              {!isCoach && (
-                <p className="mt-1 text-xs text-zinc-500">
-                  As an athlete you can only submit scores for your own profile.
-                </p>
-              )}
+              {/* Team */}
+              <div>
+                <label className="block text-sm mb-1 text-zinc-300">Team</label>
+                <input
+                  value={team}
+                  onChange={(e) => setTeam(e.target.value)}
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-emerald-600/40 focus:border-emerald-500
+                             transition"
+                  placeholder="e.g. Red"
+                  readOnly={!isCoach}
+                />
+              </div>
             </div>
 
-            {/* Team */}
-            <div>
-              <label className="block text-sm mb-1 text-zinc-300">Team</label>
-              <input
-                value={team}
-                onChange={(e) => setTeam(e.target.value)}
-                className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm
-                           focus:outline-none focus:ring-2 focus:ring-emerald-600/40 focus:border-emerald-500
-                           transition"
-                placeholder="e.g. Red"
-                readOnly={!isCoach}
-              />
-            </div>
+            {alreadySubmitted && (
+              <div className="mt-2 text-xs text-amber-400">
+                This athlete has already submitted for {fmt(date)}. New submissions
+                are blocked.
+              </div>
+            )}
           </div>
-
-          {alreadySubmitted && (
-            <div className="mt-2 text-xs text-amber-400">
-              This athlete has already submitted for {fmt(date)}. New submissions
-              are blocked.
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Strength + WOD layout */}
-      <div className="sm:hidden">
-        <ScoreDeck
-          left={renderStrengthSection()}
-          right={renderMainWodSection()}
-        />
-      </div>
+      {!isCoach ? (
+        <>
+          {/* Athlete: slider on mobile, stacked on desktop */}
+          <div className="sm:hidden">
+            <ScoreDeck
+              left={renderStrengthSection()}
+              right={renderMainWodSection()}
+            />
+          </div>
 
-      <div className="hidden sm:block space-y-4">
-        {renderStrengthSection()}
-        {renderMainWodSection()}
-      </div>
+          <div className="hidden sm:block space-y-4">
+            {renderStrengthSection()}
+            {renderMainWodSection()}
+          </div>
+        </>
+      ) : (
+        // Coach: always stacked, no slider
+        <div className="space-y-4">
+          {renderStrengthSection()}
+          {renderMainWodSection()}
+        </div>
+      )}
 
       {/* Submit */}
       <div>
@@ -1270,13 +1338,12 @@ export default function ScorePage() {
         <p className="text-center text-[11px] text-zinc-400 flex items-center justify-center gap-3 mt-1">
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-3 rounded-sm bg-red-900/40 border border-red-800/40" />
-            RX (WOD)
+            RX
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-800/40" />
-            Scaled (WOD)
+            Scaled
           </span>
-
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
