@@ -268,9 +268,17 @@ if (!f.isMine && !f.canBookMain && !f.canWait) {
   if (hToStart <= 0) {
     unavailReason = 'Class Ended';
   } else if (hToStart > 23) {
-    const opensAt = new Date(startLocal.getTime() - 23 * 3600 * 1000);
-    const tt = opensAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    unavailReason = `Booking opens at ${tt}`;
+// booking opens exactly 24 hours before start
+const opensAt = new Date(startLocal.getTime() - 24 * 3600 * 1000);
+
+// force 24h format (HH:MM)
+const tt = opensAt.toLocaleTimeString([], {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false, // <— IMPORTANT
+});
+
+unavailReason = `Booking opens at ${tt}`;
   } else if (f.withinWindow && f.hasMainSpace && (creditsEff ?? 0) <= 0) {
     unavailReason = 'No Credits';
   } else {

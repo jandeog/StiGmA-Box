@@ -21,6 +21,11 @@ async function populateFromTemplateForDate(dateIso: string) {
   // JS weekday 0..6 (Sun..Sat); ensure it matches your template convention
   const dow = new Date(dateIso + 'T00:00:00Z').getUTCDay();
 
+  // 🔒 Sunday is always rest when using template-based population
+  if (dow === 0) {
+    return; // do not populate Sundays from template
+  }
+
   const { data: template, error: tplErr } = await supabaseAdmin
     .from('schedule_template')
     .select('time, title, capacity_main, capacity_wait, enabled')
@@ -123,6 +128,45 @@ return { removedParticipants: 0, removedSlots };
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const mode = searchParams.get('mode');
+
+    // -------------------- TEMPLATE MODE (coach) --------------------
+    if (mode === 'template') {
+      const dowParam = searchParams.get('dow'); // "0".."6"
+      const dow = dowParam !== null ? Number(dowParam) : NaN;
+      if (Number.isNaN(dow) || dow < 0 || dow > 6) {
+        return json({ error: 'Invalid dow (0..6)' }, 400);
+      }
+
+      // Auth via sbx_session
+      const jar = await cookies();
+      const token = jar.get(SESSION_COOKIE)?.value;
+      const sess = await verifySession(token);
+      if (!sess?.aid) return json({ error: 'Unauthorized' }, 401);
+
+      // must be coach
+      const { data: me, error: meErr } = await supabaseAdmin
+        .from('athletes')
+        .select('id, is_coach')
+        .eq('id', sess.aid)
+        .maybeSingle();
+      if (meErr) return json({ error: meErr.message }, 500);
+      if (!me?.is_coach) return json({ error: 'Forbidden' }, 403);
+
+      const { data: tpl, error: tplErr } = await supabaseAdmin
+        .from('schedule_template')
+        .select('time, title, capacity_main, capacity_wait, enabled')
+        .eq('day_of_week', dow)
+        .order('time', { ascending: true });
+
+      if (tplErr) return json({ error: tplErr.message }, 500);
+
+      // Shape it exactly like the edit form expects:
+      // [{ time, title, capacity_main, capacity_wait, enabled }, ...]
+      return json({ slots: tpl ?? [] });
+    }
+
+    // -------------------- NORMAL DATE MODE (athlete view) --------------------
     const date = searchParams.get('date');
     if (!date) return json({ error: 'Missing date' }, 400);
 
@@ -218,7 +262,7 @@ export async function GET(req: NextRequest) {
       const booked_wait = waitCounts.get(s.id) ?? 0;
       const main_names = (namesMap.get(s.id) ?? []).sort((a, b) => a.localeCompare(b)).join(', ');
 
-      const withinWindow = h <= 23 && h >= 1;
+      const withinWindow = h <= 24 && h >= 1;
       const hasMainSpace = booked_main < (s.capacity_main ?? 0);
       const isMine = mySlotIds.has(s.id);
       const alreadyBookedThatDay = mySlotIds.size > 0;
@@ -305,8 +349,17 @@ export async function POST(req: NextRequest) {
     const today = new Date().toISOString().slice(0, 10);
 
     // ----- MODE: TEMPLATE (all weekdays or one weekday) -----
-    if (body.mode === 'template') {
-      const weekdays = body.applyAllWeekdays ? [0, 1, 2, 3, 4, 5, 6] : [body.dow];
+if (body.mode === 'template') {
+  // ✅ Weekdays = Mon–Fri (1..5)
+  const weekdays = body.applyAllWeekdays ? [1, 2, 3, 4, 5] : [body.dow];
+
+  // 🔒 Do not allow Sunday templates at all
+  if (!body.applyAllWeekdays && body.dow === 0) {
+    return json(
+      { error: 'Sunday is always a rest day. Use "specific date" mode if you really want to open a single Sunday.' },
+      400,
+    );
+  }
 
       // 1) Replace template rows for targeted weekdays
       const { error: delTplErr } = await supabaseAdmin

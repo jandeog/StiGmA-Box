@@ -11,6 +11,15 @@ export async function POST() {
     // Sunday = 0 .. Saturday = 6 (keep same as your code)
     const dow = today.getDay();
 
+// 🔒 Sunday is always a rest day for auto-population
+if (dow === 0) {
+  return NextResponse.json({
+    ok: true,
+    inserted: 0,
+    note: 'Sunday is a rest day (no auto-populate from template).',
+  });
+}
+
     // Load today's template
     const { data: template, error: tplErr } = await supabaseAdmin
       .from('schedule_template')

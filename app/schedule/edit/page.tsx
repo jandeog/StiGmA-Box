@@ -20,16 +20,23 @@ const CTRL =
 const BTN =
   'inline-flex items-center justify-center h-10 box-border px-3 rounded-md text-sm leading-none';
 
-// Days map
 const daysMap = [
-  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
 ];
 
 export default function ScheduleEditPage() {
   const [mode, setMode] = useState<'template' | 'specific'>('template');
   const [slots, setSlots] = useState<Slot[]>([]);
-  const [dow, setDow] = useState(1);
-  const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [dow, setDow] = useState(1); // Monday
+  const [date, setDate] = useState<string>(() =>
+    new Date().toISOString().split('T')[0],
+  );
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -43,18 +50,50 @@ export default function ScheduleEditPage() {
     return target.toISOString().split('T')[0];
   }
 
-  // Load data via API (server-side service key)
+  // Load data for template / specific modes
   useEffect(() => {
     (async () => {
       setLoading(true);
       setMsg('');
       try {
-        const fetchDow = applyAllWeekdays ? 1 : dow;
-        const iso = mode === 'template' ? getNextDateByDayOfWeek(fetchDow) : date;
-        const res = await fetch(`/api/schedule?date=${iso}`, { credentials: 'include' });
-        const { items, error } = await res.json();
-        if (error) throw new Error(error);
-        setSlots(items || []);
+        if (mode === 'template') {
+          // When applying to all weekdays, use Monday's template as the base
+          const targetDow = applyAllWeekdays ? 1 : dow;
+          const res = await fetch(
+            `/api/schedule?mode=template&dow=${targetDow}`,
+            { credentials: 'include' },
+          );
+          const { slots: tplSlots, error } = await res.json();
+          if (error) throw new Error(error);
+
+          const normalized: Slot[] = (tplSlots || []).map((s: any) => ({
+            time: s.time || '07:00',
+            title: s.title || 'Rookie / Advanced',
+            capacity_main: Number(s.capacity_main ?? 14),
+            capacity_wait: Number(s.capacity_wait ?? 2),
+            enabled: !!s.enabled,
+          }));
+
+          setSlots(normalized);
+        } else {
+          // specific-date mode: load actual schedule for that date
+          const iso = date || getNextDateByDayOfWeek(new Date().getDay());
+          const res = await fetch(`/api/schedule?date=${iso}`, {
+            credentials: 'include',
+          });
+          const { items, error } = await res.json();
+          if (error) throw new Error(error);
+
+          const normalized: Slot[] = (items || []).map((s: any) => ({
+            time: s.time,
+            title: s.title,
+            capacity_main: Number(s.capacity_main ?? 0),
+            capacity_wait: Number(s.capacity_wait ?? 0),
+            enabled: true,
+          }));
+
+          setSlots(normalized);
+        }
       } catch (e) {
         console.error('schedule load error', e);
         setMsg('❌ Error loading data');
@@ -65,84 +104,113 @@ export default function ScheduleEditPage() {
   }, [mode, dow, date, applyAllWeekdays]);
 
   function updateSlot(index: number, patch: Partial<Slot>) {
-    setSlots((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+    setSlots((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, ...patch } : s)),
+    );
   }
+
   function addSlot() {
     setSlots((prev) => [
       ...prev,
-      { time: '07:00', title: 'Rookie / Advanced', capacity_main: 14, capacity_wait: 2, enabled: true },
+      {
+        time: '07:00',
+        title: 'Rookie / Advanced',
+        capacity_main: 14,
+        capacity_wait: 2,
+        enabled: true,
+      },
     ]);
   }
+
   function removeSlot(index: number) {
     setSlots((prev) => prev.filter((_, i) => i !== index));
   }
 
- async function handleApply() {
-  setSaving(true);
-  setMsg('');
-  try {
-    const payload =
-      mode === 'template'
-        ? {
-            mode: 'template' as const,
-            applyAllWeekdays,
-            dow, // used only when applyAllWeekdays === false
-            slots: slots.map(s => ({
-              time: s.time,
-              title: s.title,                 // 'Rookie / Advanced' / 'Competitive' / 'Teams'
-              capacity_main: Number(s.capacity_main),
-              capacity_wait: Number(s.capacity_wait),
-              enabled: !!s.enabled,
-            })),
-          }
-        : {
-            mode: 'specific' as const,
-            date,
-            slots: slots.map(s => ({
-              time: s.time,
-              title: s.title,
-              capacity_main: Number(s.capacity_main),
-              capacity_wait: Number(s.capacity_wait),
-              enabled: !!s.enabled,
-            })),
-          };
+  async function handleApply() {
+    setSaving(true);
+    setMsg('');
+    try {
+      const payload =
+        mode === 'template'
+          ? {
+              mode: 'template' as const,
+              applyAllWeekdays,
+              dow, // used only when applyAllWeekdays === false
+              slots: slots.map((s) => ({
+                time: s.time,
+                title: s.title,
+                capacity_main: Number(s.capacity_main),
+                capacity_wait: Number(s.capacity_wait),
+                enabled: !!s.enabled,
+              })),
+            }
+          : {
+              mode: 'specific' as const,
+              date,
+              slots: slots.map((s) => ({
+                time: s.time,
+                title: s.title,
+                capacity_main: Number(s.capacity_main),
+                capacity_wait: Number(s.capacity_wait),
+                enabled: !!s.enabled,
+              })),
+            };
 
-    const res = await fetch('/api/schedule', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      const res = await fetch('/api/schedule', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    const out = await res.json();
-    if (!res.ok) throw new Error(out?.error || 'Save failed');
+      const out = await res.json();
+      if (!res.ok) throw new Error(out?.error || 'Save failed');
 
-    setMsg('✅ Saved!');
-    // Optional: refresh view after save (re-run GET)
-    if (mode === 'template') {
-      const iso = getNextDateByDayOfWeek(applyAllWeekdays ? 1 : dow);
-      const ref = await fetch(`/api/schedule?date=${iso}`, { credentials: 'include' });
-      const j = await ref.json();
-      setSlots(j.items || []);
-    } else {
-      const ref = await fetch(`/api/schedule?date=${date}`, { credentials: 'include' });
-      const j = await ref.json();
-      setSlots(j.items || []);
+      setMsg('✅ Saved!');
+
+      // Refresh view after save
+      if (mode === 'template') {
+        const targetDow = applyAllWeekdays ? 1 : dow;
+        const ref = await fetch(
+          `/api/schedule?mode=template&dow=${targetDow}`,
+          { credentials: 'include' },
+        );
+        const j = await ref.json();
+        const normalized: Slot[] = (j.slots || []).map((s: any) => ({
+          time: s.time || '07:00',
+          title: s.title || 'Rookie / Advanced',
+          capacity_main: Number(s.capacity_main ?? 14),
+          capacity_wait: Number(s.capacity_wait ?? 2),
+          enabled: !!s.enabled,
+        }));
+        setSlots(normalized);
+      } else {
+        const ref = await fetch(`/api/schedule?date=${date}`, {
+          credentials: 'include',
+        });
+        const j = await ref.json();
+        const normalized: Slot[] = (j.items || []).map((s: any) => ({
+          time: s.time,
+          title: s.title,
+          capacity_main: Number(s.capacity_main ?? 0),
+          capacity_wait: Number(s.capacity_wait ?? 0),
+          enabled: true,
+        }));
+        setSlots(normalized);
+      }
+    } catch (e: any) {
+      setMsg(`❌ ${e.message}`);
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(''), 2500);
     }
-  } catch (e: any) {
-    setMsg(`❌ ${e.message}`);
-  } finally {
-    setSaving(false);
-    setTimeout(() => setMsg(''), 2500);
   }
-}
-
 
   return (
     <section className="max-w-6xl mx-auto p-4 sm:p-6">
       <h1 className="text-2xl font-semibold mb-4">Change Schedule</h1>
 
-      {/* Radios row */}
+      {/* Mode selectors */}
       <div className="flex flex-wrap items-center gap-6 mb-4 text-sm text-zinc-300">
         <label className="inline-flex items-center gap-2">
           <input
@@ -162,36 +230,39 @@ export default function ScheduleEditPage() {
         </label>
       </div>
 
-      {/* Card / Tab */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 sm:p-5 shadow-inner space-y-4">
-        {/* Controls */}
+        {/* Controls row */}
         {mode === 'template' ? (
-  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between border-b border-zinc-800 pb-3">
-    <label className="inline-flex items-center gap-2 flex-row-reverse md:flex-row self-start">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between border-b border-zinc-800 pb-3">
+            <label className="inline-flex items-center gap-2 flex-row-reverse md:flex-row self-start">
               <input
                 type="checkbox"
                 checked={applyAllWeekdays}
                 onChange={(e) => setApplyAllWeekdays(e.target.checked)}
-                        className="h-5 w-5"
-
+                className="h-5 w-5"
               />
-      <span className="text-sm text-zinc-300">Change all week days</span>
+              <span className="text-sm text-zinc-300">
+                Change all weekdays (Mon–Fri)
+              </span>
             </label>
 
             {!applyAllWeekdays && (
-      <div className="flex items-center gap-2 w-full md:w-auto">
-        <span className="text-sm text-zinc-400 whitespace-nowrap">Day of week:</span>
-        <select
-          value={dow}
-          onChange={(e) => setDow(Number(e.target.value))}
-          className="h-10 px-2 rounded-md border border-zinc-700 bg-zinc-950 text-sm w-full md:w-[220px]"
-        >
-          {daysMap.map((d, i) => (
-            <option key={i} value={i}>{d}</option>
-          ))}
-        </select>
-      </div>
-
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <span className="text-sm text-zinc-400 whitespace-nowrap">
+                  Day of week:
+                </span>
+                <select
+                  value={dow}
+                  onChange={(e) => setDow(Number(e.target.value))}
+                  className="h-10 px-2 rounded-md border border-zinc-700 bg-zinc-950 text-sm w-full md:w-[220px]"
+                >
+                  {daysMap.map((d, i) => (
+                    <option key={i} value={i}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
           </div>
         ) : (
@@ -201,7 +272,6 @@ export default function ScheduleEditPage() {
           </div>
         )}
 
-        {/* Data */}
         {loading ? (
           <div className="flex justify-center py-8 text-zinc-400 text-sm">
             Loading schedule…
@@ -209,7 +279,9 @@ export default function ScheduleEditPage() {
         ) : (
           <>
             {/* Desktop header */}
-            <div className={`${GRID_MD} gap-2 pl-2 pr-2 pb-1 text-xs text-zinc-500 border-b border-zinc-800 hidden md:grid`}>
+            <div
+              className={`${GRID_MD} gap-2 pl-2 pr-2 pb-1 text-xs text-zinc-500 border-b border-zinc-800 hidden md:grid`}
+            >
               <div className="text-center">Enable</div>
               <div className="text-center">Start</div>
               <div className="text-center">Type</div>
@@ -218,51 +290,89 @@ export default function ScheduleEditPage() {
               <div className="text-center">Actions</div>
             </div>
 
-            {/* Rows */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900 overflow-hidden">
-              {slots.map((s, idx) => (
-                <div
-                  key={idx}
-                  className={`${GRID_MD} gap-2 pl-2 pr-2 py-2 items-stretch
-                              md:grid
-                              hidden`}
-                >
-                  {/* Desktop row */}
-                  <div className="flex items-center justify-center">
-                    <input
-                      aria-label={`Enable slot ${idx + 1}`}
-                      type="checkbox"
-                      checked={!!s.enabled}
-                      onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
-                      className="h-4 w-4"
-                    />
-                  </div>
+            {/* Desktop rows */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900">
+              <div className="hidden md:block">
+                {slots.map((s, idx) => (
+                  <div
+                    key={idx}
+                    className={`${GRID_MD} gap-2 pl-2 pr-2 py-2 items-stretch`}
+                  >
+                    <div className="flex items-center justify-center">
+                      <input
+                        aria-label={`Enable slot ${idx + 1}`}
+                        type="checkbox"
+                        checked={!!s.enabled}
+                        onChange={(e) =>
+                          updateSlot(idx, { enabled: e.target.checked })
+                        }
+                        className="h-4 w-4"
+                      />
+                    </div>
 
-                  <div className="flex"><input value={s.time} onChange={(e) => updateSlot(idx, { time: e.target.value })} className={`${CTRL} h-full`} /></div>
-                  <div className="flex">
-                    <select
-                      value={s.title}
-                      onChange={(e) => updateSlot(idx, { title: e.target.value })}
-                      className={`${CTRL} h-full`}
-                    >
-                      <option value="Rookie / Advanced">Rookie / Advanced</option>
-                      <option value="Competitive">Competitive</option>
-                      <option value="Teams">Teams</option>
-                    </select>
-                  </div>
-                  <div className="flex"><input type="number" value={s.capacity_main} onChange={(e) => updateSlot(idx, { capacity_main: Number(e.target.value) })} className={`${CTRL} h-full`} /></div>
-                  <div className="flex"><input type="number" value={s.capacity_wait} onChange={(e) => updateSlot(idx, { capacity_wait: Number(e.target.value) })} className={`${CTRL} h-full`} /></div>
+                    <div className="flex">
+                      <input
+                        value={s.time}
+                        onChange={(e) =>
+                          updateSlot(idx, { time: e.target.value })
+                        }
+                        className={`${CTRL} h-full`}
+                      />
+                    </div>
 
-                  <div className="flex -mr-2">
-                    <button
-                      onClick={() => removeSlot(idx)}
-                      className={`${BTN} w-full border border-red-800 text-red-300 hover:bg-red-900/20`}
-                    >
-                      Remove
-                    </button>
+                    <div className="flex">
+                      <select
+                        value={s.title}
+                        onChange={(e) =>
+                          updateSlot(idx, { title: e.target.value })
+                        }
+                        className={`${CTRL} h-full`}
+                      >
+                        <option value="Rookie / Advanced">
+                          Rookie / Advanced
+                        </option>
+                        <option value="Competitive">Competitive</option>
+                        <option value="Teams">Teams</option>
+                      </select>
+                    </div>
+
+                    <div className="flex">
+                      <input
+                        type="number"
+                        value={s.capacity_main}
+                        onChange={(e) =>
+                          updateSlot(idx, {
+                            capacity_main: Number(e.target.value),
+                          })
+                        }
+                        className={`${CTRL} h-full`}
+                      />
+                    </div>
+
+                    <div className="flex">
+                      <input
+                        type="number"
+                        value={s.capacity_wait}
+                        onChange={(e) =>
+                          updateSlot(idx, {
+                            capacity_wait: Number(e.target.value),
+                          })
+                        }
+                        className={`${CTRL} h-full`}
+                      />
+                    </div>
+
+                    <div className="flex -mr-2">
+                      <button
+                        onClick={() => removeSlot(idx)}
+                        className={`${BTN} w-full border border-red-800 text-red-300 hover:bg-red-900/20`}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
 
               {/* Mobile cards */}
               <div className="md:hidden divide-y divide-zinc-900">
@@ -273,7 +383,9 @@ export default function ScheduleEditPage() {
                         <input
                           type="checkbox"
                           checked={!!s.enabled}
-                          onChange={(e) => updateSlot(idx, { enabled: e.target.checked })}
+                          onChange={(e) =>
+                            updateSlot(idx, { enabled: e.target.checked })
+                          }
                         />
                         <span>Enable</span>
                       </label>
@@ -290,7 +402,9 @@ export default function ScheduleEditPage() {
                         <div className="text-xs text-zinc-500 mb-1">Start</div>
                         <input
                           value={s.time}
-                          onChange={(e) => updateSlot(idx, { time: e.target.value })}
+                          onChange={(e) =>
+                            updateSlot(idx, { time: e.target.value })
+                          }
                           className={CTRL}
                         />
                       </div>
@@ -299,10 +413,14 @@ export default function ScheduleEditPage() {
                         <div className="text-xs text-zinc-500 mb-1">Type</div>
                         <select
                           value={s.title}
-                          onChange={(e) => updateSlot(idx, { title: e.target.value })}
+                          onChange={(e) =>
+                            updateSlot(idx, { title: e.target.value })
+                          }
                           className={CTRL}
                         >
-                          <option value="Rookie / Advanced">Rookie / Advanced</option>
+                          <option value="Rookie / Advanced">
+                            Rookie / Advanced
+                          </option>
                           <option value="Competitive">Competitive</option>
                           <option value="Teams">Teams</option>
                         </select>
@@ -310,20 +428,32 @@ export default function ScheduleEditPage() {
 
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <div className="text-xs text-zinc-500 mb-1">Main cap.</div>
+                          <div className="text-xs text-zinc-500 mb-1">
+                            Main cap.
+                          </div>
                           <input
                             type="number"
                             value={s.capacity_main}
-                            onChange={(e) => updateSlot(idx, { capacity_main: Number(e.target.value) })}
+                            onChange={(e) =>
+                              updateSlot(idx, {
+                                capacity_main: Number(e.target.value),
+                              })
+                            }
                             className={CTRL}
                           />
                         </div>
                         <div>
-                          <div className="text-xs text-zinc-500 mb-1">Wait cap.</div>
+                          <div className="text-xs text-zinc-500 mb-1">
+                            Wait cap.
+                          </div>
                           <input
                             type="number"
                             value={s.capacity_wait}
-                            onChange={(e) => updateSlot(idx, { capacity_wait: Number(e.target.value) })}
+                            onChange={(e) =>
+                              updateSlot(idx, {
+                                capacity_wait: Number(e.target.value),
+                              })
+                            }
                             className={CTRL}
                           />
                         </div>
@@ -331,19 +461,21 @@ export default function ScheduleEditPage() {
                     </div>
                   </div>
                 ))}
-
-                <div className="p-3">
-                  <button
-                    onClick={addSlot}
-                    className="px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm w-full"
-                  >
-                    + Add slot
-                  </button>
-                </div>
               </div>
             </div>
 
-            {/* Actions inside the card */}
+            {/* Add row button (desktop + mobile, all days including Sunday) */}
+            <div className="flex justify-end pt-3">
+              <button
+                type="button"
+                onClick={addSlot}
+                className="px-3 py-2 rounded-md border border-zinc-700 hover:bg-zinc-800 text-sm"
+              >
+                + Add slot
+              </button>
+            </div>
+
+            {/* Actions */}
             <div className="flex flex-col sm:flex-row gap-3 justify-end pt-2">
               <button
                 onClick={handleApply}
@@ -358,7 +490,11 @@ export default function ScheduleEditPage() {
               >
                 Cancel
               </button>
-              {msg && <div className="text-sm text-zinc-400 self-center sm:self-end">{msg}</div>}
+              {msg && (
+                <div className="text-sm text-zinc-400 self-center sm:self-end">
+                  {msg}
+                </div>
+              )}
             </div>
           </>
         )}

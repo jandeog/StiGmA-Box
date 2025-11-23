@@ -7,6 +7,7 @@ import HeaderCredits from '@/components/HeaderCredits';
 import { verifySession, SESSION_COOKIE } from '@/lib/session';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import HeaderNavIcons from '@/components/HeaderNavIcons';
+import PendingScoreReminder from '@/components/PendingScoreReminder';
 
 export const metadata: Metadata = {
   title: 'StiGmA Box',
@@ -68,7 +69,8 @@ export default async function RootLayout({
         (data?.last_name?.trim()?.[0] || '')).toUpperCase() ||
       (data?.email?.split('@')[0]?.slice(0, 2)?.toUpperCase() || '');
 
-    displayName = data?.nickname?.trim() || initials || data?.email?.split('@')[0];
+    displayName =
+      data?.nickname?.trim() || initials || data?.email?.split('@')[0];
 
     isCoach = !!data?.is_coach;
     credits = data?.credits ?? 0;
@@ -108,6 +110,9 @@ export default async function RootLayout({
         <footer className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 text-xs text-zinc-500">
           © {new Date().getFullYear()} StiGmA Box
         </footer>
+        {signedIn && <PendingScoreReminder />}
+        {/* Global reminder for pending scores */}
+        <PendingScoreReminder />
       </body>
     </html>
   );
