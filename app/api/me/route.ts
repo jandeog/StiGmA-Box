@@ -25,7 +25,7 @@ export async function GET() {
       height_cm, weight_kg, years_of_experience,
       notes, credits, is_coach,
       terms_version, terms_accepted_at,
-      emergency_name, emergency_phone
+      emergency_name, emergency_phone, photo_url 
     `)
     .eq('id', sess.aid)
     .maybeSingle();

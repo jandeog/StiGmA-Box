@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import AthletePhotoInput from '@/components/AthletePhotoInput';
+
 
 type Gender = 'male' | 'female' | 'other' | 'prefer_not_say';
 type Mode = 'signup' | 'edit-self' | 'coach-edit' | 'coach-new';
@@ -33,7 +35,8 @@ export default function AddAthleteClient({
   const [mode, setMode] = useState<Mode>('signup');
   const [myId, setMyId] = useState<string | null>(null);
   const [iAmCoach, setIAmCoach] = useState(false);
-
+const [photoFile, setPhotoFile] = useState<File | null>(null);
+const [photoUrl, setPhotoUrl] = useState<string | null>(null); // for existing photo later
   // account fields
   const [email, setEmail] = useState('');
   const [pw1, setPw1] = useState('');
@@ -72,8 +75,8 @@ useEffect(() => {
   async function run() {
     setMsg(null);
 
-    // 1) Pure signup: if we have an initialEmail (OTP/callback), do signup mode first.
-    if (initialEmail) {
+    // 1) Pure signup from email link – only when NOT creating a new athlete as coach
+    if (initialEmail && !createNew) {
       if (!alive) return;
       setMode('signup');
       setEmail(initialEmail);
@@ -82,7 +85,7 @@ useEffect(() => {
       return;
     }
 
-    // 2) Resolve who I am (to know if I'm a coach)
+    // 2) Who am I?
     const meRes = await fetch('/api/me', { cache: 'no-store' });
     const j = meRes.ok ? await meRes.json() : { me: null };
     const me = j?.me || null;
@@ -93,7 +96,7 @@ useEffect(() => {
     setIAmCoach(amCoach);
     setMyId(me?.id ?? null);
 
-    // 3) If I'm a coach and a targetId is present -> COACH EDIT takes priority.
+    // 3) Coach editing an existing athlete
     if (amCoach && targetId) {
       setMode('coach-edit');
 
@@ -127,10 +130,48 @@ useEffect(() => {
       setEmPhone(a.emergency_phone || '');
       setIsCoachFlag(!!a.is_coach);
       setCredits(a.credits != null ? String(a.credits) : '0');
+      setPhotoUrl(a.photo_url || null);
       return;
     }
 
-    // 4) Otherwise -> EDIT SELF (uses /api/me)
+// 4) Coach creating a NEW athlete (from + Add)
+if (amCoach && createNew && !targetId) {
+  setMode('coach-new');
+
+  // Clear all fields – fresh form
+  setAcceptRules(false);
+  setEmail('');
+  setPw1('');
+  setPw2('');
+  setShowPw1(false);
+  setShowPw2(false);
+  setChangePassword(false);
+
+  setFirstName('');
+  setLastName('');
+  setNickname('');
+  setTeamName('');
+  setDob('');
+  setPhone('');
+  setGender('');
+  setHeightCm('');
+  setWeightKg('');
+  setYears('');
+  setNotes('');
+  setEmName(initialEmRole || '');
+  setEmPhone(initialEmPhone || '');
+  setIsCoachFlag(false);
+  setCredits('0');
+
+  // 👇 also clear photo state
+  setPhotoFile(null);
+  setPhotoUrl(null);
+
+  return;
+}
+
+
+    // 5) Default: edit myself
     setMode('edit-self');
 
     setEmail(me?.email || '');
@@ -149,12 +190,15 @@ useEffect(() => {
     setEmPhone(me?.emergency_phone || '');
     setIsCoachFlag(!!me?.is_coach);
     setCredits(me?.credits != null ? String(me?.credits) : '0');
+    setPhotoUrl(me?.photo_url || null);
+
   }
 
   run();
-  return () => { alive = false; };
-}, [initialEmail, initialEmRole, initialEmPhone, targetId]);
-
+  return () => {
+    alive = false;
+  };
+}, [initialEmail, initialEmRole, initialEmPhone, targetId, createNew]);
 
   const needsPassword =
     mode === 'signup' ||
@@ -172,8 +216,26 @@ useEffect(() => {
     const n = parseInt(v, 10);
     return Number.isFinite(n) && n >= 0 ? n : 0;
   }
+async function uploadPhotoFor(athleteId?: string | null) {
+  if (!photoFile) return;
 
- async function onSubmit(e: React.FormEvent) {
+  const form = new FormData();
+  form.append('file', photoFile);
+  form.append('filename', photoFile.name || 'photo.jpg');
+
+  const qs = athleteId ? `?id=${encodeURIComponent(athleteId)}` : '';
+  const r = await fetch(`/api/athletes/upload-photo${qs}`, {
+    method: 'POST',
+    body: form,
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || 'Failed to upload photo');
+
+  if (j.url) setPhotoUrl(j.url);
+}
+
+async function onSubmit(e: React.FormEvent) {
   e.preventDefault();
   setMsg(null);
   if (busy) return;
@@ -181,7 +243,6 @@ useEffect(() => {
   try {
     setBusy(true);
 
-    // Build common payload from form state
     const base: any = {
       first_name: firstName || null,
       last_name: lastName || null,
@@ -200,7 +261,6 @@ useEffect(() => {
 
     // ========= COACH EDITS ANOTHER ATHLETE =========
     if (mode === 'coach-edit' && targetId) {
-      // Only coaches can touch credits / is_coach
       if (iAmCoach) {
         base.credits = numOrNull(credits) ?? 0;
         base.is_coach = isCoachFlag;
@@ -216,19 +276,54 @@ useEffect(() => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || `Failed to save athlete (HTTP ${r.status})`);
 
-      // Do NOT update header badge when editing others
+      if (photoFile) {
+        await uploadPhotoFor(targetId);
+      }
+
       router.replace('/athletes');
       return;
     }
 
-    // ========= SIGNUP or EDIT-SELF =========
+    // ========= COACH CREATES A NEW ATHLETE =========
+    if (mode === 'coach-new' && iAmCoach) {
+      const payload: any = {
+        ...base,
+        email,
+        credits: numOrNull(credits) ?? 0,
+        is_coach: isCoachFlag,
+      };
+
+      if (pw1.length < 6) throw new Error('Password must be at least 6 characters.');
+      if (pw1 !== pw2) throw new Error('Passwords do not match.');
+      payload.password = pw1;
+
+      const r = await fetch('/api/athletes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error || `Failed to create athlete (HTTP ${r.status})`);
+
+      const newId = j?.athlete?.id as string | undefined;
+
+      if (photoFile && newId) {
+        await uploadPhotoFor(newId);
+      }
+
+      router.replace('/athletes');
+      return;
+    }
+
+    // ========= SIGNUP or EDIT-SELF (current user) =========
     const payload: any = {
       ...base,
-      email,                  // edit-self may allow changing email in your flow; if not, server will ignore
+      email,
       acceptRules: mode === 'signup' ? true : undefined,
     };
 
-    // Password only when required
     if (needsPassword) {
       if (pw1.length < 6) throw new Error('Password must be at least 6 characters.');
       if (pw1 !== pw2) throw new Error('Passwords do not match.');
@@ -245,8 +340,13 @@ useEffect(() => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j?.error || `Error (HTTP ${r.status})`);
 
-    // Update header badge only for self
-    const badge = nickname || (firstName && lastName ? `${firstName[0]}${lastName[0]}`.toUpperCase() : '');
+    // Upload photo for myself (new signup or edit-self)
+    if (photoFile) {
+      await uploadPhotoFor(); // backend uses session
+    }
+
+    const badge =
+      nickname || (firstName && lastName ? `${firstName[0]}${lastName[0]}`.toUpperCase() : '');
     if (badge) window.dispatchEvent(new CustomEvent('header:updateName', { detail: badge }));
     window.dispatchEvent(new CustomEvent('credits:refresh'));
 
@@ -258,6 +358,8 @@ useEffect(() => {
     setBusy(false);
   }
 }
+
+
 
   // ---- UI ----
   return (
@@ -374,7 +476,14 @@ useEffect(() => {
 {/* Profile */}
 <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
   <h2 className="text-sm font-medium">Profile</h2>
-
+  <AthletePhotoInput
+    value={photoFile}
+    initialUrl={photoUrl}
+    onChange={(file) => {
+      setPhotoFile(file);
+      // we only set photoUrl after successful upload
+    }}
+  />
   <div className="grid gap-4 md:grid-cols-2">
     {/* First name */}
     <div>
@@ -498,6 +607,21 @@ useEffect(() => {
         }
       />
     </div>
+        {/* Promote to coach (visible only for coaches when editing/creating) */}
+    {iAmCoach && (mode === 'coach-edit' || mode === 'coach-new') && (
+      <div className="flex items-center gap-2 md:col-span-2">
+        <input
+          type="checkbox"
+          checked={isCoachFlag}
+          onChange={(e) => setIsCoachFlag(e.target.checked)}
+          className="h-4 w-4 accent-emerald-500"
+        />
+        <span className="text-xs text-zinc-300">
+          Coach account (can manage schedule, athletes, etc.)
+        </span>
+      </div>
+    )}
+
   </div>
 
   {/* Notes */}

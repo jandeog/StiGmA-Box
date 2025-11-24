@@ -34,7 +34,7 @@ const sess = await verifySession(token || undefined).catch(() => null);
       first_name, last_name, nickname, team_name,
       dob, phone, gender, height_cm, weight_kg, years_of_experience,
       notes, emergency_name, emergency_phone,
-      credits
+      credits, photo_url 
     `)
     .eq('id', id)
     .maybeSingle();

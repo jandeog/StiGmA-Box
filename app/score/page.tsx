@@ -896,6 +896,14 @@ const sortedStrength = useMemo(() => {
       : 'e.g. 5x5 @80kg • EMOM 10’ @ bodyweight';
 
   const mainScoreMeta = useMemo(() => getMainScoreMeta(wod), [wod]);
+  const isRestDay = useMemo(() => {
+    if (!date) return false;
+    const [y, m, d] = date.split('-').map(Number);
+    if (!y || !m || !d) return false;
+    const jsDate = new Date(y, m - 1, d);
+    // 0 = Sunday in JS
+    return jsDate.getDay() === 0;
+  }, [date]);
 
   // ---------- Submit ----------
 
@@ -1189,283 +1197,297 @@ if (wantMain) {
   return (
     <section className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       {/* Title + Date */}
-<header className="flex flex-col items-center gap-3">
-  <h1 className="text-2xl font-semibold text-center">Scores</h1>
+      <header className="flex flex-col items-center gap-3">
+        <h1 className="text-2xl font-semibold text-center">Scores</h1>
 
-  <div className="flex justify-center w-full">
-    {/* @ts-ignore – DateStepper is JS-only */}
-    <DateStepper
-      value={date}
-      onChange={(v: string) => setDate(v)}
-      highlightedDates={submittedDates}
-    />
-  </div>
-</header>
+        <div className="flex justify-center w-full">
+          {/* @ts-ignore – DateStepper is JS-only */}
+          <DateStepper
+            value={date}
+            onChange={(v: string) => setDate(v)}
+            highlightedDates={submittedDates}
+          />
+        </div>
+      </header>
 
+      {isRestDay ? (
+        // ---------- REST DAY ----------
+        <div className="text-center text-zinc-400 py-10 text-lg">
+          Rest Day – No WOD for today.
+        </div>
+      ) : (
+        // ---------- NORMAL DAY UI ----------
+        <>
+          {/* Athlete section – ONLY for coaches */}
+          {isCoach && (
+            <div>
+              <h2 className="text-lg font-semibold">Athlete</h2>
+              <div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Combo box: search + select */}
+                  <div className="relative">
+                    <label className="block text-sm mb-1 text-zinc-300">
+                      Athlete <span className="text-red-400">*</span>
+                    </label>
 
-      {/* Athlete section – ONLY for coaches */}
-      {isCoach && (
-        <div>
-          <h2 className="text-lg font-semibold">Athlete</h2>
-          <div className="border border-zinc-800 bg-zinc-900 rounded p-3 mb-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {/* Combo box: search + select */}
-              <div className="relative">
-                <label className="block text-sm mb-1 text-zinc-300">
-                  Athlete <span className="text-red-400">*</span>
-                </label>
-
-                <div className="flex items-center gap-1">
-                  <input
-                    value={athleteInput}
-                    onChange={(e) => {
-                      if (!isCoach) return;
-                      setAthleteInput(e.target.value);
-                      setAthleteOpen(true);
-                    }}
-                    onFocus={() => {
-                      if (isCoach) setAthleteOpen(true);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        setAthleteOpen(false);
-                      }
-                    }}
-                    placeholder="Search/select athlete"
-                    readOnly={!isCoach}
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm shadow-sm
+                    <div className="flex items-center gap-1">
+                      <input
+                        value={athleteInput}
+                        onChange={(e) => {
+                          if (!isCoach) return;
+                          setAthleteInput(e.target.value);
+                          setAthleteOpen(true);
+                        }}
+                        onFocus={() => {
+                          if (isCoach) setAthleteOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setAthleteOpen(false);
+                          }
+                        }}
+                        placeholder="Search/select athlete"
+                        readOnly={!isCoach}
+                        className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm shadow-sm
                                hover:border-emerald-500/70
                                focus:outline-none focus:ring-2 focus:ring-emerald-600/50 focus:border-emerald-500
                                transition-colors"
-                  />
+                      />
 
-                  {isCoach && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAthleteInput('');
-                        setAthleteOpen(true);
-                      }}
-                      className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
+                      {isCoach && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAthleteInput('');
+                            setAthleteOpen(true);
+                          }}
+                          className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-2 text-xs
                                  hover:border-emerald-500/70 hover:bg-zinc-900
                                  focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
-                      aria-label="Toggle athlete list"
-                    >
-                      ▾
-                    </button>
-                  )}
+                          aria-label="Toggle athlete list"
+                        >
+                          ▾
+                        </button>
+                      )}
+                    </div>
+
+                    {isCoach && athleteOpen && (
+                      <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900 shadow-lg">
+                        {loadingAthletes && (
+                          <div className="px-3 py-2 text-xs text-zinc-400">
+                            Loading athletes…
+                          </div>
+                        )}
+
+                        {!loadingAthletes && filteredAthletes.length === 0 && (
+                          <div className="px-3 py-2 text-xs text-zinc-400">
+                            No athletes found.
+                          </div>
+                        )}
+
+                        {!loadingAthletes &&
+                          filteredAthletes.map((a) => (
+                            <button
+                              key={a.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setAthleteId(a.id);
+                                setAthleteInput(
+                                  `${a.firstName} ${a.lastName}`.trim(),
+                                );
+                                setAthleteOpen(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80"
+                            >
+                              <span className="text-zinc-100">
+                                {a.lastName}, {a.firstName}
+                                {a.nickname && (
+                                  <span className="text-yellow-400">
+                                    {`, ${a.nickname}`}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Team */}
+                  <div>
+                    <label className="block text-sm mb-1 text-zinc-300">
+                      Team
+                    </label>
+                    <input
+                      value={team}
+                      onChange={(e) => setTeam(e.target.value)}
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-emerald-600/40 focus:border-emerald-500
+                             transition"
+                      placeholder="e.g. Red"
+                      readOnly={!isCoach}
+                    />
+                  </div>
                 </div>
 
-                {isCoach && athleteOpen && (
-                  <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900 shadow-lg">
-                    {loadingAthletes && (
-                      <div className="px-3 py-2 text-xs text-zinc-400">
-                        Loading athletes…
-                      </div>
-                    )}
-
-                    {!loadingAthletes && filteredAthletes.length === 0 && (
-                      <div className="px-3 py-2 text-xs text-zinc-400">
-                        No athletes found.
-                      </div>
-                    )}
-
-                    {!loadingAthletes &&
-                      filteredAthletes.map((a) => (
-                        <button
-                          key={a.id}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setAthleteId(a.id);
-                            setAthleteInput(
-                              `${a.firstName} ${a.lastName}`.trim(),
-                            );
-                            setAthleteOpen(false);
-                          }}
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-800/80"
-                        >
-                          <span className="text-zinc-100">
-                            {a.lastName}, {a.firstName}
-                            {a.nickname && (
-                              <span className="text-yellow-400">
-                                {`, ${a.nickname}`}
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      ))}
+                {alreadySubmitted && (
+                  <div className="mt-2 text-xs text-amber-400">
+                    This athlete has already submitted for {fmt(date)}. New
+                    submissions are blocked.
                   </div>
                 )}
               </div>
+            </div>
+          )}
 
-              {/* Team */}
-              <div>
-                <label className="block text-sm mb-1 text-zinc-300">Team</label>
-                <input
-                  value={team}
-                  onChange={(e) => setTeam(e.target.value)}
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-sm
-                             focus:outline-none focus:ring-2 focus:ring-emerald-600/40 focus:border-emerald-500
-                             transition"
-                  placeholder="e.g. Red"
-                  readOnly={!isCoach}
+          {/* Strength + WOD layout */}
+          {!isCoach ? (
+            <>
+              {/* Athlete: slider on mobile, stacked on desktop */}
+              <div className="sm:hidden">
+                <ScoreDeck
+                  left={renderStrengthSection()}
+                  right={renderMainWodSection()}
                 />
               </div>
-            </div>
 
-            {alreadySubmitted && (
-              <div className="mt-2 text-xs text-amber-400">
-                This athlete has already submitted for {fmt(date)}. New submissions
-                are blocked.
+              <div className="hidden sm:block space-y-4">
+                {renderStrengthSection()}
+                {renderMainWodSection()}
+              </div>
+            </>
+          ) : (
+            // Coach: always stacked, no slider
+            <div className="space-y-4">
+              {renderStrengthSection()}
+              {renderMainWodSection()}
+            </div>
+          )}
+
+          {/* Submit */}
+          <div>
+            <button
+              type="button"
+              onClick={onSubmit}
+              className="px-4 py-2 rounded-md border border-emerald-700 text-emerald-300 hover:bg-emerald-950/30 text-sm"
+            >
+              Submit
+            </button>
+            {loadingScores && (
+              <span className="ml-3 text-xs text-zinc-400">
+                Updating scores…
+              </span>
+            )}
+            {scoresError && (
+              <div className="mt-1 text-xs text-amber-400">
+                {scoresError}
               </div>
             )}
           </div>
-        </div>
-      )}
 
-      {/* Strength + WOD layout */}
-      {!isCoach ? (
-        <>
-          {/* Athlete: slider on mobile, stacked on desktop */}
-          <div className="sm:hidden">
-            <ScoreDeck
-              left={renderStrengthSection()}
-              right={renderMainWodSection()}
-            />
-          </div>
+          {/* Leaderboard */}
+          <section className="mt-4 space-y-3">
+            <h2 className="text-lg font-semibold text-center">Leaderboard</h2>
+            <p className="text-center text-[11px] text-zinc-400 flex items-center justify-center gap-3 mt-1">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-sm bg-red-900/40 border border-red-800/40" />
+                RX
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-800/40" />
+                Scaled
+              </span>
+            </p>
 
-          <div className="hidden sm:block space-y-4">
-            {renderStrengthSection()}
-            {renderMainWodSection()}
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Strength */}
+              <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
+                <div className="text-sm font-semibold mb-2">Strength</div>
+                {sortedStrength.length === 0 ? (
+                  <p className="text-xs text-zinc-400">
+                    No scores for {fmt(date)}.
+                  </p>
+                ) : (
+                  <ul className="space-y-1 text-sm">
+                    {sortedStrength.map((s, i) => (
+                      <li
+                        key={s.id}
+                        className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border border-zinc-800 bg-zinc-900/40"
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="text-[11px] text-zinc-400">
+                            #{i + 1}
+                          </span>
+
+                          <span className="truncate">
+                            {nameWithNick(s.athlete)}
+                          </span>
+
+                          {s.classTime && (
+                            <span className="text-[11px] text-emerald-400">
+                              {formatClassTimeLabel(s.classTime)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-sm font-semibold shrink-0">
+                          {s.value}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Main WOD */}
+              <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
+                <div className="text-sm font-semibold mb-2">WOD</div>
+                {sortedMain.length === 0 ? (
+                  <p className="text-xs text-zinc-400">
+                    No scores for {fmt(date)}.
+                  </p>
+                ) : (
+                  <ul className="space-y-1 text-sm">
+                    {sortedMain.map((s, i) => (
+                      <li
+                        key={s.id}
+                        className={
+                          'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
+                          (s.rxScaled === 'RX'
+                            ? 'bg-red-900/20 border-red-800/30'
+                            : 'bg-green-900/20 border-green-800/30')
+                        }
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="text-[11px] text-zinc-400">
+                            #{i + 1}
+                          </span>
+
+                          <span className="truncate">
+                            {nameWithNick(s.athlete)}
+                          </span>
+
+                          {s.classTime && (
+                            <span className="text-[11px] text-emerald-400">
+                              {formatClassTimeLabel(s.classTime)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-sm font-semibold shrink-0">
+                          {s.value}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
         </>
-      ) : (
-        // Coach: always stacked, no slider
-        <div className="space-y-4">
-          {renderStrengthSection()}
-          {renderMainWodSection()}
-        </div>
       )}
-
-      {/* Submit */}
-      <div>
-        <button
-          type="button"
-          onClick={onSubmit}
-          className="px-4 py-2 rounded-md border border-emerald-700 text-emerald-300 hover:bg-emerald-950/30 text-sm"
-        >
-          Submit
-        </button>
-        {loadingScores && (
-          <span className="ml-3 text-xs text-zinc-400">
-            Updating scores…
-          </span>
-        )}
-        {scoresError && (
-          <div className="mt-1 text-xs text-amber-400">{scoresError}</div>
-        )}
-      </div>
-
-      {/* Leaderboard */}
-      <section className="mt-4 space-y-3">
-        <h2 className="text-lg font-semibold text-center">Leaderboard</h2>
-        <p className="text-center text-[11px] text-zinc-400 flex items-center justify-center gap-3 mt-1">
-          <span className="flex items-center gap-1">
-            <span className="inline-block w-3 h-3 rounded-sm bg-red-900/40 border border-red-800/40" />
-            RX
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-800/40" />
-            Scaled
-          </span>
-        </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Strength */}
-          <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
-            <div className="text-sm font-semibold mb-2">Strength</div>
-            {sortedStrength.length === 0 ? (
-              <p className="text-xs text-zinc-400">
-                No scores for {fmt(date)}.
-              </p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {sortedStrength.map((s, i) => (
-                  <li
-                    key={s.id}
-                    className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border border-zinc-800 bg-zinc-900/40"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-[11px] text-zinc-400">
-                        #{i + 1}
-                      </span>
-
-                      <span className="truncate">
-                        {nameWithNick(s.athlete)}
-                      </span>
-
-                      {s.classTime && (
-                        <span className="text-[11px] text-emerald-400">
-                          {formatClassTimeLabel(s.classTime)}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-sm font-semibold shrink-0">
-                      {s.value}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Main WOD */}
-          <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
-            <div className="text-sm font-semibold mb-2">WOD</div>
-            {sortedMain.length === 0 ? (
-              <p className="text-xs text-zinc-400">
-                No scores for {fmt(date)}.
-              </p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {sortedMain.map((s, i) => (
-                  <li
-                    key={s.id}
-                    className={
-                      'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
-                      (s.rxScaled === 'RX'
-                        ? 'bg-red-900/20 border-red-800/30'
-                        : 'bg-green-900/20 border-green-800/30')
-                    }
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-[11px] text-zinc-400">
-                        #{i + 1}
-                      </span>
-
-                      <span className="truncate">
-                        {nameWithNick(s.athlete)}
-                      </span>
-
-                      {s.classTime && (
-                        <span className="text-[11px] text-emerald-400">
-                          {formatClassTimeLabel(s.classTime)}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-sm font-semibold shrink-0">
-                      {s.value}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </section>
     </section>
   );
 }
+
