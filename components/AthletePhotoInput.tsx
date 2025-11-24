@@ -58,15 +58,17 @@ export default function AthletePhotoInput({
   return (
     <div className="flex items-center gap-3">
       <div className="h-20 w-20 rounded-full bg-zinc-800 flex items-center justify-center overflow-hidden text-[11px] text-zinc-500">
-        {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt="Athlete"
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <span>No photo</span>
-        )}
+{previewUrl ? (
+  <img
+    key={previewUrl}
+    src={previewUrl}
+    alt="Athlete"
+    className="h-full w-full object-cover"
+  />
+) : (
+  <span>No photo</span>
+)}
+
       </div>
 
       <div className="flex flex-col gap-1">

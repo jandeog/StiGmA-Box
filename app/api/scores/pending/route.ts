@@ -15,37 +15,34 @@ function unauthorized() {
   return json({ error: 'Not authenticated' }, 401);
 }
 function isClassFinished(dateStr?: string | null, timeStr?: string | null): boolean {
-  // dateStr in "YYYY-MM-DD", timeStr in "HH:MM"
   if (!dateStr) return false;
 
+  // dateStr: "YYYY-MM-DD"
   const [yStr, mStr, dStr] = dateStr.split('-');
   const y = Number(yStr);
   const m = Number(mStr);
   const d = Number(dStr);
   if (!y || !m || !d) return false;
 
-  // default to very late if time missing, so we don't nag too early
-  let h = 23;
-  let min = 59;
-
+  // timeStr: "HH:MM"
+  let h = 0;
+  let min = 0;
   if (timeStr) {
-    const [hStr, mStr2] = timeStr.split(':');
-    const hh = Number(hStr);
-    const mm = Number(mStr2);
-    if (!Number.isNaN(hh)) h = hh;
-    if (!Number.isNaN(mm)) min = mm;
+    const [hStr, minStr] = timeStr.split(':');
+    h = Number(hStr) || 0;
+    min = Number(minStr) || 0;
   }
 
-  // Class start in UTC
-  const startMs = Date.UTC(y, m - 1, d, h, min);
+  // LOCAL start datetime
+  const start = new Date(y, m - 1, d, h, min);
 
-  // Length of a class in minutes (change if you want)
+  // Duration of class
   const CLASS_LENGTH_MIN = 60;
-  const endMs = startMs + CLASS_LENGTH_MIN * 60 * 1000;
+  const end = new Date(start.getTime() + CLASS_LENGTH_MIN * 60 * 1000);
 
-  const nowMs = Date.now(); // current time in ms since epoch
-  return nowMs >= endMs;
+  return Date.now() >= end.getTime();
 }
+
 
 export async function GET(req: Request) {
   const cookieStore = await cookies();

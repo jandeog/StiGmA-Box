@@ -131,7 +131,9 @@ useEffect(() => {
       setEmPhone(a.emergency_phone || '');
       setIsCoachFlag(!!a.is_coach);
       setCredits(a.credits != null ? String(a.credits) : '0');
-      setPhotoUrl(a.photo_url || null);
+      setPhotoUrl(a.photo_url ? `${a.photo_url}?v=${Date.now()}` : null);
+setPhotoFile(null);
+setRemovedExistingPhoto(false);
       setRemovedExistingPhoto(false);
       return;
     }
@@ -192,7 +194,10 @@ setPhotoUrl(null);
     setEmPhone(me?.emergency_phone || '');
     setIsCoachFlag(!!me?.is_coach);
     setCredits(me?.credits != null ? String(me?.credits) : '0');
-    setPhotoUrl(me?.photo_url || null);
+    setPhotoUrl(me?.photo_url ? `${me.photo_url}?v=${Date.now()}` : null);
+setPhotoFile(null);
+setRemovedExistingPhoto(false);
+
 setRemovedExistingPhoto(false);
 
   }
@@ -292,7 +297,10 @@ async function uploadPhotoFor(athleteId?: string | null) {
   if (j.url) {
     // add cache-buster so mobile doesn’t use stale cached image
     setPhotoUrl(`${j.url}?t=${Date.now()}`);
+  
   }
+    setPhotoFile(null);
+  setRemovedExistingPhoto(false);
 }
 
 
