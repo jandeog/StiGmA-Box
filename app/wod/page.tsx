@@ -14,6 +14,7 @@ const scoringOptions: Array<{ value: ScoringType; label: string }> = [
   { value: 'other', label: 'Other' },
 ];
 
+
 const fieldBase =
   'w-full rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600';
 
@@ -417,9 +418,10 @@ function MainWodBlock({ wod, setWod, readOnly = false }: MainWodBlockProps) {
 type AthleteDeckProps = {
   wod: WodState;
   setWod: SetWod;
+  locked: boolean;
 };
 
-function AthleteDeck({ wod, setWod }: AthleteDeckProps) {
+function AthleteDeck({ wod, setWod, locked }: AthleteDeckProps) {
   const deckRef = useRef<HTMLDivElement | null>(null);
   const [ix, setIx] = useState(0);
 
@@ -438,6 +440,30 @@ function AthleteDeck({ wod, setWod }: AthleteDeckProps) {
       node.removeEventListener('scroll', onScroll);
     };
   }, []);
+
+  // 🔒 RULE A – visibility / booking rule
+  if (locked) {
+    return (
+      <div className="text-center text-zinc-400 py-10 text-sm">
+        You can view today&apos;s WOD only after the class you booked has finished.
+        <br />
+        If you did not book a class today, you will be able to see it after the day has passed.
+        <br />
+        Please attend a class or come back tomorrow.
+      </div>
+    );
+  }
+
+  // Check if coach actually programmed those parts
+  const isStrengthEmpty =
+    !wod.strength.title &&
+    !wod.strength.description &&
+    !wod.strength.scoreHint;
+
+  const isMainEmpty =
+    !wod.title &&
+    !wod.description &&
+    !wod.timeCap;
 
   const go = (dir: -1 | 1) => {
     const node = deckRef.current;
@@ -488,12 +514,27 @@ function AthleteDeck({ wod, setWod }: AthleteDeckProps) {
         style={{ WebkitOverflowScrolling: 'touch' as any }}
       >
         <div className="min-w-full snap-start pr-2">
-          <StrengthBlock wod={wod} setWod={setWod} readOnly />
+          {isStrengthEmpty ? (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 text-center text-sm text-zinc-400">
+              No strength / skills part for today.
+            </div>
+          ) : (
+            <StrengthBlock wod={wod} setWod={setWod} readOnly />
+          )}
         </div>
+
         <div className="min-w-full snap-start pl-2">
-          <MainWodBlock wod={wod} setWod={setWod} readOnly />
+          {isMainEmpty ? (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 text-center text-sm text-zinc-400">
+              No main WOD part for today.
+            </div>
+          ) : (
+            <MainWodBlock wod={wod} setWod={setWod} readOnly />
+          )}
         </div>
       </div>
+
+
     </>
   );
 }
@@ -523,6 +564,8 @@ export default function WodPage() {
       recordScore: false,
     },
   }));
+
+    const [locked, setLocked] = useState(false);
 
   // ---- Load ALL WOD dates once (for calendar coloring) ----
   useEffect(() => {
@@ -579,6 +622,7 @@ export default function WodPage() {
             recordScore: false,
           },
         }));
+                setLocked(false);
         setWodDates((prev) => prev.filter((d) => d !== date));
       };
 
@@ -589,6 +633,13 @@ export default function WodPage() {
         if (wr.ok) {
           const wj = await wr.json();
           const row = wj?.wod || null;
+          const lockedFromApi = !!wj?.locked;
+
+          if (alive) {
+            // Just mirror the API
+            setLocked(lockedFromApi);
+          }
+
           if (alive && row) {
             setWod(() => ({
               title: row.title || '',
@@ -610,12 +661,15 @@ export default function WodPage() {
             setWodDates((prev) =>
               prev.includes(date) ? prev : [...prev, date],
             );
-          } else if (alive) {
+          } else if (alive && !lockedFromApi) {
+            // only reset when it's NOT locked (i.e. simply "no WOD programmed")
             reset();
           }
         } else if (alive) {
           reset();
         }
+
+
       } catch {
         if (alive) reset();
       } finally {
@@ -697,9 +751,8 @@ export default function WodPage() {
               <MainWodBlock wod={wod} setWod={setWod} />
             </div>
           ) : (
-            <AthleteDeck wod={wod} setWod={setWod} />
+            <AthleteDeck wod={wod} setWod={setWod} locked={locked} />
           )}
-
           {isCoach && (
             <div className="mt-4 flex justify-end gap-2">
               <button

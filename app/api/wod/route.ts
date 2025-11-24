@@ -131,12 +131,17 @@ export async function GET(req: NextRequest) {
       .eq('date_local', date) // <= key change
       .maybeSingle();
 
-    if (error) return json({ error: error.message }, 500);
+if (error) return json({ error: error.message }, 500);
 
-    return json({
-      wod: data ?? null,
-      locked: !isCoach, // athletes: read-only UI
-    });
+// If we are here, either coach or athlete *already* passed athleteCanViewDate.
+// So this response is never "locked".
+return json({
+  wod: data ?? null,
+  locked: false,
+});
+
+
+
   } catch (e: any) {
     return json({ error: e?.message || 'Failed' }, 500);
   }

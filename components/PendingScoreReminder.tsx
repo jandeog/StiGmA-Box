@@ -1,18 +1,23 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 type PendingItem = {
   participantId: string;
   slotId: string;
-  date: string | null; // 'YYYY-MM-DD' or null
-  time: string | null; // 'HH:MM' or null
+  date: string | null; // 'YYYY-MM-DD'
+  time: string | null; // 'HH:MM'
   hasScore: boolean;
+  attended?: boolean;
 };
 
 type ApiResponse = {
   items: PendingItem[];
+};
+
+type PendingScoreReminderProps = {
+  isCoach?: boolean;
 };
 
 function formatClassTimeLabel(raw?: string | null): string {
@@ -29,108 +34,83 @@ function formatClassTimeLabel(raw?: string | null): string {
   return `${hour12}${minutePart} ${suffix}`;
 }
 
-export default function PendingScoreReminder() {
+export default function PendingScoreReminder({ isCoach }: PendingScoreReminderProps) {
   const router = useRouter();
+  const pathname = usePathname();
+
+  // 1) Never show for coaches
+  if (isCoach) return null;
+
   const [pending, setPending] = useState<PendingItem[] | null>(null);
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(
-    new Set<string>(),
-  );
+  const [dismissed, setDismissed] = useState(false);
 
-  // Load dismiss state from localStorage (so we don't nag every refresh)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  // Helper to load pending items
+  const fetchPending = async () => {
     try {
-      const raw = window.localStorage.getItem('pendingScoreDismissed');
-      if (!raw) return;
-      const arr: string[] = JSON.parse(raw);
-      setDismissedKeys(new Set(arr));
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  // Fetch pending items once on mount
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
+      const res = await fetch('/api/scores/pending', { cache: 'no-store' });
+      if (!res.ok) return;
+      const text = await res.text();
+      let data: ApiResponse;
       try {
-        const res = await fetch('/api/scores/pending', {
-          cache: 'no-store',
-        });
-
-        if (!res.ok) {
-          // silently ignore errors
-          return;
-        }
-
-        const text = await res.text();
-        let data: ApiResponse | null = null;
-
-        try {
-          data = JSON.parse(text) as ApiResponse;
-        } catch (e) {
-          console.error('pending scores: response is not JSON', text);
-          return;
-        }
-
-        if (cancelled || !data) return;
-
-        setPending(data.items || []);
-      } catch (err) {
-        console.error('pending scores fetch failed', err);
+        data = JSON.parse(text) as ApiResponse;
+      } catch {
+        console.error('pending scores: response is not JSON', text);
+        return;
       }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!pending || pending.length === 0) return null;
-
-  const item = pending[0];
-
-  const key = `${item.slotId}`; // no date yet, key by slot
-  if (dismissedKeys.has(key)) return null;
-
-  const prettyTime = formatClassTimeLabel(item.time ?? undefined);
-  let prettyDate: string | null = null;
-
-  if (item.date) {
-    const parts = item.date.split('-'); // YYYY-MM-DD
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      prettyDate = `${d}-${m}-${y}`;
-    } else {
-      prettyDate = item.date;
-    }
-  }
-
-  const onDismiss = () => {
-    const next = new Set(dismissedKeys);
-    next.add(key);
-    setDismissedKeys(next);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        'pendingScoreDismissed',
-        JSON.stringify(Array.from(next)),
-      );
+      setPending(data.items || []);
+    } catch (err) {
+      console.error('pending scores fetch failed', err);
     }
   };
 
-const onGoToScores = () => {
-  if (item.date) {
-    const params = new URLSearchParams({ date: item.date });
+  // Initial load + refresh when path changes
+  useEffect(() => {
+    fetchPending();
+  }, [pathname]);
+
+  // Auto-refresh when score is submitted (from Score page)
+  useEffect(() => {
+    const handler = () => {
+      setDismissed(false); // in case we hid it this session
+      fetchPending();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('score-submitted', handler);
+      return () => window.removeEventListener('score-submitted', handler);
+    }
+  }, []);
+
+  if (dismissed) return null;
+  if (!pending || pending.length === 0) return null;
+
+  // Sort by date (oldest first) so we handle multiple dates one-by-one
+  const sorted = [...pending].sort((a, b) => {
+    const ad = a.date || '';
+    const bd = b.date || '';
+    if (ad === bd) return (a.time || '').localeCompare(b.time || '');
+    return ad.localeCompare(bd);
+  });
+
+  const item = sorted[0];
+  if (!item.date) return null;
+
+  const prettyTime = formatClassTimeLabel(item.time ?? undefined);
+  const [y, m, d] = item.date.split('-');
+  const prettyDate = d && m && y ? `${d}-${m}-${y}` : item.date;
+
+  const onDismiss = () => {
+    // 4) "Later" = hide for *this session only*.
+    // Next login / full reload will show it again if still pending.
+    setDismissed(true);
+  };
+
+  const onGoToScores = () => {
+    // 2 & 3) Go to score page for that specific date
+    const params = new URLSearchParams({ date: item.date! });
     router.push(`/score?${params.toString()}`);
-  } else {
-    router.push('/score');
-  }
-};
+  };
 
-
-  const hasNiceInfo = !!prettyTime || !!prettyDate;
+  const total = pending.length;
 
   return (
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-md w-[90%]">
@@ -140,23 +120,18 @@ const onGoToScores = () => {
             Missing score for a booked class
           </div>
           <div className="text-xs text-zinc-300">
-            {hasNiceInfo ? (
-              <>
-                You were booked in{' '}
-                <span className="font-medium">
-                  {prettyTime ? `${prettyTime}` : ''}
-                  {prettyTime && prettyDate ? ' • ' : ''}
-                  {prettyDate ?? ''}
-                </span>{' '}
-                but haven&apos;t added your score yet. Add it now to confirm
-                your attendance.
-              </>
-            ) : (
-              <>
-                You have a booked class without a recorded score. Add your score
-                now to confirm your attendance.
-              </>
+            {total > 1 && (
+              <div className="mb-0.5 text-[11px] text-emerald-300/80">
+                You have scores missing for {total} classes. First one:
+              </div>
             )}
+            You were booked in{' '}
+            <span className="font-medium">
+              {prettyTime ? `${prettyTime} • ` : ''}
+              {prettyDate}
+            </span>{' '}
+            but haven&apos;t added your score yet. Add it now to confirm your
+            attendance.
           </div>
         </div>
 

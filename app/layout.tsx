@@ -110,9 +110,10 @@ export default async function RootLayout({
         <footer className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 text-xs text-zinc-500">
           © {new Date().getFullYear()} StiGmA Box
         </footer>
-        {signedIn && <PendingScoreReminder />}
+
         {/* Global reminder for pending scores */}
-        <PendingScoreReminder />
+        {signedIn && !isCoach && <PendingScoreReminder isCoach={false} />}
+
       </body>
     </html>
   );

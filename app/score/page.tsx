@@ -831,41 +831,51 @@ useEffect(() => {
     if (!m) return 0;
     return Math.max(...m.map((n) => parseInt(n, 10)));
   };
+const isDNF = (v: string) => v.trim().toUpperCase() === 'DNF';
+const sortedMain = useMemo(() => {
+  const s = [...scoresMain];
+  if (!wod) return s;
 
-  const sortedMain = useMemo(() => {
-    const s = [...scoresMain];
-    if (!wod) return s;
+  const nonDNF = s.filter((sc) => !isDNF(sc.value));
+  const dnf = s.filter((sc) => isDNF(sc.value));
 
-    if (wod.scoring === 'for_time') {
-      const finished = s.filter((sc) => validateTime(sc.value));
-      const capped = s.filter((sc) => !validateTime(sc.value));
+  if (wod.scoring === 'for_time') {
+    const finished = nonDNF.filter((sc) => validateTime(sc.value));
+    const capped = nonDNF.filter((sc) => !validateTime(sc.value));
 
-      finished.sort(
-        (a, b) =>
-          rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value),
-      );
-
-      capped.sort(
-        (a, b) =>
-          rxRank(a) - rxRank(b) ||
-          toRepKey(b.value) - toRepKey(a.value),
-      );
-
-      return [...finished, ...capped];
-    }
-
-    return s.sort(
-      (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
+    finished.sort(
+      (a, b) =>
+        rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value),
     );
-  }, [scoresMain, wod]);
 
-  const sortedStrength = useMemo(
-    () =>
-      [...scoresStrength].sort(
-        (a, b) => toNumberMax(b.value) - toNumberMax(a.value),
-      ),
-    [scoresStrength],
+    capped.sort(
+      (a, b) =>
+        rxRank(a) - rxRank(b) ||
+        toRepKey(b.value) - toRepKey(a.value),
+    );
+
+    // DNF entries appended at the very end
+    return [...finished, ...capped, ...dnf];
+  }
+
+  // AMRAP / EMOM / max_load / other: higher is better → DNF always last
+  nonDNF.sort(
+    (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
   );
+
+  return [...nonDNF, ...dnf];
+}, [scoresMain, wod]);
+
+
+const sortedStrength = useMemo(() => {
+  const s = [...scoresStrength];
+  const nonDNF = s.filter((sc) => !isDNF(sc.value));
+  const dnf = s.filter((sc) => isDNF(sc.value));
+
+  nonDNF.sort((a, b) => toNumberMax(b.value) - toNumberMax(a.value));
+  return [...nonDNF, ...dnf];
+}, [scoresStrength]);
+
 
   const strengthKind = useMemo(
     () => inferStrengthScoreKind(wod?.strength),
@@ -895,31 +905,33 @@ useEffect(() => {
     const selected = athletes.find((a) => a.id === athleteId);
     const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
     const teamName = team.trim() || undefined;
+    const noScoreFlag = !isCoach && noScore; 
 
-    const noScoreFlag = !isCoach && noScore;
+    const dnf = !isCoach && noScore;
 
-    const wantStrength =
-      canRecordStrength && !noScoreFlag && valueStrength.trim();
-    const wantMain = canRecordMain && !noScoreFlag && valueMain.trim();
+    const wantStrength = canRecordStrength && !dnf && valueStrength.trim();
+const wantMain = canRecordMain && (dnf || valueMain.trim());
 
-    if (!name) return;
-    if (!wantStrength && !wantMain && !noScoreFlag) return;
 
-    if (!noScoreFlag && wantStrength) {
-      const vRes = validateStrengthScore(strengthKind, valueStrength);
-      if (!vRes.ok) {
-        alert(vRes.message);
-        return;
-      }
-    }
+   if (!name) return;
+if (!wantStrength && !wantMain) return;
 
-    if (!noScoreFlag && wantMain) {
-      const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
-      if (!vRes.ok) {
-        alert(vRes.message);
-        return;
-      }
-    }
+   if (wantStrength) {
+  const vRes = validateStrengthScore(strengthKind, valueStrength);
+  if (!vRes.ok) {
+    alert(vRes.message);
+    return;
+  }
+}
+
+if (!dnf && canRecordMain && valueMain.trim()) {
+  const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
+  if (!vRes.ok) {
+    alert(vRes.message);
+    return;
+  }
+}
+
 
     const keyName = name.toLowerCase();
     if (submittedNames.includes(keyName)) {
@@ -934,30 +946,34 @@ useEffect(() => {
       );
     }
 
-    const confirmMessage = noScoreFlag
-      ? `Verify attendance for ${name} on ${fmt(
-          date,
-        )}?\nNo score will be recorded.`
-      : `Submit scores for ${name} on ${fmt(
-          date,
-        )}?\nThis cannot be changed later.`;
+const confirmMessage = dnf
+  ? `Verify attendance for ${name} on ${fmt(
+      date,
+    )}?\nScore for the WOD will be recorded as DNF.`
+  : `Submit scores for ${name} on ${fmt(
+      date,
+    )}?\nThis cannot be changed later.`;
 
-    if (!window.confirm(confirmMessage)) {
-      return;
-    }
+if (!window.confirm(confirmMessage)) {
+  return;
+}
+
 
     try {
-      const payload = {
-        date,
-        athleteId: selected?.id,
-        strength: wantStrength
-          ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
-          : null,
-        main: wantMain ? { rxScaled, value: valueMain.trim() } : null,
-        classSlotId: null as string | null,
-        noScore: noScoreFlag,
-        chargeCredit,
-      };
+const payload = {
+  date,
+  athleteId: selected?.id,
+  strength: wantStrength
+    ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
+    : null,
+  main: wantMain
+    ? { rxScaled, value: dnf ? 'DNF' : valueMain.trim() }
+    : null,
+  classSlotId: null as string | null,
+  noScore: dnf,      // if your API still expects this flag, keep it
+  chargeCredit,
+};
+
 
       const res = await fetch('/api/scores', {
         method: 'POST',
@@ -976,6 +992,12 @@ useEffect(() => {
         alert(msg);
         return;
       }
+
+      // ✅ Successful save: let the reminder know
+if (typeof window !== 'undefined') {
+  window.dispatchEvent(new Event('score-submitted'));
+}
+
     } catch (err) {
       console.error('submit scores failed', err);
       alert('Network error while saving scores.');
@@ -996,19 +1018,22 @@ useEffect(() => {
       setValueStrength('');
     }
 
-    if (wantMain) {
-      const newScoreM: Score = {
-        id: crypto.randomUUID(),
-        athlete: name,
-        team: teamName,
-        rxScaled,
-        value: valueMain.trim(),
-        date,
-        part: 'main',
-      };
-      setScoresMain((prev) => [newScoreM, ...prev]);
-      setValueMain('');
-    }
+if (wantMain) {
+  const newScoreM: Score = {
+    id: crypto.randomUUID(),
+    athlete: name,
+    team: teamName,
+    rxScaled,
+    value: dnf ? 'DNF' : valueMain.trim(),
+    date,
+    part: 'main',
+  };
+  setScoresMain((prev) => [newScoreM, ...prev]);
+  if (!dnf) setValueMain('');
+}
+
+
+
 
     const nextSubmitted = Array.from(new Set([...submittedNames, keyName]));
     setSubmittedNames(nextSubmitted);
