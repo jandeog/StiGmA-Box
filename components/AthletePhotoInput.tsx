@@ -5,8 +5,9 @@ import { useRef, useState, useEffect } from 'react';
 type AthletePhotoInputProps = {
   label?: string;
   value?: File | null;
-  initialUrl?: string | null;           // existing photo when editing
+  initialUrl?: string | null;
   onChange: (file: File | null) => void;
+  onRemoveExisting?: () => void; // 👈 notify parent that existing photo should be cleared server-side
 };
 
 export default function AthletePhotoInput({
@@ -14,11 +15,13 @@ export default function AthletePhotoInput({
   value,
   initialUrl = null,
   onChange,
+  onRemoveExisting,
 }: AthletePhotoInputProps) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialUrl);
 
-  // when initialUrl changes (editing different athlete), update preview
+  // When initialUrl changes and we don't have a new local file, update preview
   useEffect(() => {
     if (!value) {
       setPreviewUrl(initialUrl || null);
@@ -36,14 +39,20 @@ export default function AthletePhotoInput({
     }
   }
 
-  function openPicker() {
-    fileInputRef.current?.click();
+  function openGallery() {
+    galleryInputRef.current?.click();
+  }
+
+  function openCamera() {
+    cameraInputRef.current?.click();
   }
 
   function clearPhoto() {
     onChange(null);
     setPreviewUrl(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (galleryInputRef.current) galleryInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+    onRemoveExisting?.(); // 👈 parent can mark it for deletion in DB
   }
 
   return (
@@ -62,15 +71,22 @@ export default function AthletePhotoInput({
 
       <div className="flex flex-col gap-1">
         <span className="text-xs text-zinc-400">{label}</span>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={openPicker}
+            onClick={openCamera}
             className="px-2.5 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 text-[12px]"
           >
-            Take / choose
+            Take photo
           </button>
-          {value || previewUrl ? (
+          <button
+            type="button"
+            onClick={openGallery}
+            className="px-2.5 py-1.5 rounded-md border border-zinc-700 hover:bg-zinc-800 text-[12px]"
+          >
+            Choose from gallery
+          </button>
+          {(value || previewUrl) && (
             <button
               type="button"
               onClick={clearPhoto}
@@ -78,18 +94,28 @@ export default function AthletePhotoInput({
             >
               Remove
             </button>
-          ) : null}
+          )}
         </div>
       </div>
 
-<input
-  ref={fileInputRef}
-  type="file"
-  accept="image/*"
-  className="hidden"
-  onChange={handleFileChange}
-/>
+      {/* Gallery input */}
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
 
+      {/* Camera input */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileChange}
+      />
     </div>
   );
 }

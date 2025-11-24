@@ -38,6 +38,7 @@ export default function AddAthleteClient({
 const [photoFile, setPhotoFile] = useState<File | null>(null);
 const [photoUrl, setPhotoUrl] = useState<string | null>(null); // for existing photo later
   // account fields
+  const [removedExistingPhoto, setRemovedExistingPhoto] = useState(false);
   const [email, setEmail] = useState('');
   const [pw1, setPw1] = useState('');
   const [pw2, setPw2] = useState('');
@@ -131,6 +132,7 @@ useEffect(() => {
       setIsCoachFlag(!!a.is_coach);
       setCredits(a.credits != null ? String(a.credits) : '0');
       setPhotoUrl(a.photo_url || null);
+      setRemovedExistingPhoto(false);
       return;
     }
 
@@ -162,10 +164,10 @@ if (amCoach && createNew && !targetId) {
   setEmPhone(initialEmPhone || '');
   setIsCoachFlag(false);
   setCredits('0');
+setRemovedExistingPhoto(false);
+setPhotoFile(null);
+setPhotoUrl(null);
 
-  // 👇 also clear photo state
-  setPhotoFile(null);
-  setPhotoUrl(null);
 
   return;
 }
@@ -191,6 +193,7 @@ if (amCoach && createNew && !targetId) {
     setIsCoachFlag(!!me?.is_coach);
     setCredits(me?.credits != null ? String(me?.credits) : '0');
     setPhotoUrl(me?.photo_url || null);
+setRemovedExistingPhoto(false);
 
   }
 
@@ -268,7 +271,6 @@ if (amCoach && createNew && !targetId) {
 async function uploadPhotoFor(athleteId?: string | null) {
   if (!photoFile) return;
 
-  // compress if larger than ~200KB
   let fileToUpload = photoFile;
   if (photoFile.size > 200 * 1024) {
     fileToUpload = await compressImage(photoFile, 600, 0.7);
@@ -287,8 +289,12 @@ async function uploadPhotoFor(athleteId?: string | null) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error || 'Failed to upload photo');
 
-  if (j.url) setPhotoUrl(j.url);
+  if (j.url) {
+    // add cache-buster so mobile doesn’t use stale cached image
+    setPhotoUrl(`${j.url}?t=${Date.now()}`);
+  }
 }
+
 
 async function onSubmit(e: React.FormEvent) {
   e.preventDefault();
@@ -331,9 +337,13 @@ async function onSubmit(e: React.FormEvent) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || `Failed to save athlete (HTTP ${r.status})`);
 
-      if (photoFile) {
-        await uploadPhotoFor(targetId);
-      }
+  if (photoFile) {
+    await uploadPhotoFor(targetId);
+  } else if (removedExistingPhoto) {
+    await fetch(`/api/athletes/upload-photo?id=${encodeURIComponent(targetId)}`, {
+      method: 'DELETE',
+    });
+  }
 
       router.replace('/athletes');
       return;
@@ -362,15 +372,19 @@ async function onSubmit(e: React.FormEvent) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || `Failed to create athlete (HTTP ${r.status})`);
 
-      const newId = j?.athlete?.id as string | undefined;
+  const newId = j?.athlete?.id as string | undefined;
 
-      if (photoFile && newId) {
-        await uploadPhotoFor(newId);
-      }
+  if (photoFile && newId) {
+    await uploadPhotoFor(newId);
+  } else if (removedExistingPhoto && newId) {
+    await fetch(`/api/athletes/upload-photo?id=${encodeURIComponent(newId)}`, {
+      method: 'DELETE',
+    });
+  }
 
-      router.replace('/athletes');
-      return;
-    }
+  router.replace('/athletes');
+  return;
+}
 
     // ========= SIGNUP or EDIT-SELF (current user) =========
     const payload: any = {
@@ -396,9 +410,12 @@ async function onSubmit(e: React.FormEvent) {
     if (!r.ok) throw new Error(j?.error || `Error (HTTP ${r.status})`);
 
     // Upload photo for myself (new signup or edit-self)
-    if (photoFile) {
-      await uploadPhotoFor(); // backend uses session
-    }
+if (photoFile) {
+  await uploadPhotoFor(); // uses session
+} else if (removedExistingPhoto) {
+  await fetch('/api/athletes/upload-photo', { method: 'DELETE' });
+}
+
 
     const badge =
       nickname || (firstName && lastName ? `${firstName[0]}${lastName[0]}`.toUpperCase() : '');
@@ -531,14 +548,22 @@ async function onSubmit(e: React.FormEvent) {
 {/* Profile */}
 <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
   <h2 className="text-sm font-medium">Profile</h2>
-  <AthletePhotoInput
-    value={photoFile}
-    initialUrl={photoUrl}
-    onChange={(file) => {
-      setPhotoFile(file);
-      // we only set photoUrl after successful upload
-    }}
-  />
+<AthletePhotoInput
+  value={photoFile}
+  initialUrl={photoUrl}
+  onChange={(file) => {
+    setPhotoFile(file);
+    if (file) {
+      setRemovedExistingPhoto(false); // new photo, so no “removed existing”
+    }
+  }}
+  onRemoveExisting={() => {
+    setRemovedExistingPhoto(true);
+    setPhotoFile(null);
+    setPhotoUrl(null);
+  }}
+/>
+
   <div className="grid gap-4 md:grid-cols-2">
     {/* First name */}
     <div>

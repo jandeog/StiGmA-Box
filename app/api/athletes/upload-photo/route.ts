@@ -90,3 +90,69 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true, url: photoUrl });
 }
+export async function DELETE(req: Request) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value || null;
+  const sess = await verifySession(token || undefined).catch(() => null);
+
+  if (!sess) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const url = new URL(req.url);
+  const targetId = (url.searchParams.get('id') || '').trim();
+
+  let athleteId: string | null = null;
+
+  if (targetId) {
+    if (sess.role !== 'coach') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    athleteId = targetId;
+  } else {
+    athleteId = sess.aid ?? null;
+  }
+
+  if (!athleteId) {
+    return NextResponse.json({ error: 'Missing athlete id' }, { status: 400 });
+  }
+
+  // Get current photo_url
+  const { data, error } = await supabaseAdmin
+    .from('athletes')
+    .select('photo_url')
+    .eq('id', athleteId)
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const photoUrl = data?.photo_url as string | null;
+
+  // Try to delete from storage if we can extract the key
+  if (photoUrl) {
+    try {
+      const u = new URL(photoUrl);
+      const key = u.pathname.split('/').slice(-1)[0]; // last path segment
+      if (key) {
+        await supabaseAdmin.storage.from('athlete-photos').remove([key]);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  // Clear column
+  const { error: updErr } = await supabaseAdmin
+    .from('athletes')
+    .update({ photo_url: null })
+    .eq('id', athleteId);
+
+  if (updErr) {
+    return NextResponse.json({ error: updErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
