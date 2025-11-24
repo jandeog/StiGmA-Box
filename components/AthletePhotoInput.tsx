@@ -82,14 +82,14 @@ export default function AthletePhotoInput({
         </div>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+<input
+  ref={fileInputRef}
+  type="file"
+  accept="image/*"
+  className="hidden"
+  onChange={handleFileChange}
+/>
+
     </div>
   );
 }

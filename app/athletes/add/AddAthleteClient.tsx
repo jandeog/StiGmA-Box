@@ -216,12 +216,67 @@ if (amCoach && createNew && !targetId) {
     const n = parseInt(v, 10);
     return Number.isFinite(n) && n >= 0 ? n : 0;
   }
+  async function compressImage(file: File, maxSize = 600, quality = 0.7): Promise<File> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve(file);
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+
+      // keep aspect ratio, scale down if needed
+      if (width > height && width > maxSize) {
+        height = (height * maxSize) / width;
+        width = maxSize;
+      } else if (height > width && height > maxSize) {
+        width = (width * maxSize) / height;
+        height = maxSize;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(file);
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return resolve(file);
+          const compressed = new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', {
+            type: 'image/jpeg',
+          });
+          resolve(compressed);
+        },
+        'image/jpeg',
+        quality
+      );
+    };
+
+    img.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+}
+
 async function uploadPhotoFor(athleteId?: string | null) {
   if (!photoFile) return;
 
+  // compress if larger than ~200KB
+  let fileToUpload = photoFile;
+  if (photoFile.size > 200 * 1024) {
+    fileToUpload = await compressImage(photoFile, 600, 0.7);
+  }
+
   const form = new FormData();
-  form.append('file', photoFile);
-  form.append('filename', photoFile.name || 'photo.jpg');
+  form.append('file', fileToUpload);
+  form.append('filename', fileToUpload.name || 'photo.jpg');
 
   const qs = athleteId ? `?id=${encodeURIComponent(athleteId)}` : '';
   const r = await fetch(`/api/athletes/upload-photo${qs}`, {
