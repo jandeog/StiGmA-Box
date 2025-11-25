@@ -21,9 +21,10 @@ function unauthorized() {
 // GET /api/scores/dates?athleteId=...
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const cookieStore = await cookies();
   const athleteId = url.searchParams.get('athleteId');
 
-  const cookie = await cookies().get(SESSION_COOKIE)?.value;
+  const cookie = cookieStore.get(SESSION_COOKIE)?.value || null;
   if (!cookie) return unauthorized();
 
   const session = await verifySession(cookie);
