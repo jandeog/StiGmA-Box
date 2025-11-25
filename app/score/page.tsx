@@ -257,9 +257,50 @@ function validateStrengthScore(
   return { ok: true };
 }
 
+// parse "mm:ss" → seconds
+function parseTimeToSeconds(v: string): number | null {
+  const m = v.trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!m) return null;
+  const min = parseInt(m[1], 10);
+  const sec = parseInt(m[2], 10);
+  if (Number.isNaN(min) || Number.isNaN(sec)) return null;
+  return min * 60 + sec;
+}
+
+// parse various time cap formats to seconds:
+// - "12:00"
+// - "12 min", "12 min cap", "12 minutes", "12" etc.
+function parseTimeCapToSeconds(cap?: string | null): number | null {
+  if (!cap) return null;
+  const s = cap.trim().toLowerCase();
+  if (!s) return null;
+
+  // Try explicit mm:ss
+  const mmss = s.match(/(\d{1,2}):([0-5]\d)/);
+  if (mmss) {
+    const min = parseInt(mmss[1], 10);
+    const sec = parseInt(mmss[2], 10);
+    if (!Number.isNaN(min) && !Number.isNaN(sec)) {
+      return min * 60 + sec;
+    }
+  }
+
+  // Fallback: first integer as minutes
+  const m = s.match(/(\d{1,2})/);
+  if (m) {
+    const min = parseInt(m[1], 10);
+    if (!Number.isNaN(min)) {
+      return min * 60;
+    }
+  }
+
+  return null;
+}
+
 function validateMainScore(
   scoring: ScoringType | null,
   raw: string,
+  timeCap?: string | null,
 ): ValidationResult {
   const v = raw.trim();
   if (!v) {
@@ -274,12 +315,31 @@ function validateMainScore(
   }
 
   if (scoring === 'for_time') {
-    if (validateTime(v) || validateRoundsReps(v)) return { ok: true };
-    return {
-      ok: false,
-      message:
-        'For FOR TIME, enter either finishing time as mm:ss or, if time-capped, rounds+reps (e.g. 7+15).',
-    };
+    const isTime = validateTime(v);
+    const isRR = validateRoundsReps(v);
+
+    if (!isTime && !isRR) {
+      return {
+        ok: false,
+        message:
+          'For FOR TIME, enter either finishing time as mm:ss or, if time-capped, rounds+reps (e.g. 7+15).',
+      };
+    }
+
+    // If it's an actual time and we know the cap → enforce cap
+    if (isTime && timeCap) {
+      const capSeconds = parseTimeCapToSeconds(timeCap);
+      const valueSeconds = parseTimeToSeconds(v);
+      if (capSeconds != null && valueSeconds != null && valueSeconds > capSeconds) {
+        return {
+          ok: false,
+          message:
+            'Your time is above the time cap. Please enter a time within the cap, or record the rounds+reps you completed when the cap expired (e.g. 7+15).',
+        };
+      }
+    }
+
+    return { ok: true };
   }
 
   if (scoring === 'amrap') {
@@ -1046,12 +1106,14 @@ export default function ScorePage() {
           {sortedMain.map((s, i) => (
             <li
               key={s.id}
-              className={
-                'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
-                (s.rxScaled === 'RX'
-                  ? 'bg-red-900/20 border-red-800/30'
-                  : 'bg-green-900/20 border-green-800/30')
-              }
+className={
+  'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
+  (s.value.toLowerCase() === 'dnf'
+    ? 'bg-black/40 border-zinc-700'
+    : s.rxScaled === 'RX'
+    ? 'bg-red-900/20 border-red-800/30'
+    : 'bg-green-900/20 border-green-800/30')
+}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="text-[11px] text-zinc-400">
@@ -1107,7 +1169,11 @@ export default function ScorePage() {
     }
 
     if (!dnf && canRecordMain && valueMain.trim()) {
-      const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
+      const vRes = validateMainScore(
+        wod?.scoring ?? null,
+        valueMain,
+        wod?.timeCap ?? null,
+      );
       if (!vRes.ok) {
         alert(vRes.message);
         return;
@@ -1140,19 +1206,22 @@ export default function ScorePage() {
     }
 
     try {
-      const payload = {
-        date,
-        athleteId: selected?.id,
-        strength: wantStrength
-          ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
-          : null,
-        main: wantMain
-          ? { rxScaled, value: dnf ? 'DNF' : valueMain.trim() }
-          : null,
-        classSlotId: null as string | null,
-        noScore: dnf,
-        chargeCredit,
-      };
+const payload = {
+  date,
+  athleteId: selected?.id,
+  strength: wantStrength
+    ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
+    : null,
+  main: wantMain
+    ? { rxScaled, value: dnf ? 'DNF' : valueMain.trim() }
+    : null,
+  classSlotId: null as string | null,
+  // We no longer tell the backend "noScore" for DNF.
+  // DNF is a *real* score that should be stored in wod_scores.
+  noScore: false,
+  chargeCredit,
+};
+
 
       const res = await fetch('/api/scores', {
         method: 'POST',

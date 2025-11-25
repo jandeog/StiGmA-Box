@@ -15,9 +15,15 @@ type Props = {
   signedIn: boolean;
 };
 
+type CreditsWarning = {
+  days_left: number;
+  will_reset_at?: string;
+} | null;
+
 export default function HeaderCredits({ initialCredits, initialIsCoach, signedIn }: Props) {
   const [credits, setCredits] = useState<number>(initialCredits);
   const [isCoach, setIsCoach] = useState<boolean>(initialIsCoach);
+  const [warning, setWarning] = useState<CreditsWarning>(null);
 
   async function refresh() {
     try {
@@ -26,14 +32,16 @@ export default function HeaderCredits({ initialCredits, initialIsCoach, signedIn
       if (j?.me) {
         setCredits(Number(j.me.credits ?? credits));
         setIsCoach(!!j.me.is_coach);
+        setWarning(j.me.credits_warning ?? null);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   useEffect(() => {
     if (!signedIn) return;
 
-    // First paint: keep SSR value; we’ll refresh on first event or focus
     const onFocus = () => refresh();
     const onRefresh = () => refresh();
 
@@ -57,14 +65,36 @@ export default function HeaderCredits({ initialCredits, initialIsCoach, signedIn
     );
   }
 
-  const classes = `px-3 py-2 rounded-lg border bg-zinc-900/60 hover:bg-zinc-800/80 text-sm font-medium ${creditColor(credits)}`;
-  return isCoach ? (
-    <Link href="/display" className={classes}>
-      Credits: {credits}
-    </Link>
-  ) : (
-    <span className={`px-2.5 py-1.5 rounded-full border text-sm font-medium ${creditColor(credits)}`}>
-      Credits: {credits}
-    </span>
+  const pillClasses = `px-3 py-2 rounded-lg border bg-zinc-900/60 hover:bg-zinc-800/80 text-sm font-medium ${creditColor(
+    credits,
+  )}`;
+
+  // Coaches still see credits, but warning text only matters for athletes.
+  const warningText =
+    warning && warning.days_left > 0
+      ? `Credits reset in ${warning.days_left} day${warning.days_left === 1 ? '' : 's'}`
+      : warning && warning.days_left === 0
+      ? 'Credits have been reset'
+      : null;
+
+  if (isCoach) {
+    return (
+      <Link href="/display" className={pillClasses}>
+        Credits: {credits}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <span className={`px-2.5 py-1.5 rounded-full border text-sm font-medium ${creditColor(credits)}`}>
+        Credits: {credits}
+      </span>
+      {warningText && (
+        <span className="text-[11px] text-orange-300">
+          {warningText}
+        </span>
+      )}
+    </div>
   );
 }
