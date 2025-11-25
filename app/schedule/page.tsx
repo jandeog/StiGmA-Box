@@ -68,7 +68,11 @@ export default function SchedulePage() {
     const r = await fetch(url, { method: 'POST', body: JSON.stringify(body) });
     const raw = await r.text();
     let j: any = {};
-    try { j = raw ? JSON.parse(raw) : {}; } catch { j = {}; }
+    try {
+      j = raw ? JSON.parse(raw) : {};
+    } catch {
+      j = {};
+    }
     if (!r.ok) throw new Error(j?.error || `Request failed (${r.status})`);
     return j as T;
   }
@@ -105,7 +109,7 @@ export default function SchedulePage() {
     const isMine = !!s.meBooked || !!sf.isMine || !!localMyStatus[s.id];
     const disabledBecauseOther = (dayHasMine || hasAnyLocalMine()) && !isMine;
 
-    const credits = s.me?.credits ?? ((me?.credits ?? 1) + localCreditsDelta);
+    const credits = s.me?.credits ?? (me?.credits ?? 1) + localCreditsDelta;
 
     const canBookMain = withinWindow && hasMainSpace && !disabledBecauseOther && !isMine && credits > 0;
     const canWait = withinWindow && !hasMainSpace && !disabledBecauseOther && !isMine;
@@ -145,7 +149,11 @@ export default function SchedulePage() {
         const r = await fetch(`/api/schedule?date=${date}`, { cache: 'no-store' });
         const raw = await r.text();
         let j: any = {};
-        try { j = raw ? JSON.parse(raw) : {}; } catch { j = {}; }
+        try {
+          j = raw ? JSON.parse(raw) : {};
+        } catch {
+          j = {};
+        }
         if (!r.ok) throw new Error(j?.error || `Failed to load schedule (HTTP ${r.status})`);
 
         const items: Slot[] = Array.isArray(j?.items) ? j.items : Array.isArray(j) ? j : [];
@@ -157,13 +165,15 @@ export default function SchedulePage() {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
   const serverDayHasMine =
-    slots.some(s => s.flags?.isMine) ||
-    slots.some(s => s.meBooked);
+    slots.some((s) => s.flags?.isMine) ||
+    slots.some((s) => s.meBooked);
 
   const localDayHasMine = useMemo(() => hasAnyLocalMine(), [localMyStatus]);
   const dayHasMine = serverDayHasMine || localDayHasMine;
@@ -183,7 +193,7 @@ export default function SchedulePage() {
     return base + overlay;
   }
   function effectiveMainNames(s: Slot) {
-    const base = s.main_names ? s.main_names.split(',').map(v => v.trim()).filter(Boolean) : [];
+    const base = s.main_names ? s.main_names.split(',').map((v) => v.trim()).filter(Boolean) : [];
     const overlay = localNames[s.id]?.main ?? [];
     const set = new Set([...base, ...overlay]);
     return Array.from(set).join(', ');
@@ -193,7 +203,11 @@ export default function SchedulePage() {
     const r = await fetch(`/api/schedule?date=${date}`, { cache: 'no-store' });
     const raw = await r.text();
     let j: any = {};
-    try { j = raw ? JSON.parse(raw) : {}; } catch { j = {}; }
+    try {
+      j = raw ? JSON.parse(raw) : {};
+    } catch {
+      j = {};
+    }
     const items: Slot[] = Array.isArray(j?.items) ? j.items : Array.isArray(j) ? j : [];
     setSlots(items);
     setLocalCounts({});
@@ -237,7 +251,12 @@ export default function SchedulePage() {
 
       {loading && (
         <div className="flex items-center justify-center py-10 text-zinc-400 text-sm space-x-2">
-          <svg className="animate-spin h-5 w-5 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg
+            className="animate-spin h-5 w-5 text-emerald-400"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
           </svg>
@@ -253,50 +272,52 @@ export default function SchedulePage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {slots.map((s) => {
             const f = computeFlags(s, dayHasMine);
-                        const bookedMainEff = effectiveBookedMain(s);
+            const bookedMainEff = effectiveBookedMain(s);
             const bookedWaitEff = effectiveBookedWait(s);
             const mainNamesEff = effectiveMainNames(s);
-// times & credits for reason logic
-const startLocal = new Date(`${s.date}T${(s.time || '00:00').slice(0, 5)}:00+02:00`);
-const nowLocal = new Date();
-const hToStart = (startLocal.getTime() - nowLocal.getTime()) / 36e5;
-const creditsEff = s.me?.credits ?? ((me?.credits ?? 0) + localCreditsDelta);
+            // times & credits for reason logic
+            const startLocal = new Date(`${s.date}T${(s.time || '00:00').slice(0, 5)}:00+02:00`);
+            const nowLocal = new Date();
+            const hToStart = (startLocal.getTime() - nowLocal.getTime()) / 36e5;
+            const creditsEff = s.me?.credits ?? (me?.credits ?? 0) + localCreditsDelta;
 
-// reason badge when neither booking nor wait is allowed and it's not mine
-let unavailReason: string | null = null;
-if (!f.isMine && !f.canBookMain && !f.canWait) {
-  if (hToStart <= 0) {
-    unavailReason = 'Class Ended';
-  } else if (hToStart > 23) {
-// booking opens exactly 24 hours before start
-const opensAt = new Date(startLocal.getTime() - 24 * 3600 * 1000);
+            // reason badge when neither booking nor wait is allowed and it's not mine
+            let unavailReason: string | null = null;
+            if (!f.isMine && !f.canBookMain && !f.canWait) {
+              if (hToStart <= 0) {
+                unavailReason = 'Class Ended';
+              } else if (hToStart > 23) {
+                // booking opens exactly 24 hours before start
+                const opensAt = new Date(startLocal.getTime() - 24 * 3600 * 1000);
 
-// force 24h format (HH:MM)
-const tt = opensAt.toLocaleTimeString([], {
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false, // <— IMPORTANT
-});
+                // force 24h format (HH:MM)
+                const tt = opensAt.toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false, // <— IMPORTANT
+                });
 
-unavailReason = `Booking opens at ${tt}`;
-  } else if (f.withinWindow && f.hasMainSpace && (creditsEff ?? 0) <= 0) {
-    unavailReason = 'No Credits';
-  } else {
-    unavailReason = 'Unavailable';
-  }
-}
+                unavailReason = `Booking opens at ${tt}`;
+              } else if (f.withinWindow && f.hasMainSpace && (creditsEff ?? 0) <= 0) {
+                unavailReason = 'No Credits';
+              } else {
+                unavailReason = 'Unavailable';
+              }
+            }
             const label = f.isMine
-              ? (f.canCancel ? (s.flags?.lateCancelCreditLost ? 'Cancel (credit lost)' : 'Cancel booking') : 'Booked')
+              ? f.canCancel
+                ? s.flags?.lateCancelCreditLost
+                  ? 'Cancel (credit lost)'
+                  : 'Cancel booking'
+                : 'Booked'
               : f.canBookMain
-                ? 'Book now'
-                : f.canWait
-                  ? 'Join waitlist'
-                  : 'Unavailable';
+              ? 'Book now'
+              : f.canWait
+              ? 'Join waitlist'
+              : 'Unavailable';
 
             const disabled =
-              f.disabledBecauseOther ||
-              (!f.isMine && !f.canBookMain && !f.canWait) ||
-              busyId === s.id;
+              f.disabledBecauseOther || (!f.isMine && !f.canBookMain && !f.canWait) || busyId === s.id;
 
             const isCancel = f.isMine && f.canCancel;
 
@@ -305,12 +326,12 @@ unavailReason = `Booking opens at ${tt}`;
               (isCancel
                 ? 'border-red-600 text-red-300 hover:bg-red-950/30'
                 : f.isMine
-                  ? 'border-emerald-600 text-emerald-300'
-                  : f.canBookMain
-                    ? 'border-emerald-700 text-emerald-300 hover:bg-emerald-950/30'
-                    : f.canWait
-                      ? 'border-zinc-600 text-zinc-300 hover:bg-zinc-900/50'
-                      : 'border-zinc-700 text-zinc-500 opacity-50 cursor-not-allowed');
+                ? 'border-emerald-600 text-emerald-300'
+                : f.canBookMain
+                ? 'border-emerald-700 text-emerald-300 hover:bg-emerald-950/30'
+                : f.canWait
+                ? 'border-zinc-600 text-zinc-300 hover:bg-zinc-900/50'
+                : 'border-zinc-700 text-zinc-500 opacity-50 cursor-not-allowed');
 
             const onClick = async () => {
               try {
@@ -319,13 +340,13 @@ unavailReason = `Booking opens at ${tt}`;
 
                 if (f.isMine && f.canCancel) {
                   await postJSON('/api/schedule/cancel', { slotId: s.id });
-window.dispatchEvent(new CustomEvent('credits:refresh'));
-                  setLocalMyStatus(prev => ({ ...prev, [s.id]: null }));
-                  setLocalNames(prev => {
-                    const arr = (prev[s.id]?.main ?? []).filter(n => n !== myDisplayName);
+                  window.dispatchEvent(new CustomEvent('credits:refresh'));
+                  setLocalMyStatus((prev) => ({ ...prev, [s.id]: null }));
+                  setLocalNames((prev) => {
+                    const arr = (prev[s.id]?.main ?? []).filter((n) => n !== myDisplayName);
                     return { ...prev, [s.id]: { ...(prev[s.id] || {}), main: arr } };
                   });
-                  setLocalCounts(prev => {
+                  setLocalCounts((prev) => {
                     const adj = { ...prev[s.id] };
                     if ((localMyStatus[s.id] ?? 'main') === 'main') {
                       adj.main = (adj.main ?? 0) - 1;
@@ -336,27 +357,27 @@ window.dispatchEvent(new CustomEvent('credits:refresh'));
                   });
                 } else if (!f.isMine && f.canBookMain) {
                   await postJSON('/api/schedule/book', { slotId: s.id });
-window.dispatchEvent(new CustomEvent('credits:refresh'));
-                  setLocalMyStatus(prev => ({ ...prev, [s.id]: 'main' }));
-                  setLocalNames(prev => {
+                  window.dispatchEvent(new CustomEvent('credits:refresh'));
+                  setLocalMyStatus((prev) => ({ ...prev, [s.id]: 'main' }));
+                  setLocalNames((prev) => {
                     const arr = Array.from(new Set([...(prev[s.id]?.main ?? []), myDisplayName]));
                     return { ...prev, [s.id]: { ...(prev[s.id] || {}), main: arr } };
                   });
-                  setLocalCounts(prev => ({
+                  setLocalCounts((prev) => ({
                     ...prev,
-                    [s.id]: { ...(prev[s.id] || {}), main: ((prev[s.id]?.main ?? 0) + 1) },
+                    [s.id]: { ...(prev[s.id] || {}), main: (prev[s.id]?.main ?? 0) + 1 },
                   }));
-                  setLocalCreditsDelta(v => v - 1);
+                  setLocalCreditsDelta((v) => v - 1);
                 } else if (!f.isMine && f.canWait) {
                   const ok = window.confirm('Class is full. Join the waiting list?');
                   if (!ok) return;
 
                   await postJSON('/api/schedule/book', { slotId: s.id, joinWaitIfFull: true });
 
-                  setLocalMyStatus(prev => ({ ...prev, [s.id]: 'wait' }));
-                  setLocalCounts(prev => ({
+                  setLocalMyStatus((prev) => ({ ...prev, [s.id]: 'wait' }));
+                  setLocalCounts((prev) => ({
                     ...prev,
-                    [s.id]: { ...(prev[s.id] || {}), wait: ((prev[s.id]?.wait ?? 0) + 1) },
+                    [s.id]: { ...(prev[s.id] || {}), wait: (prev[s.id]?.wait ?? 0) + 1 },
                   }));
                 }
 
@@ -368,16 +389,13 @@ window.dispatchEvent(new CustomEvent('credits:refresh'));
               }
             };
 
-            const showBookedLine = (
+            const showBookedLine =
               typeof s.booked_main === 'number' ||
               typeof s.booked_wait === 'number' ||
               localCounts[s.id]?.main !== undefined ||
               localCounts[s.id]?.wait !== undefined ||
               s.main_names ||
-              (localNames[s.id]?.main?.length ?? 0) > 0
-            );
-
-
+              (localNames[s.id]?.main?.length ?? 0) > 0;
 
             const goToAttendance = () => {
               if (isCoach) window.location.href = `/schedule/attendance/${s.id}`;
@@ -399,41 +417,42 @@ window.dispatchEvent(new CustomEvent('credits:refresh'));
                   <span className="px-1.5 py-0.5 rounded-md border border-emerald-700 text-emerald-300 text-[10px] leading-none">
                     {s.title}
                   </span>
-  <span className="px-1.5 py-0.5 rounded-md border border-zinc-700 text-zinc-300 text-[10px] leading-none">
-    Booked {bookedMainEff}/{s.capacity_main}
-  </span>
-  <span className="px-1.5 py-0.5 rounded-md border border-zinc-700 text-zinc-300 text-[10px] leading-none">
-    WL {bookedWaitEff}/{s.capacity_wait}
-  </span>
+                  <span className="px-1.5 py-0.5 rounded-md border border-zinc-700 text-zinc-300 text-[10px] leading-none">
+                    Booked {bookedMainEff}/{s.capacity_main}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded-md border border-zinc-700 text-zinc-300 text-[10px] leading-none">
+                    WL {bookedWaitEff}/{s.capacity_wait}
+                  </span>
                 </div>
 
                 {showBookedLine && (
                   <div className="mt-1 text-[11px] text-zinc-500">
-
                     {mainNamesEff ? (
-  <div className="mt-1 text-[11px] text-zinc-500 truncate">
-    {mainNamesEff}
-  </div>
-) : null}
+                      <div className="mt-1 text-[11px] text-zinc-500 whitespace-normal break-words leading-snug">
+                        {mainNamesEff}
+                      </div>
+                    ) : null}
                   </div>
                 )}
 
-<div className="mt-2 flex justify-end">
-  {unavailReason ? (
-    <span className="px-2 py-[2px] rounded-md border border-zinc-700 text-zinc-500 text-[12px] leading-none">
-      {unavailReason}
-    </span>
-  ) : (
-    <button
-      className={btnClass}
-      disabled={disabled}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-    >
-      {busyId === s.id ? 'Working…' : label}
-    </button>
-  )}
-</div>
-
+                <div className="mt-2 flex justify-end">
+                  {unavailReason ? (
+                    <span className="px-2 py-[2px] rounded-md border border-zinc-700 text-zinc-500 text-[12px] leading-none">
+                      {unavailReason}
+                    </span>
+                  ) : (
+                    <button
+                      className={btnClass}
+                      disabled={disabled}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onClick();
+                      }}
+                    >
+                      {busyId === s.id ? 'Working…' : label}
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}

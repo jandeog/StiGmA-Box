@@ -779,7 +779,6 @@ export default function ScorePage() {
         if (!alive) return;
 
         const dates = (j?.dates ?? []) as string[];
-        // normalize to YYYY-MM-DD and de-duplicate
         setSubmittedDates(
           Array.from(
             new Set(
@@ -923,7 +922,6 @@ export default function ScorePage() {
     const [y, m, d] = date.split('-').map(Number);
     if (!y || !m || !d) return false;
     const jsDate = new Date(y, m - 1, d);
-    // 0 = Sunday
     return jsDate.getDay() === 0;
   }, [date]);
 
@@ -955,6 +953,132 @@ export default function ScorePage() {
     return <span>{fullName}</span>;
   };
 
+  // ---------- Leaderboard renderers ----------
+
+  const renderStrengthLeaderboard = () => (
+    <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
+      {wod?.strength && (
+        <div className="mb-2 rounded-md border border-zinc-700/80 bg-zinc-900/80 px-3 py-2">
+          <div className="text-sm font-semibold text-white">
+            Strength / Skills
+          </div>
+          {wod.strength.title && (
+            <div className="text-sm font-semibold text-emerald-400">
+              {wod.strength.title}
+            </div>
+          )}
+          {wod.strength.description && (
+            <div className="mt-1 text-xs text-zinc-300 whitespace-pre-line">
+              {wod.strength.description}
+            </div>
+          )}
+        </div>
+      )}
+
+      {sortedStrength.length === 0 ? (
+        <p className="text-xs text-zinc-400">
+          No scores for {fmt(date)}.
+        </p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {sortedStrength.map((s, i) => (
+            <li
+              key={s.id}
+              className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border border-zinc-800 bg-zinc-900/40"
+            >
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="text-[11px] text-zinc-400">
+                  #{i + 1}
+                </span>
+
+                <span className="truncate">
+                  {nameWithNick(s.athlete)}
+                </span>
+
+                {s.classTime && (
+                  <span className="text-[11px] text-emerald-400">
+                    {formatClassTimeLabel(s.classTime)}
+                  </span>
+                )}
+              </div>
+
+              <div className="text-sm font-semibold shrink-0">
+                {s.value}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
+  const renderMainLeaderboard = () => (
+    <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
+      {wod && (
+        <div className="mb-2 rounded-md border border-zinc-700/80 bg-zinc-900/80 px-3 py-2">
+          <div className="text-sm font-semibold text-white">
+            Main WOD
+          </div>
+          {wod.title && (
+            <div className="text-sm font-semibold text-emerald-400">
+              {wod.title}
+            </div>
+          )}
+          <div className="mt-1 text-xs text-zinc-300">
+            {wod.timeCap
+              ? `Time cap: ${wod.timeCap} • Scoring: ${wod.scoring.toUpperCase()}`
+              : `Scoring: ${wod.scoring.toUpperCase()}`}
+          </div>
+          {wod.description && (
+            <div className="mt-1 text-xs text-zinc-300 whitespace-pre-line">
+              {wod.description}
+            </div>
+          )}
+        </div>
+      )}
+
+      {sortedMain.length === 0 ? (
+        <p className="text-xs text-zinc-400">
+          No scores for {fmt(date)}.
+        </p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {sortedMain.map((s, i) => (
+            <li
+              key={s.id}
+              className={
+                'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
+                (s.rxScaled === 'RX'
+                  ? 'bg-red-900/20 border-red-800/30'
+                  : 'bg-green-900/20 border-green-800/30')
+              }
+            >
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="text-[11px] text-zinc-400">
+                  #{i + 1}
+                </span>
+
+                <span className="truncate">
+                  {nameWithNick(s.athlete)}
+                </span>
+
+                {s.classTime && (
+                  <span className="text-[11px] text-emerald-400">
+                    {formatClassTimeLabel(s.classTime)}
+                  </span>
+                )}
+              </div>
+
+              <div className="text-sm font-semibold shrink-0">
+                {s.value}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
   // ---------- Submit ----------
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -964,7 +1088,6 @@ export default function ScorePage() {
     const name = selected ? `${selected.firstName} ${selected.lastName}` : '';
     const teamName = team.trim() || undefined;
 
-    // Athlete checked "Don't remember / Don't want to record a score"
     const dnf = !isCoach && noScore;
 
     const wantStrength =
@@ -975,7 +1098,6 @@ export default function ScorePage() {
     if (!name) return;
     if (!wantStrength && !wantMain) return;
 
-    // validate strength
     if (wantStrength) {
       const vRes = validateStrengthScore(strengthKind, valueStrength);
       if (!vRes.ok) {
@@ -984,7 +1106,6 @@ export default function ScorePage() {
       }
     }
 
-    // validate main (only when not DNF)
     if (!dnf && canRecordMain && valueMain.trim()) {
       const vRes = validateMainScore(wod?.scoring ?? null, valueMain);
       if (!vRes.ok) {
@@ -1018,7 +1139,6 @@ export default function ScorePage() {
       return;
     }
 
-    // Persist to Supabase via /api/scores
     try {
       const payload = {
         date,
@@ -1052,7 +1172,6 @@ export default function ScorePage() {
         return;
       }
 
-      // Notify reminder banner
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('score-submitted'));
       }
@@ -1062,7 +1181,6 @@ export default function ScorePage() {
       return;
     }
 
-    // Local UI update
     if (wantStrength) {
       const newScoreS: Score = {
         id: crypto.randomUUID(),
@@ -1255,12 +1373,10 @@ export default function ScorePage() {
       </header>
 
       {isRestDay ? (
-        // ---------- REST DAY ----------
         <div className="text-center text-zinc-400 py-10 text-lg">
           Rest Day – No WOD for today.
         </div>
       ) : (
-        // ---------- NORMAL DAY UI ----------
         <>
           {/* Athlete section – ONLY for coaches */}
           {isCoach && (
@@ -1388,7 +1504,6 @@ export default function ScorePage() {
           {/* SCORE FORM / MESSAGES */}
           {showForm ? (
             <>
-              {/* Athlete: slider logic depends on which parts can record */}
               {!isCoach ? (
                 <>
                   <div className="sm:hidden">
@@ -1410,14 +1525,12 @@ export default function ScorePage() {
                   </div>
                 </>
               ) : (
-                // Coach: always stacked, both sections rendered
                 <div className="space-y-4">
                   {renderStrengthSection()}
                   {renderMainWodSection()}
                 </div>
               )}
 
-              {/* Submit button only when form is visible */}
               <div>
                 <button
                   type="button"
@@ -1444,145 +1557,34 @@ export default function ScorePage() {
             </div>
           ) : null}
 
-{/* Leaderboard — always visible on non-rest days */}
-<section className="mt-4 space-y-3">
-  <h2 className="text-lg font-semibold text-center">Leaderboard</h2>
-  <p className="text-center text-[11px] text-zinc-400 flex items-center justify-center gap-3 mt-1">
-    <span className="flex items-center gap-1">
-      <span className="inline-block w-3 h-3 rounded-sm bg-red-900/40 border border-red-800/40" />
-      RX
-    </span>
-    <span className="flex items-center gap-1">
-      <span className="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-800/40" />
-      Scaled
-    </span>
-  </p>
+          {/* Leaderboard — always visible on non-rest days */}
+          <section className="mt-4 space-y-3">
+            <h2 className="text-lg font-semibold text-center">Leaderboard</h2>
+            <p className="text-center text-[11px] text-zinc-400 flex items-center justify-center gap-3 mt-1">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-sm bg-red-900/40 border border-red-800/40" />
+                RX
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-800/40" />
+                Scaled
+              </span>
+            </p>
 
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-    {/* Strength */}
-    <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
-      {/* Mini tab with strength info (if exists) */}
-      {wod?.strength && (
-        <div className="mb-2 rounded-md border border-zinc-700/80 bg-zinc-900/80 px-3 py-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-            Strength / Skills
-          </div>
-          <div className="text-sm text-zinc-100">
-            {wod.strength.title || 'Strength / Skills'}
-          </div>
-          {wod.strength.description && (
-            <div className="mt-1 text-[11px] text-zinc-400 whitespace-pre-line line-clamp-2">
-              {wod.strength.description}
+            {/* Mobile: slider with Strength / WOD leaderboards */}
+            <div className="sm:hidden">
+              <ScoreDeck
+                left={renderStrengthLeaderboard()}
+                right={renderMainLeaderboard()}
+              />
             </div>
-          )}
-        </div>
-      )}
 
-      <div className="text-sm font-semibold mb-2">Strength</div>
-      {sortedStrength.length === 0 ? (
-        <p className="text-xs text-zinc-400">
-          No scores for {fmt(date)}.
-        </p>
-      ) : (
-        <ul className="space-y-1 text-sm">
-          {sortedStrength.map((s, i) => (
-            <li
-              key={s.id}
-              className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border border-zinc-800 bg-zinc-900/40"
-            >
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-[11px] text-zinc-400">
-                  #{i + 1}
-                </span>
-
-                <span className="truncate">
-                  {nameWithNick(s.athlete)}
-                </span>
-
-                {s.classTime && (
-                  <span className="text-[11px] text-emerald-400">
-                    {formatClassTimeLabel(s.classTime)}
-                  </span>
-                )}
-              </div>
-
-              <div className="text-sm font-semibold shrink-0">
-                {s.value}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-
-    {/* Main WOD */}
-    <div className="border border-zinc-800 rounded bg-zinc-900 p-3">
-      {/* Mini tab with WOD info (if exists) */}
-      {wod && (
-        <div className="mb-2 rounded-md border border-zinc-700/80 bg-zinc-900/80 px-3 py-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-            Main WOD
-          </div>
-          <div className="text-sm text-zinc-100">
-            {wod.title || 'WOD'}
-          </div>
-          <div className="mt-1 text-[11px] text-zinc-400">
-            {wod.timeCap
-              ? `Time cap: ${wod.timeCap} • Scoring: ${wod.scoring.toUpperCase()}`
-              : `Scoring: ${wod.scoring.toUpperCase()}`}
-          </div>
-          {wod.description && (
-            <div className="mt-1 text-[11px] text-zinc-400 whitespace-pre-line line-clamp-2">
-              {wod.description}
+            {/* Desktop: side-by-side cards */}
+            <div className="hidden sm:grid grid-cols-1 md:grid-cols-2 gap-3">
+              {renderStrengthLeaderboard()}
+              {renderMainLeaderboard()}
             </div>
-          )}
-        </div>
-      )}
-
-      <div className="text-sm font-semibold mb-2">WOD</div>
-      {sortedMain.length === 0 ? (
-        <p className="text-xs text-zinc-400">
-          No scores for {fmt(date)}.
-        </p>
-      ) : (
-        <ul className="space-y-1 text-sm">
-          {sortedMain.map((s, i) => (
-            <li
-              key={s.id}
-              className={
-                'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
-                (s.rxScaled === 'RX'
-                  ? 'bg-red-900/20 border-red-800/30'
-                  : 'bg-green-900/20 border-green-800/30')
-              }
-            >
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-[11px] text-zinc-400">
-                  #{i + 1}
-                </span>
-
-                <span className="truncate">
-                  {nameWithNick(s.athlete)}
-                </span>
-
-                {s.classTime && (
-                  <span className="text-[11px] text-emerald-400">
-                    {formatClassTimeLabel(s.classTime)}
-                  </span>
-                )}
-              </div>
-
-              <div className="text-sm font-semibold shrink-0">
-                {s.value}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  </div>
-</section>
-
+          </section>
         </>
       )}
     </section>
