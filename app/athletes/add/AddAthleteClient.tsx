@@ -63,11 +63,21 @@ const [photoUrl, setPhotoUrl] = useState<string | null>(null); // for existing p
   const [emPhone, setEmPhone] = useState('');
   const [isCoachFlag, setIsCoachFlag] = useState(false);
   const [credits, setCredits] = useState('0');
-
+const [lastCreditsUpdate, setLastCreditsUpdate] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   // ---- setup ----
+function formatLastCreditsUpdate(value: string | null) {
+  if (!value) return 'Never';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return 'Never';
+  return d.toLocaleDateString('el-GR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
 
   
 useEffect(() => {
@@ -131,6 +141,7 @@ useEffect(() => {
       setEmPhone(a.emergency_phone || '');
       setIsCoachFlag(!!a.is_coach);
       setCredits(a.credits != null ? String(a.credits) : '0');
+       setLastCreditsUpdate(a.last_credits_update ?? null);
       setPhotoUrl(a.photo_url ? `${a.photo_url}?v=${Date.now()}` : null);
 setPhotoFile(null);
 setRemovedExistingPhoto(false);
@@ -695,6 +706,16 @@ if (photoFile) {
         }
       />
     </div>
+        {/* Last credits renewal (read-only) */}
+    <div>
+      <label className="block text-xs mb-1 text-zinc-400">Last credits renewal</label>
+      <input
+        value={formatLastCreditsUpdate(lastCreditsUpdate)}
+        disabled
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm opacity-80 cursor-not-allowed"
+      />
+    </div>
+
         {/* Promote to coach (visible only for coaches when editing/creating) */}
     {iAmCoach && (mode === 'coach-edit' || mode === 'coach-new') && (
       <div className="flex items-center gap-2 md:col-span-2">

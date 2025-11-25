@@ -7,7 +7,6 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
 import bcrypt from 'bcryptjs';
 
-
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const q = (url.searchParams.get('q') || '').trim();
@@ -18,18 +17,29 @@ export async function GET(req: Request) {
   const sess = await verifySession(token);
   if (!sess) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  // NOTE: We allow both roles to read the list. If you want to hide the list from athletes,
-  // change this to: if (sess.role !== 'coach') { ...only return their own row... }
+  // both roles can read list
   let query = supabaseAdmin
     .from('athletes')
-    .select(`
-  id, email, first_name, last_name, nickname, team_name, phone,
-  credits, is_coach, created_at, updated_at,
-  emergency_name, emergency_phone
-    `);
+    .select(
+      `
+      id,
+      email,
+      first_name,
+      last_name,
+      nickname,
+      team_name,
+      phone,
+      credits,
+      is_coach,
+      created_at,
+      updated_at,
+      emergency_name,
+      emergency_phone,
+      last_credits_update
+    `
+    );
 
   if (q) {
-    // case-insensitive contains across a few fields
     const like = `%${q}%`;
     query = query.or(
       [
@@ -51,6 +61,7 @@ export async function GET(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ items: data ?? [] });
 }
+
 /* ---------------------------- POST /athletes ---------------------------- */
 // Coach creates a brand-new athlete (using custom bcrypt auth)
 export async function POST(req: Request) {
@@ -97,7 +108,14 @@ export async function POST(req: Request) {
   // 1) Hash password (CUSTOM AUTH)
   const password_hash = await bcrypt.hash(password, 10);
 
-  // 2) Insert new athlete row
+  // 2) Determine initial credits + renewal date
+  const initialCredits =
+    typeof credits === 'number' && Number.isFinite(credits) ? credits : 0;
+
+  const lastCreditsUpdate =
+    initialCredits > 0 ? new Date().toISOString() : null;
+
+  // 3) Insert new athlete row
   const { data, error } = await supabaseAdmin
     .from('athletes')
     .insert({
@@ -116,7 +134,8 @@ export async function POST(req: Request) {
       notes: notes || null,
       emergency_name: emergency_name || null,
       emergency_phone: emergency_phone || null,
-      credits: Number.isFinite(credits) ? credits : 0,
+      credits: initialCredits,
+      last_credits_update: lastCreditsUpdate,
       is_coach: !!is_coach,
     })
     .select()
@@ -128,5 +147,3 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true, athlete: data }, { status: 200 });
 }
-
-

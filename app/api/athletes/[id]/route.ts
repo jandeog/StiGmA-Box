@@ -12,15 +12,14 @@ function asInt(v: any) {
 
 /* ----------------------------- GET /athletes/:id ---------------------------- */
 export async function GET(req: Request) {
-  // read :id from the URL path, no second arg → no Next type friction
   const { pathname } = new URL(req.url);
   const id = String(pathname.split('/').pop() || '').trim();
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  // session check (coach only for this endpoint)
-const cookieStore = await cookies();
-const token = cookieStore.get(SESSION_COOKIE)?.value || null;
-const sess = await verifySession(token || undefined).catch(() => null);
+  // coach only
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value || null;
+  const sess = await verifySession(token || undefined).catch(() => null);
   if (!sess || sess.role !== 'coach') {
     const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     res.headers.set('Cache-Control', 'no-store');
@@ -30,11 +29,25 @@ const sess = await verifySession(token || undefined).catch(() => null);
   const { data, error } = await supabaseAdmin
     .from('athletes')
     .select(`
-      id, email, is_coach,
-      first_name, last_name, nickname, team_name,
-      dob, phone, gender, height_cm, weight_kg, years_of_experience,
-      notes, emergency_name, emergency_phone,
-      credits, photo_url 
+      id,
+      email,
+      is_coach,
+      first_name,
+      last_name,
+      nickname,
+      team_name,
+      dob,
+      phone,
+      gender,
+      height_cm,
+      weight_kg,
+      years_of_experience,
+      credits,
+      notes,
+      emergency_name,
+      emergency_phone,
+      photo_url,
+      last_credits_update
     `)
     .eq('id', id)
     .maybeSingle();
@@ -61,11 +74,10 @@ export async function PATCH(req: Request) {
   const id = String(pathname.split('/').pop() || '').trim();
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  // session check (coach only)
-const cookieStore = await cookies();
-const token = cookieStore.get(SESSION_COOKIE)?.value || null;
-
-const sess = await verifySession(token || undefined).catch(() => null);
+  // coach only
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value || null;
+  const sess = await verifySession(token || undefined).catch(() => null);
 
   if (!sess || sess.role !== 'coach') {
     const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -74,15 +86,28 @@ const sess = await verifySession(token || undefined).catch(() => null);
   }
 
   let body: any = {};
-  try { body = await req.json(); } catch { body = {}; }
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
 
-  // Only these fields are allowed to be patched
   const allowed = new Set([
-    'first_name','last_name','nickname','team_name',
-    'dob','phone','gender',
-    'height_cm','weight_kg','years_of_experience',
-    'notes','emergency_name','emergency_phone',
-    'is_coach','credits',
+    'first_name',
+    'last_name',
+    'nickname',
+    'team_name',
+    'dob',
+    'phone',
+    'gender',
+    'height_cm',
+    'weight_kg',
+    'years_of_experience',
+    'notes',
+    'emergency_name',
+    'emergency_phone',
+    'is_coach',
+    'credits',
   ]);
 
   const update: Record<string, any> = {};
@@ -98,7 +123,7 @@ const sess = await verifySession(token || undefined).catch(() => null);
       case 'height_cm':
       case 'weight_kg':
       case 'years_of_experience':
-        update[k] = asInt(v); // allow null
+        update[k] = asInt(v);
         break;
 
       case 'credits': {
@@ -108,10 +133,14 @@ const sess = await verifySession(token || undefined).catch(() => null);
       }
 
       default:
-        // strings: allow explicit null, treat '' as null
-        update[k] = v === '' ? null : (v ?? null);
+        update[k] = v === '' ? null : v ?? null;
         break;
     }
+  }
+
+  // if credits changed, bump renewal date
+  if (Object.prototype.hasOwnProperty.call(update, 'credits')) {
+    update.last_credits_update = new Date().toISOString();
   }
 
   if (Object.keys(update).length === 0) {

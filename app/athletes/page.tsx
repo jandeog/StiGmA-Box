@@ -18,6 +18,7 @@ interface Athlete {
   credits?: number | null;
   created_at?: string;
   updated_at?: string;
+  last_credits_update?: string | null;
 }
 
 /** Compact coach badge */
@@ -47,6 +48,18 @@ function NicknameBadge({ value, className = '' }: { value: string; className?: s
   );
 }
 
+// NEW — format last credits update
+function formatLastCreditsUpdate(v?: string | null) {
+  if (!v) return 'Never';
+  const dt = new Date(v);
+  if (isNaN(dt.getTime())) return 'Never';
+  return dt.toLocaleDateString('el-GR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 export default function AthletesPage() {
   const router = useRouter();
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -55,7 +68,7 @@ export default function AthletesPage() {
   const [role, setRole] = useState<Role>('athlete');
   const [myId, setMyId] = useState<string | null>(null);
 
-  // Credits mode state (coach only)
+  // Credits mode
   const [creditsMode, setCreditsMode] = useState(false);
   const [creditsDraft, setCreditsDraft] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
@@ -65,14 +78,13 @@ export default function AthletesPage() {
     (async () => {
       try {
         setLoading(true);
-        // who am I
         const meRes = await fetch('/api/me', { cache: 'no-store' });
         const meJ = await meRes.json();
         if (meRes.ok && meJ?.me) {
           setRole(meJ.me.is_coach ? 'coach' : 'athlete');
           setMyId(meJ.me.id ?? null);
         }
-        // list
+
         const r = await fetch('/api/athletes', { cache: 'no-store' });
         const j = await r.json();
         if (!alive) return;
@@ -90,7 +102,6 @@ export default function AthletesPage() {
     };
   }, []);
 
-  // order coaches first, then by last/first
   const ordered = useMemo(() => {
     const cmp = (a?: string | null, b?: string | null) =>
       (a ?? '').localeCompare(b ?? '', undefined, { sensitivity: 'base' });
@@ -105,7 +116,6 @@ export default function AthletesPage() {
     return copy;
   }, [athletes]);
 
-  // search
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return ordered;
@@ -127,25 +137,20 @@ export default function AthletesPage() {
     return creditsDraft[a.id] ?? base;
   }
 
-  function setCreditsFor(id: string, value: number) {
-    setCreditsDraft((prev) => ({ ...prev, [id]: Math.max(0, Math.floor(value || 0)) }));
-  }
-
-  function onAddAmount(id: string, base: number, add: number) {
-    setCreditsFor(id, base + add);
+  function setCreditsFor(id: string, v: number) {
+    setCreditsDraft((prev) => ({ ...prev, [id]: Math.max(0, Math.floor(v || 0)) }));
   }
 
   async function refreshList() {
     const r = await fetch('/api/athletes', { cache: 'no-store' });
     const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || 'Failed to refresh athletes');
-    setAthletes(j.items ?? []);
+    if (r.ok) setAthletes(j.items ?? []);
   }
 
   function enterCreditsMode() {
     const map: Record<string, number> = {};
     for (const a of filtered) {
-      map[a.id] = Number.isFinite(a.credits as any) ? (a.credits as number) : 0;
+      map[a.id] = a.credits ?? 0;
     }
     setCreditsDraft(map);
     setCreditsMode(true);
@@ -158,20 +163,19 @@ export default function AthletesPage() {
       const updates = Object.entries(creditsDraft)
         .filter(([id, val]) => (byId[id]?.credits ?? 0) !== val)
         .map(async ([id, val]) => {
-          const r = await fetch(`/api/athletes/${encodeURIComponent(id)}`, {
+          const r = await fetch(`/api/athletes/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ credits: Math.max(0, Math.floor(Number(val))) }),
+            body: JSON.stringify({ credits: val }),
           });
           if (!r.ok) {
             const j = await r.json().catch(() => ({}));
-            throw new Error(j?.error || `Failed to update credits for ${id}`);
+            throw new Error(j?.error || 'Failed to update credits');
           }
         });
 
       await Promise.all(updates);
       await refreshList();
-      window.dispatchEvent(new CustomEvent('credits:refresh'));
       setCreditsMode(false);
     } catch (err) {
       console.error(err);
@@ -201,7 +205,7 @@ export default function AthletesPage() {
         </div>
       </div>
 
-      {/* Search + Credits/+Add or Save */}
+      {/* Search + buttons */}
       <div className="flex items-center gap-2">
         <input
           value={q}
@@ -210,28 +214,32 @@ export default function AthletesPage() {
           className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[13px]
                      focus:ring-2 focus:ring-zinc-700/40 focus:outline-none shadow-sm"
         />
+
         {isCoach && (
           <>
             {!creditsMode ? (
               <button
                 type="button"
                 onClick={enterCreditsMode}
-className="inline-flex h-8 items-center appearance-none rounded-md border border-zinc-700 px-3 text-[13px] leading-none hover:bg-zinc-800"
-                >
+                className="inline-flex h-8 items-center rounded-md border border-zinc-700 px-3 text-[13px] hover:bg-zinc-800"
+              >
                 Credits
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => setCreditsMode(false)}
-className="inline-flex h-8 items-center appearance-none rounded-md border border-zinc-700 px-3 text-[13px] leading-none hover:bg-zinc-800"              >
+                className="inline-flex h-8 items-center rounded-md border border-zinc-700 px-3 text-[13px] hover:bg-zinc-800"
+              >
                 Cancel
               </button>
             )}
+
             {!creditsMode ? (
               <Link
                 href="/athletes/add?new=1"
-className="inline-flex h-8 items-center rounded-md border border-zinc-700 px-3 text-[13px] leading-none hover:bg-zinc-800"              >
+                className="inline-flex h-8 items-center rounded-md border border-zinc-700 px-3 text-[13px] hover:bg-zinc-800"
+              >
                 + Add
               </Link>
             ) : (
@@ -239,7 +247,8 @@ className="inline-flex h-8 items-center rounded-md border border-zinc-700 px-3 t
                 type="button"
                 disabled={saving}
                 onClick={saveCredits}
-className="inline-flex h-8 items-center appearance-none rounded-md border border-emerald-600 bg-emerald-700/20 px-3 text-[13px] leading-none text-emerald-300 hover:bg-emerald-700/30 disabled:opacity-60"              >
+                className="inline-flex h-8 items-center rounded-md border border-emerald-600 bg-emerald-700/20 px-3 text-[13px] text-emerald-300 hover:bg-emerald-700/30 disabled:opacity-60"
+              >
                 {saving ? 'Saving…' : 'Save'}
               </button>
             )}
@@ -248,161 +257,143 @@ className="inline-flex h-8 items-center appearance-none rounded-md border border
       </div>
 
       {/* Compact list */}
-      {filtered.length === 0 ? (
-        <div className="rounded-md border border-dashed border-zinc-700 p-4 text-center text-xs text-zinc-400">
-          No athletes found.
-        </div>
-      ) : (
-        <ul className="space-y-1.5">
-          {filtered.map((a) => {
-            const fullName =
-              `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || a.email;
-            const clickable = isCoach || (myId && a.id === myId);
+      <ul className="space-y-1.5">
+        {filtered.map((a) => {
+          const fullName =
+            `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || a.email;
+          const clickable = isCoach || (myId && a.id === myId);
 
-            const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-              clickable ? (
-                <div
-                  role="link"
-                  tabIndex={0}
-                  onClick={() => router.push(`/athletes/add?id=${a.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') router.push(`/athletes/add?id=${a.id}`);
-                  }}
-                  className="group block cursor-pointer rounded focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
-                  title={isCoach ? 'Edit athlete' : 'Edit your profile'}
-                >
-                  {children}
-                </div>
-             ) : (
-               <div className="block" title="Only coaches can edit other athletes">
-                 {children}
-                </div>
-             );
-
-            return (
-              <li
-                key={a.id}
-                className={
-                  'rounded border p-2 text-xs ' +
-                  (clickable
-                    ? 'border-zinc-800 hover:border-emerald-500/10 hover:bg-emerald-900/10 transition-colors'
-                    : 'border-zinc-800')
-                }
+          const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+            clickable ? (
+              <div
+                role="link"
+                tabIndex={0}
+                onClick={() => router.push(`/athletes/add?id=${a.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') router.push(`/athletes/add?id=${a.id}`);
+                }}
+                className="group block cursor-pointer rounded focus:outline-none focus:ring-2 focus:ring-emerald-600/50"
               >
-                <Wrapper>
-                  {/* Athlete: single line — left = Name + Nickname (+Coach), right = Team */}
-                  {role !== 'coach' ? (
-                    <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                      <div className="min-w-0 flex items-center gap-1">
-                        <div className="font-medium truncate">{fullName}</div>
-                        {a.nickname ? (
-                          <NicknameBadge
-                            value={a.nickname}
-                            className="shrink-0 max-w-[50vw] sm:max-w-[280px] truncate"
-                          />
-                        ) : null}
-                        {a.is_coach ? <CoachBadge /> : null}
-                      </div>
-                      <div className="text-[11px] text-zinc-400 truncate justify-self-end">
-                        {a.team_name ?? ''}
-                      </div>
-                    </div>
-                  ) : (
-                    /* Coach:
-                       line1 left=Name + Nickname + Coach, right=Phone OR Credits editor (mode)
-                       line2 left=Team (small), right=Email OR quick +X buttons (mode)
-                    */
-                    <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
-                      {/* Line 1 */}
-                      <div className="min-w-0 flex items-center gap-1">
-                        <div className="font-medium truncate">{fullName}</div>
-                        {a.nickname ? (
-                          <NicknameBadge
-                            value={a.nickname}
-                            className="shrink-0 max-w-[40vw] sm:max-w-[220px] truncate"
-                          />
-                        ) : null}
-                        {a.is_coach ? <CoachBadge /> : null}
-                      </div>
-
-                      {!creditsMode ? (
-                        <div className="text-[11px] justify-self-end">
-                          {a.phone ? (
-                            <a
-                              href={`tel:${a.phone}`}
-                              className="hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {a.phone}
-                            </a>
-                          ) : (
-                            <span className="opacity-60 select-none">No phone</span>
-                          )}
-                        </div>
-                      ) : (
-                        <div
-                          className="text-[11px] justify-self-end flex items-center gap-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="opacity-80">Credits:</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={currentCredits(a)}
-                            onChange={(e) =>
-                              setCreditsFor(a.id, Math.max(0, Math.floor(Number(e.target.value || 0))))
-                            }
-                            onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
-                            onKeyDown={(e) => {
-                              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
-                            }}
-                            className="w-16 rounded border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-[11px] text-zinc-100"
-                          />
-                        </div>
-                      )}
-
-                      {/* Line 2 */}
-                      <div className="min-w-0 text-[11px] text-zinc-400 truncate">
-                        {a.team_name ?? ''}
-                      </div>
-
-                      {!creditsMode ? (
-                        <a
-                          href={`mailto:${a.email}`}
-                          className="text-[11px] hover:underline break-all justify-self-end"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {a.email}
-                        </a>
-                      ) : (
-                        <div
-                          className="justify-self-end flex items-center gap-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {[5, 10, 15, 25].map((amt) => (
-                            <button
-                              key={amt}
-                              type="button"
-                              className="text-[11px] rounded border border-zinc-700 px-2 py-0.5 hover:bg-zinc-800"
-                              onClick={() => onAddAmount(a.id, currentCredits(a), amt)}
-                              title={`Add ${amt}`}
-                            >
-                              +{amt}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                </Wrapper>
-                
-              </li>
+                {children}
+              </div>
+            ) : (
+              <div>{children}</div>
             );
-          })}
-        </ul>
-      )}
+
+          return (
+            <li
+              key={a.id}
+              className={
+                'rounded border p-2 text-xs ' +
+                (clickable
+                  ? 'border-zinc-800 hover:border-emerald-500/10 hover:bg-emerald-900/10 transition-colors'
+                  : 'border-zinc-800')
+              }
+            >
+              <Wrapper>
+                {role !== 'coach' ? (
+                  /* Athlete view (no changes) */
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                    <div className="min-w-0 flex items-center gap-1">
+                      <div className="font-medium truncate">{fullName}</div>
+                      {a.nickname ? <NicknameBadge value={a.nickname} /> : null}
+                      {a.is_coach ? <CoachBadge /> : null}
+                    </div>
+                    <div className="text-[11px] text-zinc-400 truncate justify-self-end">
+                      {a.team_name ?? ''}
+                    </div>
+                  </div>
+                ) : (
+                  /* Coach View */
+                  <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
+
+                    {/* Line 1 */}
+                    <div className="min-w-0 flex items-center gap-1">
+                      <div className="font-medium truncate">{fullName}</div>
+                      {a.nickname ? <NicknameBadge value={a.nickname} /> : null}
+                      {a.is_coach ? <CoachBadge /> : null}
+                    </div>
+
+                    {!creditsMode ? (
+                      <div className="text-[11px] justify-self-end">
+                        {a.phone ? (
+                          <a
+                            href={`tel:${a.phone}`}
+                            className="hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {a.phone}
+                          </a>
+                        ) : (
+                          <span className="opacity-60 select-none">No phone</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div
+                        className="text-[11px] justify-self-end flex items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="opacity-80">Credits:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={currentCredits(a)}
+                          onChange={(e) =>
+                            setCreditsFor(
+                              a.id,
+                              Math.max(0, Math.floor(Number(e.target.value || 0)))
+                            )
+                          }
+                          onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                          }}
+                          className="w-16 rounded border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-[11px] text-zinc-100"
+                        />
+                      </div>
+                    )}
+
+                    {/* Line 2 (TEAM or LAST RENEWAL) */}
+                    <div className="min-w-0 text-[11px] text-zinc-400 truncate">
+                      {!creditsMode
+                        ? a.team_name ?? ''
+                        : `Last credits renewal: ${formatLastCreditsUpdate(a.last_credits_update)}` }
+                    </div>
+
+                    {/* Line 2 right side */}
+                    {!creditsMode ? (
+                      <a
+                        href={`mailto:${a.email}`}
+                        className="text-[11px] hover:underline break-all justify-self-end"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {a.email}
+                      </a>
+                    ) : (
+                      <div
+                        className="justify-self-end flex items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {[5, 10, 15, 25].map((amt) => (
+                          <button
+                            key={amt}
+                            type="button"
+                            className="text-[11px] rounded border border-zinc-700 px-2 py-0.5 hover:bg-zinc-800"
+                            onClick={() => setCreditsFor(a.id, currentCredits(a) + amt)}
+                          >
+                            +{amt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Wrapper>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
