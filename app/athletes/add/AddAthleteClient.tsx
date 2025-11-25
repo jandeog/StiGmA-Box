@@ -364,8 +364,13 @@ async function onSubmit(e: React.FormEvent) {
     });
   }
 
-      router.replace('/athletes');
-      return;
+if (typeof window !== 'undefined') {
+  window.location.href = '/athletes';
+} else {
+  router.replace('/athletes');
+}
+return;
+
     }
 
     // ========= COACH CREATES A NEW ATHLETE =========
@@ -401,8 +406,13 @@ async function onSubmit(e: React.FormEvent) {
     });
   }
 
+if (typeof window !== 'undefined') {
+  window.location.href = '/athletes';
+} else {
   router.replace('/athletes');
-  return;
+}
+return;
+
 }
 
     // ========= SIGNUP or EDIT-SELF (current user) =========
@@ -441,8 +451,20 @@ if (photoFile) {
     if (badge) window.dispatchEvent(new CustomEvent('header:updateName', { detail: badge }));
     window.dispatchEvent(new CustomEvent('credits:refresh'));
 
-    if (j?.role === 'coach') router.replace('/athletes');
-    else router.replace(redirect || '/schedule');
+if (typeof window !== 'undefined') {
+  if (j?.role === 'coach') {
+    window.location.href = '/athletes';
+  } else {
+    window.location.href = redirect || '/schedule';
+  }
+} else {
+  if (j?.role === 'coach') {
+    router.replace('/athletes');
+  } else {
+    router.replace(redirect || '/schedule');
+  }
+}
+
   } catch (err: any) {
     setMsg(err.message || 'Failed to save');
   } finally {
