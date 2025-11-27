@@ -975,37 +975,58 @@ export default function ScorePage() {
     const nonDNF = s.filter((sc) => !isDNF(sc.value));
     const dnf = s.filter((sc) => isDNF(sc.value));
 
-    if (wod.scoring === 'for_time') {
-      const finished = nonDNF.filter((sc) => validateTime(sc.value));
-      const capped = nonDNF.filter((sc) => !validateTime(sc.value));
+    nonDNF.sort((a, b) => {
+      // 1) RX first, then Scaled
+      const rxDiff = rxRank(a) - rxRank(b);
+      if (rxDiff !== 0) return rxDiff;
 
-      finished.sort(
-        (a, b) =>
-          rxRank(a) - rxRank(b) || toSec(a.value) - toSec(b.value),
-      );
+      // 2) Per-type scoring
+      if (wod.scoring === 'for_time') {
+        const aIsTime = validateTime(a.value);
+        const bIsTime = validateTime(b.value);
 
-      capped.sort(
-        (a, b) =>
-          rxRank(a) - rxRank(b) ||
-          toRepKey(b.value) - toRepKey(a.value),
-      );
+        // real times before capped scores
+        if (aIsTime && !bIsTime) return -1;
+        if (!aIsTime && bIsTime) return 1;
 
-      return [...finished, ...capped, ...dnf];
-    }
+        if (aIsTime && bIsTime) {
+          // smaller time is better
+          return toSec(a.value) - toSec(b.value);
+        }
 
-    nonDNF.sort(
-      (a, b) => rxRank(a) - rxRank(b) || toRepKey(b.value) - toRepKey(a.value),
-    );
+        // both capped: higher rounds+reps is better
+        return toRepKey(b.value) - toRepKey(a.value);
+      }
 
+      if (wod.scoring === 'amrap' || wod.scoring === 'emom') {
+        // more reps is better
+        return toRepKey(b.value) - toRepKey(a.value);
+      }
+
+      if (wod.scoring === 'max_load') {
+        // heavier is better
+        return toNumberMax(b.value) - toNumberMax(a.value);
+      }
+
+      // generic fallback: treat larger numeric as better
+      return toNumberMax(b.value) - toNumberMax(a.value);
+    });
+
+    // DNF always last
     return [...nonDNF, ...dnf];
   }, [scoresMain, wod]);
 
-  const sortedStrength = useMemo(() => {
+const sortedStrength = useMemo(() => {
     const s = [...scoresStrength];
     const nonDNF = s.filter((sc) => !isDNF(sc.value));
     const dnf = s.filter((sc) => isDNF(sc.value));
 
-    nonDNF.sort((a, b) => toNumberMax(b.value) - toNumberMax(a.value));
+    // RX first, then Scaled; within each, bigger number is better
+    nonDNF.sort(
+      (a, b) =>
+        rxRank(a) - rxRank(b) || toNumberMax(b.value) - toNumberMax(a.value),
+    );
+
     return [...nonDNF, ...dnf];
   }, [scoresStrength]);
 
