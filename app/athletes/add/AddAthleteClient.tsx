@@ -205,12 +205,10 @@ setPhotoUrl(null);
     setEmPhone(me?.emergency_phone || '');
     setIsCoachFlag(!!me?.is_coach);
     setCredits(me?.credits != null ? String(me?.credits) : '0');
+    setLastCreditsUpdate(me?.last_credits_update ?? null)
     setPhotoUrl(me?.photo_url ? `${me.photo_url}?v=${Date.now()}` : null);
 setPhotoFile(null);
 setRemovedExistingPhoto(false);
-
-setRemovedExistingPhoto(false);
-
   }
 
   run();

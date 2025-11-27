@@ -211,15 +211,14 @@ function validateInteger(value: string): boolean {
   return /^\d+$/.test(value.trim());
 }
 
-function validateNumberish(value: string): boolean {
-  return /-?\d+(\.\d+)?/.test(value.trim());
-}
-
-// NEW helper: only time or number allowed in generic cases
 function isTimeOrNumber(value: string): boolean {
   const v = value.trim();
   if (!v) return false;
   return validateTime(v) || validateNumberish(v);
+}
+
+function validateNumberish(value: string): boolean {
+  return /-?\d+(\.\d+)?/.test(value.trim());
 }
 
 function validateStrengthScore(
@@ -272,6 +271,7 @@ function validateStrengthScore(
 
   return { ok: true };
 }
+
 
 // parse "mm:ss" → seconds
 function parseTimeToSeconds(v: string): number | null {
@@ -326,15 +326,7 @@ function validateMainScore(
     };
   }
 
-  // Generic scoring: accept only time or number
   if (!scoring || scoring === 'other') {
-    if (!isTimeOrNumber(v)) {
-      return {
-        ok: false,
-        message:
-          'Score must be either a time (mm:ss) or a number (e.g. 85).',
-      };
-    }
     return { ok: true };
   }
 
@@ -914,6 +906,42 @@ export default function ScorePage() {
   const alreadySubmitted: boolean = normalizedName
     ? submittedNames.includes(normalizedName)
     : false;
+  const selectedMainScore = useMemo(
+    () =>
+      scoresMain.find(
+        (s) => s.athlete.trim().toLowerCase() === normalizedName,
+      ) ?? null,
+    [scoresMain, normalizedName],
+  );
+
+  const selectedStrengthScore = useMemo(
+    () =>
+      scoresStrength.find(
+        (s) => s.athlete.trim().toLowerCase() === normalizedName,
+      ) ?? null,
+    [scoresStrength, normalizedName],
+  );
+ useEffect(() => {
+    if (!isCoach) return; // athletes should not be editing
+
+    if (!athleteId) {
+      setValueStrength('');
+      setValueMain('');
+      return;
+    }
+
+    if (selectedStrengthScore) {
+      setValueStrength(selectedStrengthScore.value);
+    } else {
+      setValueStrength('');
+    }
+
+    if (selectedMainScore) {
+      setValueMain(selectedMainScore.value);
+    } else {
+      setValueMain('');
+    }
+  }, [isCoach, athleteId, date, selectedStrengthScore, selectedMainScore]);
 
   // leaderboard helpers
   const rxRank = (s: Score) => (s.rxScaled === 'RX' ? 0 : 1);
@@ -1130,14 +1158,14 @@ export default function ScorePage() {
           {sortedMain.map((s, i) => (
             <li
               key={s.id}
-              className={
-                'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
-                (s.value.toLowerCase() === 'dnf'
-                  ? 'bg-black/40 border-zinc-700'
-                  : s.rxScaled === 'RX'
-                  ? 'bg-red-900/20 border-red-800/30'
-                  : 'bg-green-900/20 border-green-800/30')
-              }
+className={
+  'flex items-center justify-between gap-3 rounded-md px-3 py-1.5 border ' +
+  (s.value.toLowerCase() === 'dnf'
+    ? 'bg-black/40 border-zinc-700'
+    : s.rxScaled === 'RX'
+    ? 'bg-red-900/20 border-red-800/30'
+    : 'bg-green-900/20 border-green-800/30')
+}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="text-[11px] text-zinc-400">
@@ -1176,49 +1204,26 @@ export default function ScorePage() {
 
     const dnf = !isCoach && noScore;
 
-    const trimmedStrength = valueStrength.trim();
-    const trimmedMain = valueMain.trim();
-
     const wantStrength =
-      canRecordStrength && !dnf && trimmedStrength;
+      canRecordStrength && !dnf && valueStrength.trim();
     const wantMain =
-      canRecordMain && (dnf || trimmedMain);
+      canRecordMain && (dnf || valueMain.trim());
 
     if (!name) return;
-
-    // Athlete rules: if both parts are scoreable and not DNF,
-    // require both scores to be filled.
-    if (
-      isAthlete &&
-      !dnf &&
-      canRecordStrength &&
-      canRecordMain
-    ) {
-      if (trimmedStrength && !trimmedMain) {
-        alert('Please enter the score on "Main WOD", too.');
-        return;
-      }
-      if (!trimmedStrength && trimmedMain) {
-        alert('Please enter the score on "Strength / Skills", too.');
-        return;
-      }
-    }
-
-    // If neither is actually being submitted, abort
     if (!wantStrength && !wantMain) return;
 
     if (wantStrength) {
-      const vRes = validateStrengthScore(strengthKind, trimmedStrength);
+      const vRes = validateStrengthScore(strengthKind, valueStrength);
       if (!vRes.ok) {
         alert(vRes.message);
         return;
       }
     }
 
-    if (!dnf && canRecordMain && trimmedMain) {
+    if (!dnf && canRecordMain && valueMain.trim()) {
       const vRes = validateMainScore(
         wod?.scoring ?? null,
-        trimmedMain,
+        valueMain,
         wod?.timeCap ?? null,
       );
       if (!vRes.ok) {
@@ -1227,17 +1232,18 @@ export default function ScorePage() {
       }
     }
 
-    const keyName = name.toLowerCase();
+const keyName = name.toLowerCase();
 
-    // Athletes cannot modify their scores; coach can.
-    if (!isCoach && submittedNames.includes(keyName)) {
-      alert(
-        `You have already submitted for ${fmt(
-          date,
-        )}. If something is wrong, ask your coach to change your score.`,
-      );
-      return;
-    }
+// Athletes cannot overwrite; coach can.
+if (!isCoach && submittedNames.includes(keyName)) {
+  alert(
+    `You have already submitted for ${fmt(
+      date,
+    )}. If something is wrong, ask your coach to change your score.`,
+  );
+  return;
+}
+
 
     let chargeCredit = false;
     if (isCoach) {
@@ -1252,27 +1258,29 @@ export default function ScorePage() {
         )}?\nScore for the WOD will be recorded as DNF.`
       : `Submit scores for ${name} on ${fmt(
           date,
-        )}?\nAthletes cannot change this later; coaches can override if needed.`;
+        )}?\nThis cannot be changed later.`;
 
     if (!window.confirm(confirmMessage)) {
       return;
     }
 
     try {
-      const payload = {
-        date,
-        athleteId: selected?.id,
-        strength: wantStrength
-          ? { rxScaled: rxScaledStrength, value: trimmedStrength }
-          : null,
-        main: wantMain
-          ? { rxScaled, value: dnf ? 'DNF' : trimmedMain }
-          : null,
-        classSlotId: null as string | null,
-        // DNF is a real score; we don't use noScore flag here.
-        noScore: false,
-        chargeCredit,
-      };
+const payload = {
+  date,
+  athleteId: selected?.id,
+  strength: wantStrength
+    ? { rxScaled: rxScaledStrength, value: valueStrength.trim() }
+    : null,
+  main: wantMain
+    ? { rxScaled, value: dnf ? 'DNF' : valueMain.trim() }
+    : null,
+  classSlotId: null as string | null,
+  // We no longer tell the backend "noScore" for DNF.
+  // DNF is a *real* score that should be stored in wod_scores.
+  noScore: false,
+  chargeCredit,
+};
+
 
       const res = await fetch('/api/scores', {
         method: 'POST',
@@ -1307,7 +1315,7 @@ export default function ScorePage() {
         athlete: name,
         team: teamName,
         rxScaled: rxScaledStrength,
-        value: trimmedStrength,
+        value: valueStrength.trim(),
         date,
         part: 'strength',
       };
@@ -1321,7 +1329,7 @@ export default function ScorePage() {
         athlete: name,
         team: teamName,
         rxScaled,
-        value: dnf ? 'DNF' : trimmedMain,
+        value: dnf ? 'DNF' : valueMain.trim(),
         date,
         part: 'main',
       };
@@ -1373,7 +1381,7 @@ export default function ScorePage() {
               onChange={(e) => setValueStrength(e.target.value)}
               className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
               placeholder={strengthPlaceholder}
-              disabled={!isCoach && (alreadySubmitted || noScore)}
+disabled={!isCoach && (alreadySubmitted || noScore)}
             />
           </div>
         )}
@@ -1440,7 +1448,7 @@ export default function ScorePage() {
                 onChange={(e) => setValueMain(e.target.value)}
                 className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2"
                 placeholder={mainScoreMeta.placeholder}
-                disabled={!isCoach && (alreadySubmitted || noScore)}
+disabled={!isCoach && (alreadySubmitted || noScore)}
               />
               {mainScoreMeta.help && (
                 <p className="mt-1 text-xs text-zinc-500">
@@ -1611,12 +1619,15 @@ export default function ScorePage() {
                   </div>
                 </div>
 
-                {alreadySubmitted && (
+
+
+                {alreadySubmitted && !isCoach && (
                   <div className="mt-2 text-xs text-amber-400">
-                    This athlete already has a score for {fmt(date)}. Your new
-                    submission will override their existing score (depending on backend rules).
+                    You have already submitted your score for {fmt(date)}. If
+                    something is wrong, ask your coach to change it.
                   </div>
                 )}
+
               </div>
             </div>
           )}
@@ -1671,11 +1682,6 @@ export default function ScorePage() {
                 )}
               </div>
             </>
-          ) : isAthlete && alreadySubmitted ? (
-            <div className="border border-zinc-800 bg-zinc-900 rounded p-3 text-sm text-zinc-300">
-              You have already submitted your score for {fmt(date)}. If
-              something is wrong, please ask your coach to adjust it.
-            </div>
           ) : isAthlete && !alreadySubmitted && athleteScoreMessage ? (
             <div className="border border-zinc-800 bg-zinc-900 rounded p-3 text-sm text-zinc-300">
               {athleteScoreMessage}
@@ -1693,10 +1699,6 @@ export default function ScorePage() {
               <span className="flex items-center gap-1">
                 <span className="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-800/40" />
                 Scaled
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-sm bg-black/60 border border-zinc-700/80" />
-                DNF
               </span>
             </p>
 

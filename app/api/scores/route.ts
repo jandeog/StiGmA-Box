@@ -123,7 +123,6 @@ export async function POST(req: Request) {
 
   // -------------------- Resolve class slot from schedule_participants --------------------
 
-  // All classes for that date
   const { data: daySlots, error: slotsErr } = await supabaseAdmin
     .from('schedule_slots')
     .select('id, date, time')
@@ -142,7 +141,7 @@ export async function POST(req: Request) {
 
   let bookingForDay: BookingRow | null = null;
   let classSlotIdToUse: string | null = null;
-  let hadBookingBefore = false; // <— NEW
+  let hadBookingBefore = false;
 
   if (slotIds.length > 0) {
     const { data: bookings, error: bookingErr } = await supabaseAdmin
@@ -157,9 +156,8 @@ export async function POST(req: Request) {
     }
 
     if (bookings && bookings.length > 0) {
-      hadBookingBefore = true; // <— athlete was already booked
+      hadBookingBefore = true;
 
-      // Pick the earliest booked class of the day
       const timeBySlot = new Map(
         slots.map((s) => [s.id as string, s.time as string]),
       );
@@ -230,38 +228,33 @@ export async function POST(req: Request) {
   }
 
   // Attendance table entry (UPSERT to avoid duplicates)
-if (classSlotIdToUse) {
-  const method = isCoach ? 'coach_toggle' : 'booked';
+  if (classSlotIdToUse) {
+    const method = isCoach ? 'coach_toggle' : 'booked';
 
-  const { error: attErr } = await supabaseAdmin
-    .from('attendance')
-    .upsert(
-      {
-        slot_id: classSlotIdToUse,
-        athlete_id: athleteId,
-        method,
-        attended: true,
-        attended_at: new Date().toISOString(),
-      },
-      {
-        onConflict: 'slot_id,athlete_id',
-        ignoreDuplicates: false, // update existing row instead of ignoring
-      },
-    );
+    const { error: attErr } = await supabaseAdmin
+      .from('attendance')
+      .upsert(
+        {
+          slot_id: classSlotIdToUse,
+          athlete_id: athleteId,
+          method,
+          attended: true,
+          attended_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'slot_id,athlete_id',
+          ignoreDuplicates: false,
+        },
+      );
 
-  if (attErr) {
-    console.error('Failed to upsert attendance from /api/scores', attErr);
+    if (attErr) {
+      console.error('Failed to upsert attendance from /api/scores', attErr);
+    }
   }
-}
-
-
-
 
   // -------------------- Optional credit charge (coach only) --------------------
 
-   if (isCoach && chargeCredit && classSlotIdToUse && !hadBookingBefore) {
-
-    // Simple (non-atomic) credit decrement
+  if (isCoach && chargeCredit && classSlotIdToUse && !hadBookingBefore) {
     const { data: current, error: loadErr } = await supabaseAdmin
       .from('athletes')
       .select('credits')
@@ -300,39 +293,42 @@ if (classSlotIdToUse) {
     }
   }
 
-  // -------------------- Prepare wod_scores rows (or none if noScore) --------------------
+  // -------------------- Score insert / override logic --------------------
 
-  const rows: any[] = [];
   const nowIso = new Date().toISOString();
 
-  if (!wantsNoScore) {
-    if (hasStrength) {
-      rows.push({
-        athlete_id: athleteId,
-        wod_date: date,
-        part: 'strength',
-        rx_scaled: strength!.rxScaled === 'Scaled' ? 'Scaled' : 'RX',
-        score: strength!.value!.trim(),
-        class_slot_id: classSlotIdToUse,
-        created_at: nowIso,
-      });
-    }
+  async function hasExisting(part: 'strength' | 'main'): Promise<boolean> {
+    const { data, error } = await supabaseAdmin
+      .from('wod_scores')
+      .select('id')
+      .eq('wod_date', date)
+      .eq('athlete_id', athleteId)
+      .eq('part', part)
+      .limit(1);
 
-    if (hasMain) {
-      rows.push({
-        athlete_id: athleteId,
-        wod_date: date,
-        part: 'main',
-        rx_scaled: main!.rxScaled === 'Scaled' ? 'Scaled' : 'RX',
-        score: main!.value!.trim(),
-        class_slot_id: classSlotIdToUse,
-        created_at: nowIso,
-      });
+    if (error) {
+      console.error('wod_scores hasExisting error', error);
+      throw new Error('Failed to check existing scores');
+    }
+    return !!(data && data.length > 0);
+  }
+
+  async function deleteExisting(part: 'strength' | 'main') {
+    const { error } = await supabaseAdmin
+      .from('wod_scores')
+      .delete()
+      .eq('wod_date', date)
+      .eq('athlete_id', athleteId)
+      .eq('part', part);
+
+    if (error) {
+      console.error('wod_scores deleteExisting error', error);
+      throw new Error('Failed to delete existing scores');
     }
   }
 
-  // Only verified attendance via "Don't remember / Don't want to"
-  if (rows.length === 0) {
+  // If user REALLY chose "noScore" (verify only) → no wod_scores rows
+  if (wantsNoScore && !hasStrength && !hasMain) {
     return json({
       ok: true,
       inserted: [],
@@ -340,40 +336,73 @@ if (classSlotIdToUse) {
     });
   }
 
-  // -------------------- Prevent duplicate part submissions --------------------
+  const rows: any[] = [];
 
-  const { data: existing, error: existingErr } = await supabaseAdmin
-    .from('wod_scores')
-    .select('id, part')
-    .eq('wod_date', date)
-    .eq('athlete_id', athleteId);
+  // STRENGTH
+  if (hasStrength) {
+    const exists = await hasExisting('strength');
 
-  if (existingErr) {
-    console.error('check existing wod_scores failed', existingErr);
-    return json({ error: 'Failed to save scores' }, 500);
+    if (!isCoach && exists) {
+      return json(
+        {
+          error:
+            'You have already submitted a Strength / Skills score for this day. Ask your coach to change it.',
+        },
+        409,
+      );
+    }
+
+    if (isCoach && exists) {
+      await deleteExisting('strength');
+    }
+
+    rows.push({
+      athlete_id: athleteId,
+      wod_date: date,
+      part: 'strength',
+      rx_scaled: strength!.rxScaled === 'Scaled' ? 'Scaled' : 'RX',
+      score: strength!.value!.trim(),
+      class_slot_id: classSlotIdToUse,
+      created_at: nowIso,
+    });
   }
 
-  if (
-    existing?.some((r: any) => r.part === 'strength') &&
-    rows.some((r) => r.part === 'strength')
-  ) {
-    return json(
-      { error: 'Strength score already submitted for this athlete and day.' },
-      409,
-    );
+  // MAIN WOD
+  if (hasMain) {
+    const exists = await hasExisting('main');
+
+    if (!isCoach && exists) {
+      return json(
+        {
+          error:
+            'You have already submitted a Main WOD score for this day. Ask your coach to change it.',
+        },
+        409,
+      );
+    }
+
+    if (isCoach && exists) {
+      await deleteExisting('main');
+    }
+
+    rows.push({
+      athlete_id: athleteId,
+      wod_date: date,
+      part: 'main',
+      rx_scaled: main!.rxScaled === 'Scaled' ? 'Scaled' : 'RX',
+      score: main!.value!.trim(),
+      class_slot_id: classSlotIdToUse,
+      created_at: nowIso,
+    });
   }
 
-  if (
-    existing?.some((r: any) => r.part === 'main') &&
-    rows.some((r) => r.part === 'main')
-  ) {
-    return json(
-      { error: 'Main WOD score already submitted for this athlete and day.' },
-      409,
-    );
+  if (rows.length === 0) {
+    return json({
+      ok: true,
+      inserted: [],
+      verifiedOnly: wantsNoScore,
+    });
   }
-
-  // -------------------- Insert scores --------------------
 
   const { data: inserted, error: insertErr } = await supabaseAdmin
     .from('wod_scores')
