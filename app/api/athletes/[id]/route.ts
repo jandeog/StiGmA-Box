@@ -74,7 +74,7 @@ export async function PATCH(req: Request) {
   const id = String(pathname.split('/').pop() || '').trim();
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  // coach only
+  // session check (coach only)
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value || null;
   const sess = await verifySession(token || undefined).catch(() => null);
@@ -92,6 +92,7 @@ export async function PATCH(req: Request) {
     body = {};
   }
 
+  // Only these fields are allowed to be patched (date is set server-side)
   const allowed = new Set([
     'first_name',
     'last_name',
@@ -123,7 +124,7 @@ export async function PATCH(req: Request) {
       case 'height_cm':
       case 'weight_kg':
       case 'years_of_experience':
-        update[k] = asInt(v);
+        update[k] = asInt(v); // allow null
         break;
 
       case 'credits': {
@@ -138,9 +139,27 @@ export async function PATCH(req: Request) {
     }
   }
 
-  // if credits changed, bump renewal date
+  // If credits are part of this PATCH, only bump renewal date when credits INCREASE
   if (Object.prototype.hasOwnProperty.call(update, 'credits')) {
-    update.last_credits_update = new Date().toISOString();
+    // fetch current credits
+    const { data: existing, error: existingErr } = await supabaseAdmin
+      .from('athletes')
+      .select('credits')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!existingErr && existing && typeof existing.credits === 'number') {
+      const oldCredits = existing.credits;
+      const newCredits = update.credits as number;
+
+      // coach ADDS credits -> move renewal date
+      if (newCredits > oldCredits) {
+        update.last_credits_update = new Date().toISOString();
+      }
+      // if newCredits <= oldCredits => do NOT touch last_credits_update
+    } else {
+      // fallback: if we can't read old credits, don't change renewal date
+    }
   }
 
   if (Object.keys(update).length === 0) {
